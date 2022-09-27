@@ -357,7 +357,10 @@ qHeadUnsafe _               = error "qHeadUnsafe"
 qSortedInsert :: (Ord k) => k -> v -> Seq (k, v) -> Seq (k, v)
 qSortedInsert k v s = case Q.findIndexL (\(i, _) -> k <= i) s of
   Nothing  -> s Q.|> (k, v)
-  Just idx -> Q.insertAt idx (k,v) s
+  Just idx -> case Q.lookup idx s of
+    Just (curk, curv) | curk == k -> Q.update idx (k,v) s
+    Just _                        -> Q.insertAt idx (k,v) s
+    Nothing                       -> error "impossible"
 
 qUncons :: Seq a -> Maybe (a, Seq a)
 qUncons = \case
