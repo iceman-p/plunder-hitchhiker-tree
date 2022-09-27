@@ -1,6 +1,6 @@
 module HitchhikerTree where
 
-import           Control.Monad.State (State, get, modify, runState)
+import           Control.Monad.State (State, evalState, get, modify, runState)
 
 import           Data.Hashable
 import           Data.Map            (Map)
@@ -170,6 +170,8 @@ insertRec config toAdd node = getNode node >>= \case
 
   NodeLeaf items -> do
     removeNode node
+    -- TODO: mergeItems needs to instead deal with added items replacing kv
+    -- pairs in the leaf.
     splitLeafMany (maxLeafItems config) $ mergeItems items toAdd
 
 -- Given a sorted list of hitchhikers, try to distribute each downward to the
@@ -278,6 +280,47 @@ splitLeafMany maxLeafItems items
   -- We have to split the node into more than two nodes.
   | otherwise = error "TODO: Implement the hard case when we do bulk loading."
 
+-- Lookup --------------------------------------------------------------------
+
+-- Lookup procedure:
+
+lookup :: Ord k => k -> FullTree k v -> Maybe v
+lookup key (FULLTREE _ Nothing _) = Nothing
+lookup key (FULLTREE _ (Just top) storage) = evalState (lookInNode top) storage
+  where
+    lookInNode current = getNode current >>= \case
+      NodeIndex (Index keys vals) hitchhikers -> do
+        -- First try walking across the hitchhikers backwards. Backwards
+        -- because the hitchhikers form a log. If we find a
+        let idx = Q.findIndexR (\(k, v) -> k == key) hitchhikers
+        case idx of
+          Just idx -> case Q.lookup idx hitchhikers of
+            Nothing     -> error "impossible"
+            Just (_, v) -> pure $ Just v
+          Nothing -> do
+            -- There's nothing in the hitchhikers. Recurse downward to the
+            -- bottom.
+            --
+            -- TODO: This could be simplified, but is hacked out of the
+            -- previous implementation.
+            let (leftKeys, _) = Q.spanl (<=key) keys
+                n = Q.length leftKeys
+                (_, valAndRightVals) = Q.splitAt n vals
+                Just (val, _) = qUncons valAndRightVals
+            lookInNode val
+
+      NodeLeaf items -> do
+        -- TODO: This could be a binary search instead, since this seq is
+        -- ordered.
+        let idx = Q.findIndexL (\(k, v) -> k == key) items
+        case idx of
+          Just idx -> case Q.lookup idx items of
+            Nothing     -> error "impossible"
+            Just (_, v) -> pure $ Just v
+          Nothing -> pure Nothing
+
+
+
 -- Index ---------------------------------------------------------------------
 
 indexFromList :: Seq k -> Seq Hash256 -> Index k
@@ -295,45 +338,6 @@ indexNumKeys (Index keys _vals) = Q.length keys
 
 indexNumVals :: Index key -> Int
 indexNumVals (Index _keys vals) = Q.length vals
-
--- IndexCtx ------------------------------------------------------------------
-
--- An IndexCtx is an Index with a hole in the middle, which will be replaced at
--- the end of a mutation.
-
-data IndexCtx k = IndexCtx
-    { indexCtxLeftKeys  :: !(Seq k)
-    , indexCtxRightKeys :: !(Seq k)
-    , indexCtxLeftVals  :: !(Seq Hash256)
-    , indexCtxRightVals :: !(Seq Hash256)
-    }
-  deriving (Show)
---  deriving (Functor, Foldable, Show, Traversable)
-
-
-putIdx :: IndexCtx key -> Index key -> Index key
-putIdx ctx (Index keys vals) =
-    Index
-      (indexCtxLeftKeys ctx <> keys <> indexCtxRightKeys ctx)
-      (indexCtxLeftVals ctx <> vals <> indexCtxRightVals ctx)
-
-valView :: Ord key => key -> Index key -> (IndexCtx key, Hash256)
-valView key (Index keys vals)
-    | (leftKeys,rightKeys)       <- Q.spanl (<=key) keys
-    , n                          <- Q.length leftKeys
-    , (leftVals,valAndRightVals) <- Q.splitAt n vals
-    , Just (val,rightVals)       <- qUncons valAndRightVals
-    = ( IndexCtx
-        { indexCtxLeftKeys  = leftKeys
-        , indexCtxRightKeys = rightKeys
-        , indexCtxLeftVals  = leftVals
-        , indexCtxRightVals = rightVals
-        },
-        val
-      )
-    | otherwise
-    = error "valView: cannot split an empty index"
-
 
 splitIndexAt :: Int -> Index key -> (Index key, key, Index key)
 splitIndexAt numLeftKeys (Index keys vals)
