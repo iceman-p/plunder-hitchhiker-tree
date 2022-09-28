@@ -6,12 +6,11 @@ import           Data.Hashable
 import           Data.Map            (Map)
 import           Data.Sequence       (Seq)
 import           Debug.Trace
-import           GHC.Generics
+
+import           Types
 
 import qualified Data.Map            as M
 import qualified Data.Sequence       as Q
-
-type Hash256 = Int
 
 
 -- What are the design tradeoffs?
@@ -22,26 +21,6 @@ type Hash256 = Int
 -- - Doing explicit hashing instead of letting the system handle tracking pins
 --   itself adds work now instead of doing things lazily.
 
-type NodeStorage k v = Map Hash256 (TreeNode k v)
-
--- A content addressed, hash linked B+ tree.
-data FullTree k v = FULLTREE {
-  config  :: TreeConfig,
-  root    :: Maybe Hash256,
-  storage :: NodeStorage k v
-  }
-  deriving (Show)
-
-data TreeConfig = TREECONFIG {
-  minFanout      :: Int,
-  maxFanout      :: Int,
-  minIdxKeys     :: Int,
-  maxIdxKeys     :: Int,
-  minLeafItems   :: Int,
-  maxLeafItems   :: Int,
-  maxHitchhikers :: Int
-  }
-  deriving (Show)
 
 -- Stolen directly from hasky-btree for testing. Too small in practice to hold
 -- up a real large channel database.
@@ -59,24 +38,7 @@ twoThreeConfig = TREECONFIG {
     minFanout' = 2
     maxFanout' = 2*minFanout' - 1
 
-data Index k = Index (Seq k) (Seq Hash256)
-  deriving (Show, Eq, Generic, Hashable)
--- TODO: Index isn't a semigroup because you have to do a bunch of key logic,
--- see `mergeIndex` in hasky-btree.
-
-
 emptyIndex = Index mempty mempty
-
-
-type LeafVector k v = Seq (k, v)   -- Sorted
-type Hitchhikers k v = Seq (k, v)  -- Unsorted
-
-data TreeNode k v
-  -- Index passing down to the
-  = NodeIndex (Index k) (Hitchhikers k v)
-  -- Sorted list of leaf values. (in sire, rows access is O(1)).
-  | NodeLeaf (LeafVector k v)
-  deriving (Show, Eq, Generic, Hashable) -- Eq and Generic only for Hashable
 
 empty :: TreeConfig -> FullTree k v
 empty config = FULLTREE config Nothing mempty
