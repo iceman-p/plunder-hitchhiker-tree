@@ -103,7 +103,7 @@ getNode h = do
 
 insertRec :: (Show k, Show v, Ord k, Hashable k, Hashable v)
           => TreeConfig -> Hitchhikers k v -> Hash256
-          -> State (NodeStorage k v) (Index k)
+          -> State (NodeStorage k v) (Index k Hash256)
 insertRec config toAdd node = getNode node >>= \case
   NodeIndex children hitchhikers
     | (Q.length hitchhikers + Q.length toAdd) > (maxHitchhikers config) -> do
@@ -142,9 +142,9 @@ insertRec config toAdd node = getNode node >>= \case
 distributeDownwards :: (Show k, Show v, Ord k, Hashable k, Hashable v)
                     => TreeConfig
                     -> Hitchhikers k v
-                    -> Index k   -- input
-                    -> Index k   -- building output
-                    -> State (NodeStorage k v) (Index k)
+                    -> Index k Hash256   -- input
+                    -> Index k Hash256  -- building output
+                    -> State (NodeStorage k v) (Index k Hash256)
 
 -- Base case: single subtree or end of list:
 distributeDownwards config
@@ -196,7 +196,8 @@ mergeItems = foldl $ \items (k, v) -> qSortedInsert k v items
 
 -- Given a pure index with no hitchhikers, create a node.
 extendIndex :: (Show k, Show v, Hashable k, Hashable v)
-            => Int -> Index k -> State (NodeStorage k v) (Index k)
+            => Int -> Index k Hash256
+            -> State (NodeStorage k v) (Index k Hash256)
 extendIndex maxIdxKeys = go
   where
     maxIdxVals = maxIdxKeys + 1
@@ -221,7 +222,9 @@ extendIndex maxIdxKeys = go
 -- splitLeafMany returns an index to all the leaves, even if it's a singleton
 -- leaf.
 splitLeafMany :: (Show k, Show v, Hashable k, Hashable v)
-              => Int -> LeafVector k v -> State (NodeStorage k v) (Index k)
+              => Int
+              -> LeafVector k v
+              -> State (NodeStorage k v) (Index k Hash256)
 splitLeafMany maxLeafItems items
   -- Leaf items don't overflow a single node.
   | Q.length items <= maxLeafItems = do
@@ -285,23 +288,24 @@ lookup key (FULLTREE _ (Just top) storage) = evalState (lookInNode top) storage
 
 -- Index ---------------------------------------------------------------------
 
-indexFromList :: Seq k -> Seq Hash256 -> Index k
+indexFromList :: Seq k -> Seq Hash256 -> Index k Hash256
 indexFromList keys valPtrs = Index keys valPtrs
 
-singletonIndex :: Hash256 -> Index k
+singletonIndex :: Hash256 -> Index k Hash256
 singletonIndex = Index Q.empty . Q.singleton
 
-fromSingletonIndex :: Index key -> Maybe Hash256
+fromSingletonIndex :: Index key Hash256 -> Maybe Hash256
 fromSingletonIndex (Index _keys vals) =
     if Q.length vals == 1 then Just $! qHeadUnsafe vals else Nothing
 
-indexNumKeys :: Index key -> Int
+indexNumKeys :: Index key Hash256 -> Int
 indexNumKeys (Index keys _vals) = Q.length keys
 
-indexNumVals :: Index key -> Int
+indexNumVals :: Index key Hash256 -> Int
 indexNumVals (Index _keys vals) = Q.length vals
 
-splitIndexAt :: Int -> Index key -> (Index key, key, Index key)
+splitIndexAt :: Int -> Index key Hash256
+             -> (Index key Hash256, key, Index key Hash256)
 splitIndexAt numLeftKeys (Index keys vals)
     | (leftKeys, middleKeyAndRightKeys) <- Q.splitAt numLeftKeys     keys
     , (leftVals, rightVals)             <- Q.splitAt (numLeftKeys+1) vals
