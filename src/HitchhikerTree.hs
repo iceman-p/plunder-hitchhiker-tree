@@ -8,6 +8,7 @@ import           Data.Sequence       (Seq)
 import           Debug.Trace
 
 import           Types
+import           Utils
 
 import qualified Data.Map            as M
 import qualified Data.Sequence       as Q
@@ -247,44 +248,17 @@ splitLeafMany maxLeafItems items
 
 -- Lookup --------------------------------------------------------------------
 
--- Lookup procedure:
-
 lookup :: Ord k => k -> FullTree k v -> Maybe v
 lookup key (FULLTREE _ Nothing _) = Nothing
 lookup key (FULLTREE _ (Just top) storage) = evalState (lookInNode top) storage
   where
     lookInNode current = getNode current >>= \case
-      NodeIndex (Index keys vals) hitchhikers -> do
-        -- First try walking across the hitchhikers backwards. Backwards
-        -- because the hitchhikers form a log. If we find a
-        let idx = Q.findIndexR (\(k, v) -> k == key) hitchhikers
-        case idx of
-          Just idx -> case Q.lookup idx hitchhikers of
-            Nothing     -> error "impossible"
-            Just (_, v) -> pure $ Just v
-          Nothing -> do
-            -- There's nothing in the hitchhikers. Recurse downward to the
-            -- bottom.
-            --
-            -- TODO: This could be simplified, but is hacked out of the
-            -- previous implementation.
-            let (leftKeys, _) = Q.spanl (<=key) keys
-                n = Q.length leftKeys
-                (_, valAndRightVals) = Q.splitAt n vals
-                Just (val, _) = qUncons valAndRightVals
-            lookInNode val
-
-      NodeLeaf items -> do
-        -- TODO: This could be a binary search instead, since this seq is
-        -- ordered.
-        let idx = Q.findIndexL (\(k, v) -> k == key) items
-        case idx of
-          Just idx -> case Q.lookup idx items of
-            Nothing     -> error "impossible"
-            Just (_, v) -> pure $ Just v
-          Nothing -> pure Nothing
-
-
+      NodeIndex index hitchhikers -> do
+        case findInHitchhikers key hitchhikers of
+          Just v  -> pure $ Just v
+          Nothing -> let (_, v) = findSubnodeByKey key index
+                         in lookInNode v
+      NodeLeaf items -> pure $ findInLeaves key items
 
 -- Index ---------------------------------------------------------------------
 
@@ -313,26 +287,6 @@ splitIndexAt numLeftKeys (Index keys vals)
         Just (middleKey,rightKeys) ->
             (Index leftKeys leftVals, middleKey, Index rightKeys rightVals)
         Nothing -> error "splitIndex: cannot split an empty index"
-
--- -----------------------------------------------------------------------
-
-qHeadUnsafe :: Seq a -> a
-qHeadUnsafe (first Q.:<| _) = first
-qHeadUnsafe _               = error "qHeadUnsafe"
-
-qSortedInsert :: (Ord k) => k -> v -> Seq (k, v) -> Seq (k, v)
-qSortedInsert k v s = case Q.findIndexL (\(i, _) -> k <= i) s of
-  Nothing  -> s Q.|> (k, v)
-  Just idx -> case Q.lookup idx s of
-    Just (curk, curv) | curk == k -> Q.update idx (k,v) s
-    Just _                        -> Q.insertAt idx (k,v) s
-    Nothing                       -> error "impossible"
-
-qUncons :: Seq a -> Maybe (a, Seq a)
-qUncons = \case
-  (head Q.:<| rest) -> Just (head, rest)
-  Q.Empty           -> Nothing
-
 
 -- -----------------------------------------------------------------------
 

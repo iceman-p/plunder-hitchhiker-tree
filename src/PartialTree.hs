@@ -1,10 +1,15 @@
-module PartialTree where
+module PartialTree (PartialTree(..),
+                    FetchRequest(..),
+                    newPartialFromRoot,
+                    ensureRange
+                    ) where
 
 import           Control.Monad
 import           Data.Hashable
 import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Data.Set      (Set)
 import           Types
+import           Utils
 
 import qualified Data.Map      as M
 import qualified Data.Sequence as Q
@@ -43,7 +48,8 @@ data PartialTreeNode k v
 -- | Subtrees which have completed synchronization and don't hold Subrefs to
 -- possibly old data.
 data CompletedSync k v
-  -- | Index node that's completed synchronization.
+  -- | Index node that's completed synchronization. We keep the hash around in
+  -- the index so we can hopefully reuse parts of the tree when we
   = CompletedIndex (Index k (Hash256, CompletedSync k v)) (Hitchhikers k v)
 
   -- | All leaf nodes are complete; you either have it in its entirety or you
@@ -88,21 +94,6 @@ newPartialFromRoot (NodeIndex (Index keys hashes) hh) =
     hashesWithRefs = fmap (\h -> (h, MissingNode $ Index mempty mempty)) hashes
 
 
--- Limits the index to nodes that contain values greater than a value
-removeGreaterThan :: Ord k => k -> Index k v -> Index k v
-removeGreaterThan key (Index keys vals) = Index prunedKeys prunedVals
-  where
-    (prunedKeys, _) = Q.spanl (<= key) keys
-    n = Q.length prunedKeys
-    (prunedVals, _) = Q.splitAt (n + 1) vals
-
-removeLessThan :: Ord k => k -> Index k v -> Index k v
-removeLessThan key (Index keys vals) = Index prunedKeys prunedVals
-  where
-    (dropped, prunedKeys) = Q.spanl (key >=) keys
-    n = Q.length dropped
-    (_, prunedVals) = Q.splitAt n vals
-
 -- | Given a range (from, to), calculate all the nodes we know we'd need to
 -- fetch to make progress on fully syncing the range.
 --
@@ -135,6 +126,42 @@ ensureRange range (PartialTree (Just root)) = scan range root
     reqAlignedNodes (Index keys vals) = Q.zip prepareKeys vals
       where
         prepareKeys = (fmap Just keys) |> Nothing
+
+-- | Attempts to lookup a piece of data. Returns either a request for another
+-- node in the tree or a definitive answer of whether the key is there or not.
+lookup :: Ord k
+       => k
+       -> PartialTree k v
+       -> IO (Either (FetchRequest k) (Maybe v))
+
+lookup key (PartialTree Nothing)     = pure $ Right $ Nothing
+
+lookup key (PartialTree (Just node)) = lookupInPartialTreeNode node
+  where
+    lookupInPartialTreeNode (Completed completedSync) =
+      lookupInCompleted completedSync
+    lookupInPartialTreeNode (IncompleteIndex idx hh) =
+      lookupInIncomplete idx hh
+
+    lookupInSubref _ _ (Complete cs)        = lookupInCompleted cs
+    lookupInSubref key hash (MissingNode _) = pure $ Left $ (key, hash)
+    lookupInSubref _ _ (PartialNode ptn)    = lookupInPartialTreeNode ptn
+
+    lookupInIncomplete idx hitchhikers =
+      case findInHitchhikers key hitchhikers of
+        Just v  -> pure $ Right $ Just v
+        Nothing ->
+          let (closestKey, (hash, subref)) = findSubnodeByKey key idx
+          in lookupInSubref closestKey hash subref
+
+    lookupInCompleted (CompletedIndex idx hitchhikers) =
+      case findInHitchhikers key hitchhikers of
+        Just v  -> pure $ Right $ Just v
+        Nothing -> let (_, (_, child)) = findSubnodeByKey key idx in
+          lookupInCompleted child
+    lookupInCompleted (CompletedLeaf leaves) =
+      pure $ Right $ findInLeaves key leaves
+
 
 -- -----------------------------------------------------------------------
 
@@ -171,13 +198,3 @@ fetched (k, hash) fetched tree =
   -- tree where we need to perform the completion, then we need to
 
   undefined
-
--- | Attempts to lookup a piece of data. Returns either a request for another
--- node in the tree or a definitive answer of whether the key is there or not.
-lookup :: Ord k
-       => k
-       -> (Hash256 -> IO (TreeNode k v))
-       -> PartialTree k v
-       -> IO (Either (FetchRequest k) (Maybe v))
-lookup key fetch (PartialTree Nothing)     = pure $ Right $ Nothing
-lookup key fetch (PartialTree (Just node)) = undefined
