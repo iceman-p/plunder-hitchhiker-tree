@@ -1,6 +1,7 @@
 module Utils where
 
-import           Data.Sequence (Seq)
+import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
+import           Debug.Trace
 import           Types
 
 import qualified Data.Sequence as Q
@@ -9,12 +10,12 @@ import qualified Data.Sequence as Q
 -- Seq utils -----------------------------------------------------------------
 
 qHeadUnsafe :: Seq a -> a
-qHeadUnsafe (first Q.:<| _) = first
-qHeadUnsafe _               = error "qHeadUnsafe"
+qHeadUnsafe (first :<| _) = first
+qHeadUnsafe _             = error "qHeadUnsafe"
 
 qSortedInsert :: (Ord k) => k -> v -> Seq (k, v) -> Seq (k, v)
 qSortedInsert k v s = case Q.findIndexL (\(i, _) -> k <= i) s of
-  Nothing  -> s Q.|> (k, v)
+  Nothing  -> s |> (k, v)
   Just idx -> case Q.lookup idx s of
     Just (curk, curv) | curk == k -> Q.update idx (k,v) s
     Just _                        -> Q.insertAt idx (k,v) s
@@ -22,8 +23,8 @@ qSortedInsert k v s = case Q.findIndexL (\(i, _) -> k <= i) s of
 
 qUncons :: Seq a -> Maybe (a, Seq a)
 qUncons = \case
-  (head Q.:<| rest) -> Just (head, rest)
-  Q.Empty           -> Nothing
+  (head :<| rest) -> Just (head, rest)
+  Q.Empty         -> Nothing
 
 -- Hitchhiker utils ----------------------------------------------------------
 
@@ -67,6 +68,32 @@ findSubnodeByKey key (Index keys vals) = (rightKey, subnode)
       Nothing       -> Nothing
       Just (key, _) -> Just key
 
+-- | Apply fun to the node whose rightmost key is the given KeyLoc.
+mapSubnodeByLoc :: Ord k => (v -> v) -> Maybe k -> Index k v -> Index k v
+
+mapSubnodeByLoc fun Nothing (Index keys vals) = Index keys $
+  case vals of
+    xs :|> x -> xs |> fun x
+    Empty    -> Empty
+
+mapSubnodeByLoc fun (Just k) (Index keys vals) = Index keys newVals
+  where
+    i = Q.length $ fst $ Q.spanl (< k) keys
+    newVals = trace ("nodeloc " ++ show i) Q.adjust fun i vals
+
+-- | Return the index in a form where the rightmost key is returned with each
+-- vector, or Nothing at the end.
+indexPairs :: Index k v -> Seq (Maybe k, v)
+indexPairs (Index keys vals) = Q.zip (fmap Just keys |> Nothing) vals
+
+-- | Returns the index with the left key and the right key to every node.
+indexTriples :: Index k v -> Seq (Maybe k, Maybe k, v)
+indexTriples (Index keys vals) =
+  Q.zip3 (Nothing <| fmap Just keys) (fmap Just keys |> Nothing) vals
+
+mapIndexWithLoc :: ((Maybe k, Maybe k, v) -> u) -> Index k v -> Index k u
+mapIndexWithLoc fun idx@(Index keys _) =
+  Index keys $ fmap fun $ indexTriples idx
 
 -- Limits the index to nodes that contain values greater than a value
 removeGreaterThan :: Ord k => k -> Index k v -> Index k v

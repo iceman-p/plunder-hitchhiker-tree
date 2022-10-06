@@ -287,8 +287,3 @@ splitIndexAt numLeftKeys (Index keys vals)
         Just (middleKey,rightKeys) ->
             (Index leftKeys leftVals, middleKey, Index rightKeys rightVals)
         Nothing -> error "splitIndex: cannot split an empty index"
-
--- -----------------------------------------------------------------------
-
-someFunc :: IO ()
-someFunc = putStrLn "TODO"

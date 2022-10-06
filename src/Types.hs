@@ -14,6 +14,9 @@ type NodeStorage k v = Map Hash256 (TreeNode k v)
 data Index k v = Index (Seq k) (Seq v)
   deriving (Show, Eq)
 
+-- | The rightmost index of the node (for traversing back to it).
+type KeyLoc k = Maybe k
+
 -- The sorted list in the leaves.
 type LeafVector k v = Seq (k, v)   -- Sorted
 
