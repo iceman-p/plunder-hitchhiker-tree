@@ -79,7 +79,7 @@ mapSubnodeByLoc fun Nothing (Index keys vals) = Index keys $
 mapSubnodeByLoc fun (Just k) (Index keys vals) = Index keys newVals
   where
     i = Q.length $ fst $ Q.spanl (< k) keys
-    newVals = trace ("nodeloc " ++ show i) Q.adjust fun i vals
+    newVals = Q.adjust fun i vals
 
 -- | Return the index in a form where the rightmost key is returned with each
 -- vector, or Nothing at the end.

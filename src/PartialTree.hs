@@ -42,14 +42,15 @@ data PartialTreeNode k v
   -- | We don't have a copy of this node. We store instead the part of the
   -- index that covered this range in hopes of reconstituting grandchild nodes
   -- in the future.
-  | MissingNode Hash256 (Index k (PartialTreeNode k v))
+  | MissingNode Hash256 (Maybe (PartialTreeNode k v))
 
   -- A node which has completed synchronization.
   | Completed (CompletedSync k v)
   deriving (Show, Eq)
 
 -- | Subtrees which have completed synchronization and don't hold references to
--- old data.
+-- old data. We have this concept separate from the rest of PartialTreeNode so
+-- that when we are iterating across a subtree to see what
 data CompletedSync k v
   -- | Index node that's completed synchronization. We keep the hash around in
   -- the index so we can hopefully reuse parts of the tree when we
@@ -87,7 +88,15 @@ upgradeWhenComplete ptn = case toCompleted ptn of
 newPartialFromRoot :: Hash256 -> PartialTree k v
 
 newPartialFromRoot hash =
-  PartialTree (Just $ MissingNode hash $ Index mempty mempty)
+  PartialTree (Just $ MissingNode hash Nothing)
+
+
+-- | We have received a new root hash for the tree we are
+-- monitoring. Immediately apply the new root node hash while keeping the old
+-- index.
+updatedRoot :: Hash256 -> PartialTree k v -> PartialTree k v
+updatedRoot newHash (PartialTree oldRoot) =
+  PartialTree (Just $ MissingNode newHash oldRoot)
 
 
 -- | Given a range (from, to), calculate all the nodes we know we'd need to
@@ -163,34 +172,69 @@ fetched fr@(fetchK, hash) fetched (PartialTree (Just tree))
       where
         newIdx = mapSubnodeByLoc findTarget fetchK idx
 
-
-    findTarget mn@(MissingNode nodeHash prevIndex)
+    findTarget mn@(MissingNode nodeHash prevNode)
       | hash == nodeHash = case fetched of
           NodeLeaf leafVector -> Completed $ CompletedLeaf nodeHash leafVector
           NodeIndex hashIdx hh -> upgradeWhenComplete $
-            IncompleteIndex nodeHash (updateIndex hashIdx) hh
-      | otherwise = error $ "MISSING NODE HASH MISMATCH: " ++ (show hash) ++ ", " ++ (show nodeHash)
+            IncompleteIndex nodeHash (completeSubnodes hashIdx) hh
+      | otherwise =
+        error $ "MISSING NODE HASH MISMATCH: " ++ (show hash) ++ ", " ++
+                (show nodeHash)
       where
-        -- TODO: To make forward progress, I'm punting on trying to rebuild
-        -- parts of the index from an older index. Come back here and complete
-        -- this when I have subscription like things working.
-        updateIndex hashIdx = mapIndexWithLoc fakeMissing hashIdx
-          where
-            fakeMissing (_, _, hash) = MissingNode hash (Index mempty mempty)
-        {-
-        updateIndex = mapIndexWithLoc completeFromPrevious
-
-        -- OK, I'm confused about the
+        -- We changed a MissingNode to an IncompleteIndex. We now have to take
+        -- the previous PartialTreeNode from the MissingNode and try to use it
+        -- to complete each node in the 
+        --
+        -- We do this recursively because nodes that we would be able to
+        -- compelte might have moved downwards.
+        completeSubnodes = mapIndexWithLoc (completeFromPrevious prevNode)
 
         -- Given a location and a hash, we return a node. Either a MissingNode
         -- with a restricted prevIndex if there's nothing in `prevIndex` to
         -- complete with, or
-        completeFromPrevious (prev, next, hash) =
-          let narrowedIdx = narrowIndexTo prev next prevIndex
-          in case lookupByHash next hash narrowedIdx of
-            Nothing         -> MissingNode hash narrowedIdx
-            Just completion -> completion
-        -}
+        completeFromPrevious :: Maybe (PartialTreeNode k v)
+                             -> (Maybe k, Maybe k, Hash256)
+                             -> PartialTreeNode k v
+
+        completeFromPrevious Nothing (_, _, targetHash) =
+          MissingNode targetHash Nothing
+
+        completeFromPrevious (Just prevNode) (prev, next, targetHash) =
+          case prevNode of
+            -- In the previous tree, there was a completed leaf at this
+            -- position.
+            Completed (CompletedLeaf leafHash lv)
+              | leafHash == targetHash -> prevNode
+              | otherwise -> MissingNode targetHash Nothing
+
+            -- In the previous tree, there was a completed subtree in this
+            -- position.
+            Completed (CompletedIndex indexHash idx hh)
+              | indexHash == targetHash -> prevNode
+              | otherwise ->
+                  -- We have to figure out how much of the previously completed
+                  -- synced data is 
+
+            -- The previous node was also a 
+            MissingNode _ thisMissingTree ->
+              completeFromPrevious thisMissingTree (prev, next, targetHash)
+
+            IncompleteIndex prevIdxHash idx _
+              | prevIdxHash == targetHash -> prevNode
+              | otherwise -> error "TODO: Figure this out."
+                  -- We are 
+
+          --
+          -- TODO: The above compiles but is broken and incomplete. I have to
+          -- plow forward to make distributing old nodes into the new structure
+          -- working.
+          --
+
+
+          -- let narrowedIdx = narrowIndexTo prev next prevIndex
+          -- in case lookupByHash next hash narrowedIdx of
+          --   Nothing         -> MissingNode hash narrowedIdx
+          --   Just completion -> completion
 
     -- Don't navigate into completed areas of the tree.
     findTarget c@(Completed _) = c
