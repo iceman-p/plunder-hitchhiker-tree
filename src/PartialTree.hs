@@ -11,6 +11,7 @@ import           Data.Hashable
 import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Data.Set      (Set)
 import           Debug.Trace
+import           Index
 import           Types
 import           Utils
 
@@ -40,7 +41,7 @@ data PartialTreeNode k v
   -- | We don't have a copy of this node. We store instead the part of the
   -- index that covered this range in hopes of reconstituting grandchild nodes
   -- in the future.
-  | MissingNode Hash256 (Maybe (PartialTreeNode k v))
+  | MissingNode Hash256 (Maybe (Index k (PartialTreeNode k v)))
 
   -- All leaf nodes are complete.
   | CompletedLeaf Hash256 (LeafVector k v)
@@ -68,9 +69,11 @@ newPartialFromRoot hash =
 -- monitoring. Immediately apply the new root node hash while keeping the old
 -- index.
 updatedRoot :: Hash256 -> PartialTree k v -> PartialTree k v
-updatedRoot newHash (PartialTree oldRoot) =
-  PartialTree (Just $ MissingNode newHash oldRoot)
+updatedRoot newHash oldTree =
+  PartialTree (Just $ MissingNode newHash $ partialTreeToIndex oldTree)
 
+partialTreeToIndex :: PartialTree k v -> Maybe (Index k (PartialTreeNode k v))
+partialTreeToIndex (PartialTree ptn) = fmap singletonIndex ptn
 
 -- | Given a range (from, to), calculate all the nodes we know we'd need to
 -- fetch to make progress on fully syncing the range.
@@ -138,7 +141,10 @@ fetched fr@(fetchK, hash) fetched (PartialTree (Just tree))
       where
         newIdx = mapSubnodeByLoc findTarget fetchK idx
 
-    findTarget mn@(MissingNode nodeHash prevNode)
+    -- Don't navigate into completed areas of the tree.
+    findTarget c@(CompletedLeaf _ _) = c
+
+    findTarget mn@(MissingNode nodeHash prevIndex)
       | hash == nodeHash = case fetched of
           NodeLeaf leafVector  -> CompletedLeaf nodeHash leafVector
           NodeIndex hashIdx hh ->
@@ -148,102 +154,61 @@ fetched fr@(fetchK, hash) fetched (PartialTree (Just tree))
                 (show nodeHash)
       where
         -- We changed a MissingNode to an IncompleteIndex. We now have to take
-        -- the previous PartialTreeNode from the MissingNode and try to use it
-        -- to complete each node in the
+        -- the previous Index from the MissingNode and try to use it to
+        -- complete each node in the
         --
         -- We do this recursively because nodes that we would be able to
         -- compelte might have moved downwards.
-        completeSubnodes = undefined {- mapIndexWithLoc (completeFromPrevious prevNode)
+        completeSubnodes = mapIndexWithLoc (completeFromPrevious prevIndex)
 
         -- Given a location and a hash, we return a node. Either a MissingNode
         -- with a restricted prevIndex if there's nothing in `prevIndex` to
         -- complete with, or
-        completeFromPrevious :: Maybe (PartialTreeNode k v)
+        completeFromPrevious :: Maybe (Index k (PartialTreeNode k v))
                              -> (Maybe k, Maybe k, Hash256)
                              -> PartialTreeNode k v
 
         completeFromPrevious Nothing (_, _, targetHash) =
           MissingNode targetHash Nothing
 
-        completeFromPrevious (Just prevNode) (prev, next, targetHash) =
-          case prevNode of
-            -- In the previous tree, there was a completed leaf at this
-            -- position.
-            Completed (CompletedLeaf leafHash lv)
-              | leafHash == targetHash -> prevNode
-              | otherwise -> MissingNode targetHash Nothing
-
-            -- In the previous tree, there was a completed subtree in this
-            -- position.
-            Completed (CompletedIndex indexHash idx hh)
-              | indexHash == targetHash -> prevNode
-              | otherwise ->
-                  -- We have to figure out how much of the previously completed
-                  -- synced data is
-
-            -- The previous node was also a
-            MissingNode _ thisMissingTree ->
-              completeFromPrevious thisMissingTree (prev, next, targetHash)
-
-            IncompleteIndex prevIdxHash idx _
-              | prevIdxHash == targetHash -> prevNode
-              | otherwise -> error "TODO: Figure this out."
-                  -- We are
-
-          --
-          -- TODO: The above compiles but is broken and incomplete. I have to
-          -- plow forward to make distributing old nodes into the new structure
-          -- working.
-          --
+        completeFromPrevious (Just prevIndex) (prev, next, targetHash) =
+          -- We have an index here, and we want to recursively descend through
+          -- it to find targetHash.
+          case findHashInIndex (next, targetHash) prevIndex of
+            -- We couldn't complete this node. Return a narrowed MissingNode.
+            Nothing ->
+              MissingNode targetHash $ Just $ narrowIndex prev next prevIndex
+            Just node -> node
 
 
-          -- let narrowedIdx = narrowIndexTo prev next prevIndex
-          -- in case lookupByHash next hash narrowedIdx of
-          --   Nothing         -> MissingNode hash narrowedIdx
-          --   Just completion -> completion
+-- Given a location to follow and a hash, try to find the hash in a given
+-- index, returning the node if found.
+findHashInIndex :: Ord k
+                => (Maybe k, Hash256)
+                -> Index k (PartialTreeNode k v)
+                -> Maybe (PartialTreeNode k v)
+findHashInIndex (right, hash) index = case getSubnodeByLoc right index of
+  pi@(PartialIndex piHash subindex _)
+    | hash == piHash -> Just pi
+    | otherwise      -> findHashInIndex (right, hash) subindex
+  mn@(MissingNode mnHash _)
+    | hash == mnHash -> Just mn
+    | otherwise      -> Nothing
+  cl@(CompletedLeaf clHash _)
+    | hash == clHash -> Just cl
+    | otherwise      -> Nothing
 
-          -}
-
-    -- Don't navigate into completed areas of the tree.
-    findTarget c@(CompletedLeaf _ _) = c
-
-{-
--- Given a hash, try to find the associated
-lookupByHash :: Maybe k -> Hash256 -> Index k v -> Maybe v
-lookupByHash key hash idx = case findSubnodeByKey key idx of
-  (right, ii@(IncompleteIndex iiHash subIdx _))
-    | hash == iiHash -> Just ii
-
-narrowIndexTo :: Maybe k -> Maybe k -> Index k v -> Index k v
-narrowIndexTo prev next idx = undefined {- final
+narrowIndex :: Ord k
+            => Maybe k
+            -> Maybe k
+            -> Index k (PartialTreeNode k v)
+            -> Index k (PartialTreeNode k v)
+narrowIndex prev next idx = rightNarrowed
   where
-    prevNarrowed = case prev of
-      Nothing -> prev
-      Just k -> removeLessThan
-    final =
--}
--}
+    leftNarrowed = case prev of
+      Nothing -> idx
+      Just k  -> removeLessThan k idx
 
--- -----------------------------------------------------------------------
-
-{-
--- | We've learned that the tree we're caching has changed its root node.
-replaceRoot :: PartialTreeNode k v -> TreeNode k v -> PartialTreeNode k v
-replaceRoot = go (Index mempty mempty)
-  where
-    go :: PartialIndex k v
-       -> PartialTreeNode k v
-       -> TreeNode k v
-       -> PartialTreeNode k v
-    go partIdx (CompleteIndex prevIdx prevHH) (NodeIndex inIdx inHH)
-      -- If the indexes are equivalent, the update is just to the hitchhikers.
-      | indexesSame prevIdx inIdx = CompleteIndex prevIdx inHH
-
-      -- Otherwise we need to walk across the two indexes in parallel, copying
-      -- previously
-      | otherwise = undefined
-
-    indexesSame :: Index k (Hash256, a) -> Index k Hash256 -> Bool
-    indexesSame (Index _ p) (Index _ prevHashes) = prevHashes == fmap fst p
--}
-
+    rightNarrowed = case next of
+      Nothing -> leftNarrowed
+      Just k  -> removeGreaterThan k leftNarrowed

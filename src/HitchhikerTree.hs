@@ -7,6 +7,7 @@ import           Data.Map            (Map)
 import           Data.Sequence       (Seq)
 import           Debug.Trace
 
+import           Index
 import           Types
 import           Utils
 
@@ -259,31 +260,3 @@ lookup key (FULLTREE _ (Just top) storage) = evalState (lookInNode top) storage
           Nothing -> let (_, v) = findSubnodeByKey key index
                          in lookInNode v
       NodeLeaf items -> pure $ findInLeaves key items
-
--- Index ---------------------------------------------------------------------
-
-indexFromList :: Seq k -> Seq Hash256 -> Index k Hash256
-indexFromList keys valPtrs = Index keys valPtrs
-
-singletonIndex :: Hash256 -> Index k Hash256
-singletonIndex = Index Q.empty . Q.singleton
-
-fromSingletonIndex :: Index key Hash256 -> Maybe Hash256
-fromSingletonIndex (Index _keys vals) =
-    if Q.length vals == 1 then Just $! qHeadUnsafe vals else Nothing
-
-indexNumKeys :: Index key Hash256 -> Int
-indexNumKeys (Index keys _vals) = Q.length keys
-
-indexNumVals :: Index key Hash256 -> Int
-indexNumVals (Index _keys vals) = Q.length vals
-
-splitIndexAt :: Int -> Index key Hash256
-             -> (Index key Hash256, key, Index key Hash256)
-splitIndexAt numLeftKeys (Index keys vals)
-    | (leftKeys, middleKeyAndRightKeys) <- Q.splitAt numLeftKeys     keys
-    , (leftVals, rightVals)             <- Q.splitAt (numLeftKeys+1) vals
-    = case qUncons middleKeyAndRightKeys of
-        Just (middleKey,rightKeys) ->
-            (Index leftKeys leftVals, middleKey, Index rightKeys rightVals)
-        Nothing -> error "splitIndex: cannot split an empty index"

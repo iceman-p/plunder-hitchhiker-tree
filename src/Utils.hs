@@ -81,6 +81,17 @@ mapSubnodeByLoc fun (Just k) (Index keys vals) = Index keys newVals
     i = Q.length $ fst $ Q.spanl (< k) keys
     newVals = Q.adjust fun i vals
 
+-- | Get the subnode from an index by location.
+getSubnodeByLoc :: Ord k => Maybe k -> Index k v -> v
+
+getSubnodeByLoc Nothing (Index keys vals) = case vals of
+  xs :|> x -> x
+  Empty    -> error "Impossible empty Index"
+
+getSubnodeByLoc (Just k) (Index keys vals) = Q.index vals i
+  where
+    i = Q.length $ fst $ Q.spanl (< k) keys
+
 -- | Return the index in a form where the rightmost key is returned with each
 -- vector, or Nothing at the end.
 indexPairs :: Index k v -> Seq (Maybe k, v)

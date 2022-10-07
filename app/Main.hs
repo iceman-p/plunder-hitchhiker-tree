@@ -22,12 +22,19 @@ recurseLookup k ft pt = let lu = P.lookup k pt in
 
 main :: IO ()
 main = do
-  let srcTree :: (FullTree Int String) = H.insert 7 "seven" $ H.insert 2 "one" $ H.insert 4 "four" $ H.insert 10 "ten" $ H.insert 1 "ah" $ H.insert 6 "yo" $ H.insert 5 "hello" $ H.empty H.twoThreeConfig
+  let srcTree :: (FullTree Int String) =
+        H.insert 7 "seven" $ H.insert 2 "one" $ H.insert 4 "four" $
+        H.insert 10 "ten" $ H.insert 1 "ah" $ H.insert 9 "nine" $
+        H.insert 5 "hello" $ H.empty H.twoThreeConfig
 
   traceM ("Full srctree: " ++ show srcTree)
 
-  let dstTree :: (P.PartialTree Int String) = P.newPartialFromRoot $ fromJust $ root srcTree
+  let dstTree :: (P.PartialTree Int String) =
+        P.newPartialFromRoot $ fromJust $ root srcTree
 
   traceM ("Result:" ++ show (recurseLookup 4 srcTree dstTree))
+
+  -- let src2Tree = H.insert
+
 
   pure ()
