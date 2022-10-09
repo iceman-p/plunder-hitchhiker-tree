@@ -2,6 +2,7 @@ module PartialTreeTests (tests) where
 
 import           PartialTree
 import           Types
+import           Utils
 
 import           Test.Tasty
 import           Test.Tasty.HUnit

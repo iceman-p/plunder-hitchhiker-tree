@@ -23,9 +23,12 @@ dependencies:
 - hashable
 - haskey-btree
 - mtl
+- random
+- random-shuffle
 - tasty
 - tasty-hunit
 - tasty-th
+- tasty-quickcheck
 - text
 
 ghc-options:
