@@ -21,6 +21,7 @@ dependencies:
 - bytestring
 - containers
 - hashable
+- haskey-btree
 - mtl
 - tasty
 - tasty-hunit

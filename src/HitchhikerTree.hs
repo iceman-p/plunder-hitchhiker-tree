@@ -4,7 +4,7 @@ import           Control.Monad.State (State, evalState, get, modify, runState)
 
 import           Data.Hashable
 import           Data.Map            (Map)
-import           Data.Sequence       (Seq)
+import           Data.Sequence       (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Debug.Trace
 
 import           Index
@@ -48,6 +48,8 @@ empty config = FULLTREE config Nothing mempty
 insert :: (Show k, Show v, Ord k, Hashable k, Hashable v)
        => k -> v -> FullTree k v -> FullTree k v
 insert k v (FULLTREE config (Just rootHash) storage) =
+  trace ("Inserting (" ++ show k ++ ", " ++ show v ++ ") -> {newRoot=" ++
+         show newRoot ++ ", storage=" ++ show newStorage ++ "}")
   FULLTREE config newRoot newStorage
   where
     (newRoot, newStorage) = runState runInsert storage
@@ -94,7 +96,9 @@ addNode new = do
   pure h
 
 removeNode :: Hash256 -> State (NodeStorage k v) ()
-removeNode h = modify (M.delete h)
+removeNode h = do
+  traceM $ "Removing node " ++ show h
+  modify (M.delete h)
 
 getNode :: Hash256 -> State (NodeStorage k v) (TreeNode k v)
 getNode h = do
@@ -151,31 +155,41 @@ distributeDownwards :: (Show k, Show v, Ord k, Hashable k, Hashable v)
 -- Base case: single subtree or end of list:
 distributeDownwards config
                     hitchhikers
-                    (Index Q.Empty (node Q.:<| Q.Empty))
+                    (Index Empty (node :<| Empty))
                     (Index oKeys oHashes) = do
-  -- all remaining hitchhikers are either to the right or are in the mono node.
-  (Index endKeys endHashes) <- insertRec config hitchhikers node
-  removeNode node
+  case hitchhikers of
+    Empty -> do
+      -- there are no hitchhikers, running insertRec will just break the node
+      -- structure, since removeNode will just remove the existing node.
+      let out = Index oKeys (oHashes |> node)
+      pure out
+    hh -> do
+      -- all remaining hitchhikers are either to the right or are in the mono
+      -- node.
+      (Index endKeys endHashes) <- insertRec config hitchhikers node
+      removeNode node
 
-  let out = Index (oKeys <> endKeys) (oHashes <> endHashes)
-  traceM $ "distributeDownwards base case: " ++ show out
-  pure out
+      let out = Index (oKeys <> endKeys) (oHashes <> endHashes)
+      traceM $ "distributeDownwards base case: " ++ show out
+      pure out
 
 distributeDownwards config
                     hitchhikers
-                    (Index (key Q.:<| restKeys) (node Q.:<| restNodes))
+                    i@(Index (key :<| restKeys) (node :<| restNodes))
                     (Index outKeys outNodes) = do
-  let rangeIdx = Q.findIndexL (\(k, _) -> k >= key) hitchhikers
-  case rangeIdx of
-    Nothing ->
+  traceM $ "Start distributeDownwards round: hh=" ++ show hitchhikers ++
+           ", i=" ++ show i
+  let (toAdd, rest) = Q.spanl (\(k, v) -> k < key) hitchhikers
+  traceM $ "rangeidx = " ++ show toAdd
+  case toAdd of
+    Empty ->
       -- There are no things to distribute downward to this subtree.
       distributeDownwards config
                           hitchhikers
                           (Index restKeys restNodes)
-                          (Index (outKeys Q.|> key) (outNodes Q.|> node))
-    Just splitIdx -> do
+                          (Index (outKeys |> key) (outNodes |> node))
+    toAdd -> do
       -- We distribute downwards all items up to the split point.
-      let (toAdd, rest) = Q.splitAt splitIdx hitchhikers
       inner@(Index subKeys subHashes) <- insertRec config toAdd node
       removeNode node
       traceM $ "dd recur inner: " ++ show inner
@@ -241,6 +255,7 @@ splitLeafMany maxLeafItems items
       leftHash <- addNode $ NodeLeaf leftLeaf
       rightHash <- addNode $ NodeLeaf rightLeaf
       let rightFirstItem = fst $ qHeadUnsafe rightLeaf
+      traceM $ "splitLeafMany 2: splitAt=" ++ (show rightFirstItem)
       pure $ indexFromList (Q.singleton rightFirstItem)
                            (Q.fromList [leftHash, rightHash])
 

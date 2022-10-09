@@ -11,6 +11,12 @@ type Hash256 = Int
 type NodeStorage k v = Map Hash256 (TreeNode k v)
 
 -- An Index is the main payload of an index node: the inner node of a B+ tree.
+--
+-- An index is a parallel array where each key is the smallest item in the
+-- following value sequence.
+--
+-- (Contrast that with how the Clojure hitchhiker tree works where things are
+-- right aligned instead.)
 data Index k v = Index (Seq k) (Seq v)
   deriving (Show, Eq)
 
