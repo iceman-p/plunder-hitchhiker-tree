@@ -1,6 +1,5 @@
-module PartialTreeTests (tests) where
+module UtilTests (tests) where
 
-import           PartialTree
 import           Types
 import           Utils
 
@@ -11,7 +10,7 @@ import qualified Data.Sequence    as Q
 
 tests :: TestTree
 tests =
-  testGroup "PartialTree" [
+  testGroup "Util" [
     testCase "removeGreaterThan leftmost" $ removeGTLeftmost,
     testCase "removeGreaterThan first" $ removeGTFirst,
     testCase "removeGreaterThan none" $ removeGTNone,

@@ -12,21 +12,19 @@ import qualified Data.BTree.Pure.Setup     as HB
 
 import qualified HitchhikerTree            as H
 import qualified PublishTree               as P
---import qualified PartialTree               as P
+import qualified SubscriberTree            as S
 
 import qualified Data.Map                  as M
 
-{-
 recurseLookup :: (Ord k, Show k, Show v)
-              => k -> FullTree k v -> P.PartialTree k v -> Maybe v
-recurseLookup k ft pt = let lu = P.lookup k pt in
+              => k -> PublishTree k v -> S.SubscriberTree k v -> Maybe v
+recurseLookup k pt st = let lu = S.lookup k st in
   trace ("Lookup: " ++ show lu) $
   case lu of
-    Left fr@(loc, hash) -> case M.lookup hash (storage ft) of
+    Left fr@(loc, hash) -> case M.lookup hash (storage pt) of
       Nothing -> error "Missing node in full tree. Desynced. Impossible?"
-      Just tn -> recurseLookup k ft $ P.fetched fr tn pt
+      Just tn -> recurseLookup k pt $ S.fetched fr tn st
     Right result -> result
--}
 
 main :: IO ()
 main = do
@@ -41,24 +39,12 @@ main = do
 
   traceM ("src lookup: " ++ (show $ H.lookup lookupKey srcTree))
 
-  let pub = P.toPublishTree srcTree
-  traceM ("pub: " ++ (show pub))
+  let pubTree = P.toPublishTree srcTree
+  traceM ("pub: " ++ (show pubTree))
 
-  -- let hbt :: (HB.Tree Integer String) =
-  --       HB.insert 7 "seven" $ HB.insert 2 "one" $ HB.insert 4 "four" $
-  --       HB.insert 10 "ten" $ HB.insert 1 "ah" $ HB.insert 9 "nine" $
-  --       HB.insert 5 "hello" $ HB.empty HB.twoThreeSetup
+  let subTree :: (S.SubscriberTree Int String) =
+        S.newSubscriberFromRoot $ fromJust $ publishRoot pubTree
 
-  -- traceM ("hasky tree: " ++ (show hbt))
-
-{-
-
-  let dstTree :: (P.PartialTree Int String) =
-        P.newPartialFromRoot $ fromJust $ root srcTree
-
-  traceM ("Result:" ++ show (recurseLookup lookupKey srcTree dstTree))
-
-  -- let src2Tree = H.insert
--}
+  traceM ("Result:" ++ show (recurseLookup lookupKey pubTree subTree))
 
   pure ()

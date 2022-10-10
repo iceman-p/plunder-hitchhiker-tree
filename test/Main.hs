@@ -4,11 +4,11 @@ import           Test.Tasty
 import           Test.Tasty.TH
 
 import qualified HitchhikerTreeTests
-import qualified PartialTreeTests
+import qualified UtilTests
 
 main :: IO ()
 main = defaultMain $
   testGroup "Tree"
-  [ PartialTreeTests.tests
+  [ UtilTests.tests
   , HitchhikerTreeTests.tests
   ]

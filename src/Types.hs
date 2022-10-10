@@ -75,8 +75,8 @@ type NodeStorage k v = Map Hash256 (PublishTreeNode k v)
 -- HitchhikerTree, but in the form that every node is content
 -- addressed. Immutable.
 data PublishTree k v = PUBLISHTREE {
-  root    :: Maybe Hash256,
-  storage :: NodeStorage k v
+  publishRoot :: Maybe Hash256,
+  storage     :: NodeStorage k v
   }
   deriving (Show, Generic, NFData)
 
