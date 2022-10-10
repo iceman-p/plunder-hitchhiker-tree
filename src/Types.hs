@@ -1,8 +1,11 @@
 module Types where
 
 import           Data.Hashable
-import           Data.Map      (Map)
-import           Data.Sequence (Seq)
+import           Data.Map        (Map)
+import           Data.Sequence   (Seq)
+
+import           Control.DeepSeq
+import           GHC.Generics    (Generic, Generic1)
 
 -- TODO: For now, hash is just an int. Change this in production.
 type Hash256 = Int
@@ -18,7 +21,7 @@ type NodeStorage k v = Map Hash256 (TreeNode k v)
 -- (Contrast that with how the Clojure hitchhiker tree works where things are
 -- right aligned instead.)
 data Index k v = Index (Seq k) (Seq v)
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic, NFData)
 
 -- | The rightmost index of the node (for traversing back to it).
 type KeyLoc k = Maybe k
@@ -33,10 +36,10 @@ type Hitchhikers k v = Seq (k, v)  -- Unsorted
 -- The shared node between both FullTrees and PartialTrees.
 data TreeNode k v
   -- Inner B+ index with hitchhiker information.
-  = NodeIndex (Index k Hash256) (Hitchhikers k v)
+  = NodeIndex (Index k (TreeNode k v)) (Hitchhikers k v)
   -- Sorted list of leaf values. (in sire, rows access is O(1)).
   | NodeLeaf (LeafVector k v)
-  deriving (Show, Eq) -- Eq and Generic only for Hashable
+  deriving (Show, Eq, Generic, NFData)
 
 instance (Hashable k, Hashable v) => Hashable (TreeNode k v) where
   hashWithSalt s (NodeLeaf lv) = s `hashWithSalt` (0 :: Int) `hashWithSalt` lv
@@ -57,7 +60,15 @@ data TreeConfig = TREECONFIG {
   maxLeafItems   :: Int,
   maxHitchhikers :: Int
   }
-  deriving (Show)
+  deriving (Show, Generic, NFData)
+
+-- A Hitchhiker tree where all the links are manual.
+data HitchhikerTree k v = HITCHHIKERTREE {
+  config :: TreeConfig,
+  root   :: Maybe (TreeNode k v)
+  }
+  deriving (Show, Generic, NFData)
+
 
 -- A full, content addressed, hash linked hitchhiker tree.
 data FullTree k v = FULLTREE {
@@ -65,4 +76,4 @@ data FullTree k v = FULLTREE {
   root    :: Maybe Hash256,
   storage :: NodeStorage k v
   }
-  deriving (Show)
+  deriving (Show, Generic, NFData)

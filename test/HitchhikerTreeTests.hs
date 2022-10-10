@@ -1,5 +1,6 @@
 module HitchhikerTreeTests (tests) where
 
+import           Control.DeepSeq
 import           Debug.Trace
 import           System.Random
 import           System.Random.Shuffle (shuffle')
@@ -19,12 +20,18 @@ instance Arbitrary TestPair where
   arbitrary = TestPair <$> choose (0, 256) <*> (listOf $ elements ['a'..'z'])
 
 prop_map_fulltree_eq :: [TestPair] -> Bool
-prop_map_fulltree_eq raw = go raw (H.empty H.twoThreeConfig) (M.empty)
+prop_map_fulltree_eq raw = trace "-------------------- NEW TST" $ go raw (H.empty H.twoThreeConfig) (M.empty)
   where
-    go ((TestPair k v):xs) ft m = go xs (H.insert k v ft) (M.insert k v m)
-    go [] ft m = case doShuffle raw of
+    go ((TestPair k v):xs) ft m =
+      let ft' = force $ H.insert k v ft
+      in go xs ft' (M.insert k v m)
+    go [] ft m = trace "Beginning random lookup..." $ case doShuffle raw of
       []                 -> True -- empty list, ok.
-      ((TestPair k _):_) -> H.lookup k ft == M.lookup k m
+      -- todo: deal with single case.
+      ((TestPair k _):_) -> trace "Final lookup: " $
+        let hl = H.lookup k ft
+        in trace ("h.lookup=" ++ show hl) (hl == M.lookup k m)
+
 
     doShuffle :: [a] -> [a]
     doShuffle [] = []

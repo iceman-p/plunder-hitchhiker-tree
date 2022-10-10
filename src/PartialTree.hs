@@ -1,10 +1,14 @@
-module PartialTree (PartialTree(..),
+module PartialTree
+  {-
+  (PartialTree(..),
                     FetchRequest(..),
                     newPartialFromRoot,
                     ensureRange,
                     PartialTree.lookup,
                     fetched
-                    ) where
+                    )
+-}
+where
 
 import           Control.Monad
 import           Data.Hashable
@@ -25,6 +29,8 @@ import qualified Data.Sequence as Q
 
 -- The server side tree is a set of hashes, but the client side tree needs to
 -- keep track of ranges of the tree that it already has.
+
+{-
 
 data PartialTree k v = PartialTree (Maybe (PartialTreeNode k v))
 
@@ -212,3 +218,5 @@ narrowIndex prev next idx = rightNarrowed
     rightNarrowed = case next of
       Nothing -> leftNarrowed
       Just k  -> removeGreaterThan k leftNarrowed
+
+-}

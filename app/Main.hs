@@ -15,6 +15,7 @@ import qualified PartialTree               as P
 
 import qualified Data.Map                  as M
 
+{-
 recurseLookup :: (Ord k, Show k, Show v)
               => k -> FullTree k v -> P.PartialTree k v -> Maybe v
 recurseLookup k ft pt = let lu = P.lookup k pt in
@@ -24,10 +25,11 @@ recurseLookup k ft pt = let lu = P.lookup k pt in
       Nothing -> error "Missing node in full tree. Desynced. Impossible?"
       Just tn -> recurseLookup k ft $ P.fetched fr tn pt
     Right result -> result
+-}
 
 main :: IO ()
 main = do
-  let srcTree :: (FullTree Int String) =
+  let srcTree :: (HitchhikerTree Int String) =
         H.insert 7 "seven" $ H.insert 2 "one" $ H.insert 4 "four" $
         H.insert 10 "ten" $ H.insert 1 "ah" $ H.insert 9 "nine" $
         H.insert 5 "hello" $ H.empty H.twoThreeConfig
