@@ -1,21 +1,17 @@
 module HitchhikerTree where
 
-import           Control.Monad.State.Strict (State, evalState, get, modify',
-                                             runState)
 
 import           Control.DeepSeq
-import           Data.Hashable
-import           Data.Map                   (Map)
-import           Data.Sequence              (Seq (Empty, (:<|), (:|>)), (<|),
-                                             (|>))
+import           Data.Map        (Map)
+import           Data.Sequence   (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Debug.Trace
 
 import           Index
 import           Types
 import           Utils
 
-import qualified Data.Map                   as M
-import qualified Data.Sequence              as Q
+import qualified Data.Map        as M
+import qualified Data.Sequence   as Q
 
 -- Stolen directly from hasky-btree for testing. Too small in practice to hold
 -- up a real large channel database.
@@ -38,8 +34,7 @@ emptyIndex = Index mempty mempty
 empty :: TreeConfig -> HitchhikerTree k v
 empty config = HITCHHIKERTREE config Nothing
 
-insert :: (Show k, Show v, Ord k, Hashable k, Hashable v)
-       => k -> v -> HitchhikerTree k v -> HitchhikerTree k v
+insert :: Ord k => k -> v -> HitchhikerTree k v -> HitchhikerTree k v
 insert !k !v !(HITCHHIKERTREE config (Just root)) =
   HITCHHIKERTREE config (Just newRoot)
   where
@@ -53,18 +48,18 @@ insert !k !v !(HITCHHIKERTREE config (Just root)) =
             -- The insert resulted in a index with multiple nodes, i.e.
             -- the splitting propagated to the root. Create a new 'Idx'
             -- node with the index. This increments the height.
-            NodeIndex newRootIdx mempty
+            HitchhikerNodeIndex newRootIdx mempty
 
 insert k v (HITCHHIKERTREE config Nothing)
-  = HITCHHIKERTREE config (Just $ NodeLeaf $ Q.singleton (k, v))
+  = HITCHHIKERTREE config (Just $ HitchhikerNodeLeaf $ Q.singleton (k, v))
 
 -- -----------------------------------------------------------------------
 
-insertRec :: (Show k, Show v, Ord k, Hashable k, Hashable v)
-          => TreeConfig -> Hitchhikers k v -> TreeNode k v
-          -> Index k (TreeNode k v)
+insertRec :: Ord k
+          => TreeConfig -> Hitchhikers k v -> HitchhikerTreeNode k v
+          -> Index k (HitchhikerTreeNode k v)
 insertRec config toAdd node = case node of
-    NodeIndex children hitchhikers
+    HitchhikerNodeIndex children hitchhikers
       | (Q.length hitchhikers + Q.length toAdd) > (maxHitchhikers config) ->
           -- We have reached the maximum number of hitchhikers, we now need to
           -- flush these downwards.
@@ -75,22 +70,22 @@ insertRec config toAdd node = case node of
       | not $ Q.null toAdd ->
           -- All we must do is rebuild the node with the new k/v pair added on
           -- as a hitchhiker to this node.
-          singletonIndex $ NodeIndex children (hitchhikers <> toAdd)
+          singletonIndex $ HitchhikerNodeIndex children (hitchhikers <> toAdd)
 
       | otherwise -> singletonIndex node
 
-    NodeLeaf items ->
+    HitchhikerNodeLeaf items ->
       splitLeafMany (maxLeafItems config) $ mergeItems items toAdd
 
 -- Given a sorted list of hitchhikers, try to distribute each downward to the
 -- next level. This function is responsible for sending the right output to
 -- indexRec, and parsing that return value back into a coherent index.
-distributeDownwards :: (Show k, Show v, Ord k, Hashable k, Hashable v)
+distributeDownwards :: Ord k
                     => TreeConfig
                     -> Hitchhikers k v
-                    -> Index k (TreeNode k v)  -- input
-                    -> Index k (TreeNode k v)  -- building output
-                    -> Index k (TreeNode k v)
+                    -> Index k (HitchhikerTreeNode k v)  -- input
+                    -> Index k (HitchhikerTreeNode k v)  -- building output
+                    -> Index k (HitchhikerTreeNode k v)
 
 -- Base case: single subtree or end of list:
 distributeDownwards config
@@ -138,23 +133,23 @@ mergeItems :: (Ord k)
 mergeItems = foldl $ \items (k, v) -> qSortedInsert k v items
 
 -- Given a pure index with no hitchhikers, create a node.
-extendIndex :: (Show k, Show v, Hashable k, Hashable v)
-            => Int -> Index k (TreeNode k v)
-            -> Index k (TreeNode k v)
+extendIndex :: Int
+            -> Index k (HitchhikerTreeNode k v)
+            -> Index k (HitchhikerTreeNode k v)
 extendIndex maxIdxKeys = go
   where
     maxIdxVals = maxIdxKeys + 1
 
     go index
       | numVals <= maxIdxVals =
-          singletonIndex $ NodeIndex index mempty
+          singletonIndex $ HitchhikerNodeIndex index mempty
 
       | numVals <= 2 * maxIdxVals =
           let (leftIndex, middleKey, rightIndex) =
                 splitIndexAt (div numVals 2 - 1) index
           in indexFromList (Q.singleton middleKey)
-                           (Q.fromList [NodeIndex leftIndex mempty,
-                                        NodeIndex rightIndex mempty])
+                           (Q.fromList [HitchhikerNodeIndex leftIndex mempty,
+                                        HitchhikerNodeIndex rightIndex mempty])
 
       | otherwise = error "TODO: Implement extendIndex for more than 2 split"
       where
@@ -162,15 +157,14 @@ extendIndex maxIdxKeys = go
 
 -- splitLeafMany returns an index to all the leaves, even if it's a singleton
 -- leaf.
-splitLeafMany :: forall k v. (Show k, Show v, Hashable k, Hashable v)
-              => Int
+splitLeafMany :: forall k v
+               . Int
               -> LeafVector k v
-              -> Index k (TreeNode k v)
+              -> Index k (HitchhikerTreeNode k v)
 splitLeafMany maxLeafItems items
   -- Leaf items don't overflow a single node.
   | Q.length items <= maxLeafItems =
-      trace ("splitLeafMany items: " ++ (show items)) $
-      singletonIndex $ NodeLeaf items
+      singletonIndex $ HitchhikerNodeLeaf items
 
   -- We have to split, but only into two nodes.
   | Q.length items <= 2 * maxLeafItems =
@@ -178,35 +172,38 @@ splitLeafMany maxLeafItems items
           (leftLeaf, rightLeaf) = Q.splitAt numLeft items
           rightFirstItem = fst $ qHeadUnsafe rightLeaf
       in indexFromList (Q.singleton rightFirstItem)
-                       (Q.fromList [NodeLeaf leftLeaf, NodeLeaf rightLeaf])
+                       (Q.fromList [HitchhikerNodeLeaf leftLeaf,
+                                    HitchhikerNodeLeaf rightLeaf])
 
   -- We have to split the node into more than two nodes.
   | otherwise = uncurry indexFromList $ split' items (Q.Empty, Q.Empty)
 
   where
-    split' :: LeafVector k v -> (Seq k, Seq (TreeNode k v))
-           -> (Seq k, Seq (TreeNode k v))
+    split' :: LeafVector k v -> (Seq k, Seq (HitchhikerTreeNode k v))
+           -> (Seq k, Seq (HitchhikerTreeNode k v))
     split' items (keys, leafs)
       | Q.length items > 2 * maxLeafItems =
           let (leaf, rem') = Q.splitAt maxLeafItems items
               key = fst $ qHeadUnsafe rem'
-          in split' rem' (keys |> key, leafs |> (NodeLeaf leaf))
+          in split' rem' (keys |> key, leafs |> (HitchhikerNodeLeaf leaf))
       | Q.length items > maxLeafItems =
           let numLeft = div (Q.length items) 2
               (leftLeaf, rightLeaf) = Q.splitAt numLeft items
               key = fst $ qHeadUnsafe rightLeaf
-          in (keys |> key, leafs |> (NodeLeaf leftLeaf) |> (NodeLeaf rightLeaf))
+          in (keys |> key,
+              leafs |> (HitchhikerNodeLeaf leftLeaf) |>
+                (HitchhikerNodeLeaf rightLeaf))
       | otherwise = error "split many error"
 
 -- Lookup --------------------------------------------------------------------
 
-lookup :: (Show k, Show v, Ord k) => k -> HitchhikerTree k v -> Maybe v
+lookup :: Ord k => k -> HitchhikerTree k v -> Maybe v
 lookup key (HITCHHIKERTREE _ Nothing) = Nothing
 lookup key (HITCHHIKERTREE _ (Just top)) = lookInNode top
   where
     lookInNode = \case
-      NodeIndex index hitchhikers ->
+      HitchhikerNodeIndex index hitchhikers ->
         case findInHitchhikers key hitchhikers of
           Just v  -> Just v
           Nothing -> lookInNode $ snd $ findSubnodeByKey key index
-      NodeLeaf items -> findInLeaves key items
+      HitchhikerNodeLeaf items -> findInLeaves key items

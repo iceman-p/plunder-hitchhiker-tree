@@ -11,7 +11,8 @@ import qualified Data.BTree.Pure           as HB
 import qualified Data.BTree.Pure.Setup     as HB
 
 import qualified HitchhikerTree            as H
-import qualified PartialTree               as P
+import qualified PublishTree               as P
+--import qualified PartialTree               as P
 
 import qualified Data.Map                  as M
 
@@ -40,12 +41,15 @@ main = do
 
   traceM ("src lookup: " ++ (show $ H.lookup lookupKey srcTree))
 
-  let hbt :: (HB.Tree Integer String) =
-        HB.insert 7 "seven" $ HB.insert 2 "one" $ HB.insert 4 "four" $
-        HB.insert 10 "ten" $ HB.insert 1 "ah" $ HB.insert 9 "nine" $
-        HB.insert 5 "hello" $ HB.empty HB.twoThreeSetup
+  let pub = P.toPublishTree srcTree
+  traceM ("pub: " ++ (show pub))
 
-  traceM ("hasky tree: " ++ (show hbt))
+  -- let hbt :: (HB.Tree Integer String) =
+  --       HB.insert 7 "seven" $ HB.insert 2 "one" $ HB.insert 4 "four" $
+  --       HB.insert 10 "ten" $ HB.insert 1 "ah" $ HB.insert 9 "nine" $
+  --       HB.insert 5 "hello" $ HB.empty HB.twoThreeSetup
+
+  -- traceM ("hasky tree: " ++ (show hbt))
 
 {-
 

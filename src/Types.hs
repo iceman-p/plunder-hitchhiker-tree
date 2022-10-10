@@ -10,9 +10,6 @@ import           GHC.Generics    (Generic, Generic1)
 -- TODO: For now, hash is just an int. Change this in production.
 type Hash256 = Int
 
--- Storage of all the nodes.
-type NodeStorage k v = Map Hash256 (TreeNode k v)
-
 -- An Index is the main payload of an index node: the inner node of a B+ tree.
 --
 -- An index is a parallel array where each key is the smallest item in the
@@ -33,21 +30,6 @@ type LeafVector k v = Seq (k, v)   -- Sorted
 -- duplicates.
 type Hitchhikers k v = Seq (k, v)  -- Unsorted
 
--- The shared node between both FullTrees and PartialTrees.
-data TreeNode k v
-  -- Inner B+ index with hitchhiker information.
-  = NodeIndex (Index k (TreeNode k v)) (Hitchhikers k v)
-  -- Sorted list of leaf values. (in sire, rows access is O(1)).
-  | NodeLeaf (LeafVector k v)
-  deriving (Show, Eq, Generic, NFData)
-
-instance (Hashable k, Hashable v) => Hashable (TreeNode k v) where
-  hashWithSalt s (NodeLeaf lv) = s `hashWithSalt` (0 :: Int) `hashWithSalt` lv
-  hashWithSalt s (NodeIndex (Index k hashes) hh) =
-    s `hashWithSalt` (1 :: Int) `hashWithSalt` k `hashWithSalt`
-    hashes `hashWithSalt` hh
-
-
 -- ----------------------------------------------------------------------------
 
 -- B+ and hitchhiker tree configuration.
@@ -62,18 +44,45 @@ data TreeConfig = TREECONFIG {
   }
   deriving (Show, Generic, NFData)
 
+-- The shared node between both FullTrees and PartialTrees.
+data HitchhikerTreeNode k v
+  -- Inner B+ index with hitchhiker information.
+  = HitchhikerNodeIndex (Index k (HitchhikerTreeNode k v)) (Hitchhikers k v)
+  -- Sorted list of leaf values. (in sire, rows access is O(1)).
+  | HitchhikerNodeLeaf (LeafVector k v)
+  deriving (Show, Eq, Generic, NFData)
+
 -- A Hitchhiker tree where all the links are manual.
 data HitchhikerTree k v = HITCHHIKERTREE {
   config :: TreeConfig,
-  root   :: Maybe (TreeNode k v)
+  root   :: Maybe (HitchhikerTreeNode k v)
   }
   deriving (Show, Generic, NFData)
 
+-- -----------------------------------------------------------------------
 
--- A full, content addressed, hash linked hitchhiker tree.
-data FullTree k v = FULLTREE {
-  config  :: TreeConfig,
+-- The shared node between both FullTrees and PartialTrees.
+data PublishTreeNode k v
+  -- Inner B+ index with hitchhiker information.
+  = PublishNodeIndex (Index k Hash256) (Hitchhikers k v)
+  -- Sorted list of leaf values. (in sire, rows access is O(1)).
+  | PublishNodeLeaf (LeafVector k v)
+  deriving (Show, Eq, Generic, NFData)
+
+-- Content addressed storage of all the nodes.
+type NodeStorage k v = Map Hash256 (PublishTreeNode k v)
+
+-- HitchhikerTree, but in the form that every node is content
+-- addressed. Immutable.
+data PublishTree k v = PUBLISHTREE {
   root    :: Maybe Hash256,
   storage :: NodeStorage k v
   }
   deriving (Show, Generic, NFData)
+
+instance (Hashable k, Hashable v) => Hashable (PublishTreeNode k v) where
+  hashWithSalt s (PublishNodeLeaf lv) =
+    s `hashWithSalt` (0 :: Int) `hashWithSalt` lv
+  hashWithSalt s (PublishNodeIndex (Index k hashes) hh) =
+    s `hashWithSalt` (1 :: Int) `hashWithSalt` k `hashWithSalt`
+    hashes `hashWithSalt` hh
