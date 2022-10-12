@@ -43,7 +43,7 @@ main = do
   traceM ("pub: " ++ (show pubTree))
 
   let subTree :: (S.SubscriberTree Int String) =
-        S.newSubscriberFromRoot $ fromJust $ publishRoot pubTree
+        S.newSubscriberFromRoot $ publishRoot pubTree
 
   traceM ("Result:" ++ show (recurseLookup lookupKey pubTree subTree))
 

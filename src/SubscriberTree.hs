@@ -1,6 +1,7 @@
 module SubscriberTree (SubscriberTree(..),
                        FetchRequest(..),
                        newSubscriberFromRoot,
+                       updateRoot,
                        ensureRange,
                        SubscriberTree.lookup,
                        fetched
@@ -10,7 +11,6 @@ import           Control.Monad
 import           Data.Hashable
 import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Data.Set      (Set)
-import           Debug.Trace
 import           Index
 import           Types
 import           Utils
@@ -60,20 +60,22 @@ data Range k
 -- -----------------------------------------------------------------------
 
 -- | Given the value of a root node, create a SubscriberTree to track it.
-newSubscriberFromRoot :: Hash256 -> SubscriberTree k v
-
-newSubscriberFromRoot hash =
+newSubscriberFromRoot :: Maybe Hash256 -> SubscriberTree k v
+newSubscriberFromRoot Nothing = SubscriberTree Nothing
+newSubscriberFromRoot (Just hash) =
   SubscriberTree (Just $ MissingNode hash Nothing)
 
 
 -- | We have received a new root hash for the tree we are
 -- monitoring. Immediately apply the new root node hash while keeping the old
 -- index.
-updatedRoot :: Hash256 -> SubscriberTree k v -> SubscriberTree k v
-updatedRoot newHash oldTree =
+updateRoot :: (Maybe Hash256) -> SubscriberTree k v -> SubscriberTree k v
+updateRoot Nothing _ = SubscriberTree Nothing
+updateRoot (Just newHash) oldTree =
   SubscriberTree (Just $ MissingNode newHash $ partialTreeToIndex oldTree)
 
-partialTreeToIndex :: SubscriberTree k v -> Maybe (Index k (SubscriberTreeNode k v))
+partialTreeToIndex :: SubscriberTree k v
+                   -> Maybe (Index k (SubscriberTreeNode k v))
 partialTreeToIndex (SubscriberTree ptn) = fmap singletonIndex ptn
 
 -- | Given a range (from, to), calculate all the nodes we know we'd need to
@@ -91,11 +93,9 @@ ensureRange range (SubscriberTree (Just root)) = scan range Nothing root
       join $ fmap (\(k,v) -> scan range k v) $ indexPairs $
                     filterNodes range idx
 
-    -- TODO: Reenable filtering when I'm sure the rest of stuff works.
-    filterNodes _ = id
-    -- filterNodes (LessThanEq k)    = removeGreaterThan k
-    -- filterNodes (Between lt gt)   = removeGreaterThan lt . removeLessThan gt
-    -- filterNodes (GreaterThenEq k) = removeLessThan k
+    filterNodes (LessThanEq k)    = removeGreaterThan k
+    filterNodes (Between lt gt)   = removeGreaterThan lt . removeLessThan gt
+    filterNodes (GreaterThenEq k) = removeLessThan k
 
 -- | Attempts to lookup a piece of data. Returns either a request for another
 -- node in the tree or a definitive answer of whether the key is there or not.
@@ -116,13 +116,6 @@ lookup key (SubscriberTree (Just node)) = lookupIn node
     lookupIn (CompletedLeaf _ leaves) =
       Right $ findInLeaves key leaves
 
--- The concept of location gets confused because we receive the position back
--- from findSubnodeByKey, which is local, instead of the one to be global.
---
--- We just replaced the returned location with
-
-
-
 -- | We have received a piece requested. We now insert that back into the
 -- structure, reconstituting as much of the tree as we can if the MissingNode
 -- had
@@ -132,7 +125,7 @@ fetched :: forall k v. (Ord k, Show k, Show v)
         -> SubscriberTree k v
         -> SubscriberTree k v
 fetched _ _ (SubscriberTree Nothing) = SubscriberTree Nothing
-fetched fr@(fetchK, hash) fetched (SubscriberTree (Just tree))
+fetched (fetchK, hash) fetched (SubscriberTree (Just tree))
   = SubscriberTree $ Just $ findTarget tree
   -- What does this do? First we must navigate downward to the place in the
   -- tree where we need to perform the completion, then we need to
@@ -164,7 +157,8 @@ fetched fr@(fetchK, hash) fetched (SubscriberTree (Just tree))
         --
         -- We do this recursively because nodes that we would be able to
         -- compelte might have moved downwards.
-        completeSubnodes = mapIndexWithLoc (completeFromPrevious prevIndex)
+        completeSubnodes newIdx =
+          mapIndexWithLoc (completeFromPrevious prevIndex) newIdx
 
         -- Given a location and a hash, we return a node. Either a MissingNode
         -- with a restricted prevIndex if there's nothing in `prevIndex` to
@@ -185,27 +179,24 @@ fetched fr@(fetchK, hash) fetched (SubscriberTree (Just tree))
               MissingNode targetHash $ Just $ narrowIndex prev next prevIndex
             Just node -> node
 
-  -- TODO: OK, the reason the above fails is probably because all our Utils are
-  -- wrong and are written to assume the clojure hitchhiker tree base instead
-  -- of the
-
 
 -- Given a location to follow and a hash, try to find the hash in a given
 -- index, returning the node if found.
-findHashInIndex :: Ord k
+findHashInIndex :: (Show k, Show v, Ord k)
                 => (Maybe k, Hash256)
                 -> Index k (SubscriberTreeNode k v)
                 -> Maybe (SubscriberTreeNode k v)
-findHashInIndex (right, hash) index = case getSubnodeByLoc right index of
-  pi@(PartialIndex piHash subindex _)
-    | hash == piHash -> Just pi
-    | otherwise      -> findHashInIndex (right, hash) subindex
-  mn@(MissingNode mnHash _)
-    | hash == mnHash -> Just mn
-    | otherwise      -> Nothing
-  cl@(CompletedLeaf clHash _)
-    | hash == clHash -> Just cl
-    | otherwise      -> Nothing
+findHashInIndex (left, hash) index =
+  case getSubnodeByLoc left index of
+    pi@(PartialIndex piHash subindex _)
+      | hash == piHash -> Just pi
+      | otherwise      -> findHashInIndex (left, hash) subindex
+    mn@(MissingNode mnHash _)
+      | hash == mnHash -> Just mn
+      | otherwise      -> Nothing
+    cl@(CompletedLeaf clHash _)
+      | hash == clHash -> Just cl
+      | otherwise      -> Nothing
 
 narrowIndex :: Ord k
             => Maybe k

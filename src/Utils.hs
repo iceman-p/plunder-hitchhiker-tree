@@ -87,12 +87,12 @@ mapSubnodeByLoc fun (Just k) (Index keys vals) = Index keys newVals
 getSubnodeByLoc :: Ord k => Maybe k -> Index k v -> v
 
 getSubnodeByLoc Nothing (Index keys vals) = case vals of
-  xs :|> x -> x
+  x :<| xs -> x
   Empty    -> error "Impossible empty Index"
 
 getSubnodeByLoc (Just k) (Index keys vals) = Q.index vals i
   where
-    i = Q.length $ fst $ Q.spanl (< k) keys
+    i = Q.length $ fst $ Q.spanl (<= k) keys
 
 -- | Return the index in a form where the leftmost key is returned with each
 -- vector, or Nothing at the beginning.
