@@ -26,6 +26,11 @@ qUncons = \case
   (head :<| rest) -> Just (head, rest)
   Q.Empty         -> Nothing
 
+qUnsnoc :: Seq a -> Maybe (a, Seq a)
+qUnsnoc = \case
+  (rest :|> head) -> Just (head, rest)
+  Q.Empty         -> Nothing
+
 -- Hitchhiker utils ----------------------------------------------------------
 
 -- | Finds a value in the hitchhikers by scanning from the back, since
@@ -55,8 +60,8 @@ findInLeaves key leaves =
 --
 -- TODO: A real version here could use binary search on keys, and O(1) position
 -- lookup.
-findSubnodeByKey :: Ord k => k -> Index k v -> (Maybe k, v)
-findSubnodeByKey key (Index keys vals) = (rightKey, subnode)
+findSubnodeByKey :: (Show k, Show v, Ord k) => k -> Index k v -> v
+findSubnodeByKey key i@(Index keys vals) = subnode
   where
     (leftKeys, rightKeys) = Q.spanl (<=key) keys
     n = Q.length leftKeys
@@ -64,22 +69,19 @@ findSubnodeByKey key (Index keys vals) = (rightKey, subnode)
     subnode = case qUncons valAndRightVals of
       Nothing       -> error "Impossible in findSubnodeByKey"
       Just (val, _) -> val
-    rightKey = case qUncons rightKeys of
-      Nothing       -> Nothing
-      Just (key, _) -> Just key
 
 -- | Apply fun to the node whose rightmost key is the given KeyLoc.
 mapSubnodeByLoc :: Ord k => (v -> v) -> Maybe k -> Index k v -> Index k v
 
 mapSubnodeByLoc fun Nothing (Index keys vals) = Index keys $
   case vals of
-    xs :|> x -> xs |> fun x
+    x :<| xs -> fun x <| xs
     Empty    -> Empty
 
 mapSubnodeByLoc fun (Just k) (Index keys vals) = Index keys newVals
   where
-    i = Q.length $ fst $ Q.spanl (< k) keys
-    newVals = Q.adjust fun i vals
+    i = Q.length $ fst $ Q.spanl (<= k) keys
+    newVals =  Q.adjust fun i vals
 
 -- | Get the subnode from an index by location.
 getSubnodeByLoc :: Ord k => Maybe k -> Index k v -> v
@@ -92,10 +94,10 @@ getSubnodeByLoc (Just k) (Index keys vals) = Q.index vals i
   where
     i = Q.length $ fst $ Q.spanl (< k) keys
 
--- | Return the index in a form where the rightmost key is returned with each
--- vector, or Nothing at the end.
+-- | Return the index in a form where the leftmost key is returned with each
+-- vector, or Nothing at the beginning.
 indexPairs :: Index k v -> Seq (Maybe k, v)
-indexPairs (Index keys vals) = Q.zip (fmap Just keys |> Nothing) vals
+indexPairs (Index keys vals) = Q.zip (Nothing <| fmap Just keys) vals
 
 -- | Returns the index with the left key and the right key to every node.
 indexTriples :: Index k v -> Seq (Maybe k, Maybe k, v)
@@ -110,7 +112,7 @@ mapIndexWithLoc fun idx@(Index keys _) =
 removeGreaterThan :: Ord k => k -> Index k v -> Index k v
 removeGreaterThan key (Index keys vals) = Index prunedKeys prunedVals
   where
-    (prunedKeys, _) = Q.spanl (<= key) keys
+    (prunedKeys, _) = Q.spanl (< key) keys
     n = Q.length prunedKeys
     (prunedVals, _) = Q.splitAt (n + 1) vals
 

@@ -197,7 +197,7 @@ splitLeafMany maxLeafItems items
 
 -- Lookup --------------------------------------------------------------------
 
-lookup :: Ord k => k -> HitchhikerTree k v -> Maybe v
+lookup :: (Show k, Show v, Ord k) => k -> HitchhikerTree k v -> Maybe v
 lookup key (HITCHHIKERTREE _ Nothing) = Nothing
 lookup key (HITCHHIKERTREE _ (Just top)) = lookInNode top
   where
@@ -205,5 +205,5 @@ lookup key (HITCHHIKERTREE _ (Just top)) = lookInNode top
       HitchhikerNodeIndex index hitchhikers ->
         case findInHitchhikers key hitchhikers of
           Just v  -> Just v
-          Nothing -> lookInNode $ snd $ findSubnodeByKey key index
+          Nothing -> lookInNode $ findSubnodeByKey key index
       HitchhikerNodeLeaf items -> findInLeaves key items

@@ -27,6 +27,7 @@ import qualified Data.Sequence as Q
 -- keep track of ranges of the tree that it already has.
 
 data SubscriberTree k v = SubscriberTree (Maybe (SubscriberTreeNode k v))
+  deriving (Show)
 
 type PartialIndex k v = Index k (Hash256, SubscriberTreeNode k v)
 
@@ -90,30 +91,37 @@ ensureRange range (SubscriberTree (Just root)) = scan range Nothing root
       join $ fmap (\(k,v) -> scan range k v) $ indexPairs $
                     filterNodes range idx
 
-    filterNodes (LessThanEq k)    = removeGreaterThan k
-    filterNodes (Between lt gt)   = removeGreaterThan lt . removeLessThan gt
-    filterNodes (GreaterThenEq k) = removeLessThan k
+    -- TODO: Reenable filtering when I'm sure the rest of stuff works.
+    filterNodes _ = id
+    -- filterNodes (LessThanEq k)    = removeGreaterThan k
+    -- filterNodes (Between lt gt)   = removeGreaterThan lt . removeLessThan gt
+    -- filterNodes (GreaterThenEq k) = removeLessThan k
 
 -- | Attempts to lookup a piece of data. Returns either a request for another
 -- node in the tree or a definitive answer of whether the key is there or not.
-lookup :: Ord k
+lookup :: (Show k, Show v, Ord k)
        => k
        -> SubscriberTree k v
        -> Either (FetchRequest k) (Maybe v)
 
 lookup key (SubscriberTree Nothing)     = Right $ Nothing
 
-lookup key (SubscriberTree (Just node)) = lookupIn (Nothing, node)
+lookup key (SubscriberTree (Just node)) = lookupIn node
   where
-    lookupIn (_, (PartialIndex hash idx hitchhikers)) =
+    lookupIn (PartialIndex hash idx hitchhikers) =
       case findInHitchhikers key hitchhikers of
         Just v  -> Right $ Just v
         Nothing -> lookupIn $ findSubnodeByKey key idx
-
-    lookupIn (loc, (MissingNode hash idx)) = Left $ (loc, hash)
-
-    lookupIn (_, CompletedLeaf _ leaves) =
+    lookupIn (MissingNode hash idx) = Left $ (Just key, hash)
+    lookupIn (CompletedLeaf _ leaves) =
       Right $ findInLeaves key leaves
+
+-- The concept of location gets confused because we receive the position back
+-- from findSubnodeByKey, which is local, instead of the one to be global.
+--
+-- We just replaced the returned location with
+
+
 
 -- | We have received a piece requested. We now insert that back into the
 -- structure, reconstituting as much of the tree as we can if the MissingNode
@@ -132,9 +140,6 @@ fetched fr@(fetchK, hash) fetched (SubscriberTree (Just tree))
     findTarget :: SubscriberTreeNode k v -> SubscriberTreeNode k v
     -- Navigate through the tree to the node containing the MissingNode subref.
     findTarget ii@(PartialIndex nodeHash idx hh) =
-      trace ("fetch request: " ++ show fr) $
-      trace ("fetched: " ++ show fetched) $
-      trace ("fetched state: " ++ show tree) $
       -- Find the place in the index where we could have (k, hash) be a thing
       -- that needs to be replaced.
       PartialIndex nodeHash newIdx hh
@@ -142,16 +147,16 @@ fetched fr@(fetchK, hash) fetched (SubscriberTree (Just tree))
         newIdx = mapSubnodeByLoc findTarget fetchK idx
 
     -- Don't navigate into completed areas of the tree.
-    findTarget c@(CompletedLeaf _ _) = c
+    findTarget c@(CompletedLeaf h _) = c
 
     findTarget mn@(MissingNode nodeHash prevIndex)
       | hash == nodeHash = case fetched of
           PublishNodeLeaf leafVector  -> CompletedLeaf nodeHash leafVector
           PublishNodeIndex hashIdx hh ->
             PartialIndex nodeHash (completeSubnodes hashIdx) hh
-      | otherwise =
-        error $ "MISSING NODE HASH MISMATCH: " ++ (show hash) ++ ", " ++
-                (show nodeHash)
+      | otherwise = error $
+                    "MISSING NODE HASH MISMATCH: " ++ (show hash) ++ ", " ++
+                    (show nodeHash)
       where
         -- We changed a MissingNode to an IncompleteIndex. We now have to take
         -- the previous Index from the MissingNode and try to use it to
@@ -179,6 +184,10 @@ fetched fr@(fetchK, hash) fetched (SubscriberTree (Just tree))
             Nothing ->
               MissingNode targetHash $ Just $ narrowIndex prev next prevIndex
             Just node -> node
+
+  -- TODO: OK, the reason the above fails is probably because all our Utils are
+  -- wrong and are written to assume the clojure hitchhiker tree base instead
+  -- of the
 
 
 -- Given a location to follow and a hash, try to find the hash in a given
