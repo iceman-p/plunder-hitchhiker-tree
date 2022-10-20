@@ -56,23 +56,25 @@ insert k v (HITCHHIKERTREE config Nothing)
 -- -----------------------------------------------------------------------
 
 insertRec :: Ord k
-          => TreeConfig -> Hitchhikers k v -> HitchhikerTreeNode k v
+          => TreeConfig
+          -> Hitchhikers k v
+          -> HitchhikerTreeNode k v
           -> Index k (HitchhikerTreeNode k v)
+insertRec config Empty node = singletonIndex node
 insertRec config toAdd node = case node of
     HitchhikerNodeIndex children hitchhikers
-      | (Q.length hitchhikers + Q.length toAdd) > (maxHitchhikers config) ->
+      | Q.length merged > maxHitchhikers config ->
           -- We have reached the maximum number of hitchhikers, we now need to
           -- flush these downwards.
-          let allAdd = sortByKey $ hitchhikers <> toAdd
-          in extendIndex (maxLeafItems config) $
-               distributeDownwards config allAdd children emptyIndex
+          extendIndex (maxLeafItems config) $
+             distributeDownwards config merged children emptyIndex
 
-      | not $ Q.null toAdd ->
+      | otherwise ->
           -- All we must do is rebuild the node with the new k/v pair added on
           -- as a hitchhiker to this node.
-          singletonIndex $ HitchhikerNodeIndex children (hitchhikers <> toAdd)
-
-      | otherwise -> singletonIndex node
+          singletonIndex $ HitchhikerNodeIndex children merged
+      where
+        merged = mergeItems hitchhikers toAdd
 
     HitchhikerNodeLeaf items ->
       splitLeafMany (maxLeafItems config) $ mergeItems items toAdd
