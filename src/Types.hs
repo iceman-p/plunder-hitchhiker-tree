@@ -23,12 +23,12 @@ data Index k v = Index (Seq k) (Seq v)
 -- | The rightmost index of the node (for traversing back to it).
 type KeyLoc k = Maybe k
 
--- The sorted list in the leaves.
-type LeafVector k v = Seq (k, v)   -- Sorted
-
 -- The unsorted insertion log that tags along on index nodes, which might have
 -- duplicates.
 type Hitchhikers k v = Seq (k, v)  -- Unsorted
+
+-- The sorted list in the leaves.
+type LeafVector k v = Seq (k, v)   -- Sorted
 
 -- ----------------------------------------------------------------------------
 
@@ -45,17 +45,17 @@ data TreeConfig = TREECONFIG {
   deriving (Show, Generic, NFData)
 
 -- The shared node between both FullTrees and PartialTrees.
-data HitchhikerTreeNode k v
+data HitchhikerMapNode k v
   -- Inner B+ index with hitchhiker information.
-  = HitchhikerNodeIndex (Index k (HitchhikerTreeNode k v)) (Hitchhikers k v)
+  = HitchhikerNodeIndex (Index k (HitchhikerMapNode k v)) (Hitchhikers k v)
   -- Sorted list of leaf values. (in sire, rows access is O(1)).
   | HitchhikerNodeLeaf (LeafVector k v)
   deriving (Show, Eq, Generic, NFData)
 
 -- A Hitchhiker tree where all the links are manual.
-data HitchhikerTree k v = HITCHHIKERTREE {
+data HitchhikerMap k v = HITCHHIKERTREE {
   config :: TreeConfig,
-  root   :: Maybe (HitchhikerTreeNode k v)
+  root   :: Maybe (HitchhikerMapNode k v)
   }
   deriving (Show, Generic, NFData)
 
@@ -72,7 +72,7 @@ data PublishTreeNode k v
 -- Content addressed storage of all the nodes.
 type NodeStorage k v = Map Hash256 (PublishTreeNode k v)
 
--- HitchhikerTree, but in the form that every node is content
+-- HitchhikerMap, but in the form that every node is content
 -- addressed. Immutable.
 data PublishTree k v = PUBLISHTREE {
   publishRoot :: Maybe Hash256,

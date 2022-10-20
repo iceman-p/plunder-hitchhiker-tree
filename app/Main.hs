@@ -10,7 +10,7 @@ import           Data.BTree.Primitives.Key
 import qualified Data.BTree.Pure           as HB
 import qualified Data.BTree.Pure.Setup     as HB
 
-import qualified HitchhikerTree            as H
+import qualified HitchhikerMap             as H
 import qualified PublishTree               as P
 import qualified SubscriberTree            as S
 
@@ -28,7 +28,7 @@ recurseLookup k pt st = let lu = S.lookup k st in
 
 main :: IO ()
 main = do
-  let srcTree :: (HitchhikerTree Int String) =
+  let srcTree :: (HitchhikerMap Int String) =
         H.insert 7 "seven" $ H.insert 2 "one" $ H.insert 4 "four" $
         H.insert 10 "ten" $ H.insert 1 "ah" $ H.insert 9 "nine" $
         H.insert 5 "hello" $ H.empty H.twoThreeConfig

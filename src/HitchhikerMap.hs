@@ -1,4 +1,4 @@
-module HitchhikerTree where
+module HitchhikerMap where
 
 
 import           Control.DeepSeq
@@ -31,10 +31,10 @@ twoThreeConfig = TREECONFIG {
 
 emptyIndex = Index mempty mempty
 
-empty :: TreeConfig -> HitchhikerTree k v
+empty :: TreeConfig -> HitchhikerMap k v
 empty config = HITCHHIKERTREE config Nothing
 
-insert :: Ord k => k -> v -> HitchhikerTree k v -> HitchhikerTree k v
+insert :: Ord k => k -> v -> HitchhikerMap k v -> HitchhikerMap k v
 insert !k !v !(HITCHHIKERTREE config (Just root)) =
   HITCHHIKERTREE config (Just newRoot)
   where
@@ -58,8 +58,8 @@ insert k v (HITCHHIKERTREE config Nothing)
 insertRec :: Ord k
           => TreeConfig
           -> Hitchhikers k v
-          -> HitchhikerTreeNode k v
-          -> Index k (HitchhikerTreeNode k v)
+          -> HitchhikerMapNode k v
+          -> Index k (HitchhikerMapNode k v)
 insertRec config Empty node = singletonIndex node
 insertRec config toAdd node = case node of
     HitchhikerNodeIndex children hitchhikers
@@ -85,9 +85,9 @@ insertRec config toAdd node = case node of
 distributeDownwards :: Ord k
                     => TreeConfig
                     -> Hitchhikers k v
-                    -> Index k (HitchhikerTreeNode k v)  -- input
-                    -> Index k (HitchhikerTreeNode k v)  -- building output
-                    -> Index k (HitchhikerTreeNode k v)
+                    -> Index k (HitchhikerMapNode k v)  -- input
+                    -> Index k (HitchhikerMapNode k v)  -- building output
+                    -> Index k (HitchhikerMapNode k v)
 
 -- Base case: single subtree or end of list:
 distributeDownwards config
@@ -136,8 +136,8 @@ mergeItems = foldl $ \items (k, v) -> qSortedInsert k v items
 
 -- Given a pure index with no hitchhikers, create a node.
 extendIndex :: Int
-            -> Index k (HitchhikerTreeNode k v)
-            -> Index k (HitchhikerTreeNode k v)
+            -> Index k (HitchhikerMapNode k v)
+            -> Index k (HitchhikerMapNode k v)
 extendIndex maxIdxKeys = go
   where
     maxIdxVals = maxIdxKeys + 1
@@ -162,7 +162,7 @@ extendIndex maxIdxKeys = go
 splitLeafMany :: forall k v
                . Int
               -> LeafVector k v
-              -> Index k (HitchhikerTreeNode k v)
+              -> Index k (HitchhikerMapNode k v)
 splitLeafMany maxLeafItems items
   -- Leaf items don't overflow a single node.
   | Q.length items <= maxLeafItems =
@@ -181,8 +181,8 @@ splitLeafMany maxLeafItems items
   | otherwise = uncurry indexFromList $ split' items (Q.Empty, Q.Empty)
 
   where
-    split' :: LeafVector k v -> (Seq k, Seq (HitchhikerTreeNode k v))
-           -> (Seq k, Seq (HitchhikerTreeNode k v))
+    split' :: LeafVector k v -> (Seq k, Seq (HitchhikerMapNode k v))
+           -> (Seq k, Seq (HitchhikerMapNode k v))
     split' items (keys, leafs)
       | Q.length items > 2 * maxLeafItems =
           let (leaf, rem') = Q.splitAt maxLeafItems items
@@ -199,7 +199,7 @@ splitLeafMany maxLeafItems items
 
 -- Lookup --------------------------------------------------------------------
 
-lookup :: (Show k, Show v, Ord k) => k -> HitchhikerTree k v -> Maybe v
+lookup :: (Show k, Show v, Ord k) => k -> HitchhikerMap k v -> Maybe v
 lookup key (HITCHHIKERTREE _ Nothing) = Nothing
 lookup key (HITCHHIKERTREE _ (Just top)) = lookInNode top
   where

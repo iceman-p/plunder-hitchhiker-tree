@@ -1,4 +1,4 @@
-module HitchhikerTreeTests (tests) where
+module HitchhikerMapTests (tests) where
 
 import           Control.DeepSeq
 import           Debug.Trace
@@ -9,7 +9,7 @@ import           Test.Tasty.HUnit
 import           Test.Tasty.QuickCheck
 
 import qualified Data.Map              as M
-import qualified HitchhikerTree        as H
+import qualified HitchhikerMap         as H
 
 -- What are we doing here? A quickcheck test that
 
@@ -36,6 +36,6 @@ prop_map_fulltree_eq raw = go raw (H.empty H.twoThreeConfig) (M.empty)
 
 tests :: TestTree
 tests =
-  testGroup "HitchhikerTree" [
+  testGroup "HitchhikerMap" [
     testProperty "Lookup same as map" prop_map_fulltree_eq
     ]

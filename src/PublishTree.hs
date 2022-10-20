@@ -9,7 +9,7 @@ import           Types
 import qualified Data.Map                   as M
 
 toPublishTree :: (Hashable k, Hashable v)
-              => HitchhikerTree k v
+              => HitchhikerMap k v
               -> PublishTree k v
 toPublishTree (HITCHHIKERTREE _ Nothing) = (PUBLISHTREE Nothing mempty)
 toPublishTree (HITCHHIKERTREE _ (Just root)) = PUBLISHTREE (Just ptRoot) storage

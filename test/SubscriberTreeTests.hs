@@ -11,7 +11,7 @@ import           PublishTree
 import           Types
 
 import qualified Data.Map              as M
-import qualified HitchhikerTree        as H
+import qualified HitchhikerMap         as H
 import qualified SubscriberTree        as S
 
 data TestPair = TestPair Int String
@@ -25,9 +25,9 @@ doShuffle [] = []
 doShuffle i  = shuffle' i (length i) (mkStdGen 999999)
 
 applyPairs :: [TestPair]
-           -> HitchhikerTree Int String
+           -> HitchhikerMap Int String
            -> M.Map Int String
-           -> (HitchhikerTree Int String, M.Map Int String)
+           -> (HitchhikerMap Int String, M.Map Int String)
 applyPairs ((TestPair k v):xs) ft m =
   applyPairs xs (H.insert k v ft) (M.insert k v m)
 applyPairs [] ft m = (ft, m)
