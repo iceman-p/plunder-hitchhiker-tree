@@ -7,6 +7,7 @@ import           Data.Sequence   (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Debug.Trace
 
 import           Index
+import           Leaf
 import           Types
 import           Utils
 
@@ -66,7 +67,7 @@ insertRec config toAdd node = case node of
       | Q.length merged > maxHitchhikers config ->
           -- We have reached the maximum number of hitchhikers, we now need to
           -- flush these downwards.
-          extendIndex (maxLeafItems config) $
+          extendIndex (maxLeafItems config) HitchhikerNodeIndex $
              distributeDownwards config merged children emptyIndex
 
       | otherwise ->
@@ -77,7 +78,7 @@ insertRec config toAdd node = case node of
         merged = mergeItems hitchhikers toAdd
 
     HitchhikerNodeLeaf items ->
-      splitLeafMany (maxLeafItems config) $ mergeItems items toAdd
+      splitLeafMany (maxLeafItems config) HitchhikerNodeLeaf $ mergeItems items toAdd
 
 -- Given a sorted list of hitchhikers, try to distribute each downward to the
 -- next level. This function is responsible for sending the right output to
@@ -127,79 +128,13 @@ distributeDownwards config
                              (Index restKeys restNodes)
                              out
 
-sortByKey :: Ord k => Seq (k, v) -> Seq (k, v)
-sortByKey = Q.sortBy (\(a, _) (b, _) -> compare a b)
-
 mergeItems :: (Ord k)
            => LeafVector k v -> Hitchhikers k v -> LeafVector k v
 mergeItems = foldl $ \items (k, v) -> qSortedInsert k v items
 
--- Given a pure index with no hitchhikers, create a node.
-extendIndex :: Int
-            -> Index k (HitchhikerMapNode k v)
-            -> Index k (HitchhikerMapNode k v)
-extendIndex maxIdxKeys = go
-  where
-    maxIdxVals = maxIdxKeys + 1
-
-    go index
-      | numVals <= maxIdxVals =
-          singletonIndex $ HitchhikerNodeIndex index mempty
-
-      | numVals <= 2 * maxIdxVals =
-          let (leftIndex, middleKey, rightIndex) =
-                splitIndexAt (div numVals 2 - 1) index
-          in indexFromList (Q.singleton middleKey)
-                           (Q.fromList [HitchhikerNodeIndex leftIndex mempty,
-                                        HitchhikerNodeIndex rightIndex mempty])
-
-      | otherwise = error "TODO: Implement extendIndex for more than 2 split"
-      where
-        numVals = indexNumVals index
-
--- splitLeafMany returns an index to all the leaves, even if it's a singleton
--- leaf.
-splitLeafMany :: forall k v
-               . Int
-              -> LeafVector k v
-              -> Index k (HitchhikerMapNode k v)
-splitLeafMany maxLeafItems items
-  -- Leaf items don't overflow a single node.
-  | Q.length items <= maxLeafItems =
-      singletonIndex $ HitchhikerNodeLeaf items
-
-  -- We have to split, but only into two nodes.
-  | Q.length items <= 2 * maxLeafItems =
-      let numLeft = div (Q.length items) 2
-          (leftLeaf, rightLeaf) = Q.splitAt numLeft items
-          rightFirstItem = fst $ qHeadUnsafe rightLeaf
-      in indexFromList (Q.singleton rightFirstItem)
-                       (Q.fromList [HitchhikerNodeLeaf leftLeaf,
-                                    HitchhikerNodeLeaf rightLeaf])
-
-  -- We have to split the node into more than two nodes.
-  | otherwise = uncurry indexFromList $ split' items (Q.Empty, Q.Empty)
-
-  where
-    split' :: LeafVector k v -> (Seq k, Seq (HitchhikerMapNode k v))
-           -> (Seq k, Seq (HitchhikerMapNode k v))
-    split' items (keys, leafs)
-      | Q.length items > 2 * maxLeafItems =
-          let (leaf, rem') = Q.splitAt maxLeafItems items
-              key = fst $ qHeadUnsafe rem'
-          in split' rem' (keys |> key, leafs |> (HitchhikerNodeLeaf leaf))
-      | Q.length items > maxLeafItems =
-          let numLeft = div (Q.length items) 2
-              (leftLeaf, rightLeaf) = Q.splitAt numLeft items
-              key = fst $ qHeadUnsafe rightLeaf
-          in (keys |> key,
-              leafs |> (HitchhikerNodeLeaf leftLeaf) |>
-                (HitchhikerNodeLeaf rightLeaf))
-      | otherwise = error "split many error"
-
 -- Lookup --------------------------------------------------------------------
 
-lookup :: (Show k, Show v, Ord k) => k -> HitchhikerMap k v -> Maybe v
+lookup :: Ord k => k -> HitchhikerMap k v -> Maybe v
 lookup key (HITCHHIKERTREE _ Nothing) = Nothing
 lookup key (HITCHHIKERTREE _ (Just top)) = lookInNode top
   where

@@ -60,7 +60,7 @@ findInLeaves key leaves =
 --
 -- TODO: A real version here could use binary search on keys, and O(1) position
 -- lookup.
-findSubnodeByKey :: (Show k, Show v, Ord k) => k -> Index k v -> v
+findSubnodeByKey :: Ord k => k -> Index k v -> v
 findSubnodeByKey key i@(Index keys vals) = subnode
   where
     (leftKeys, rightKeys) = Q.spanl (<=key) keys

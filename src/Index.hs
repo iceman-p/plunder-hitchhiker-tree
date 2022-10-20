@@ -31,3 +31,29 @@ splitIndexAt numLeftKeys (Index keys vals)
         Just (middleKey,rightKeys) ->
             (Index leftKeys leftVals, middleKey, Index rightKeys rightVals)
         Nothing -> error "splitIndex: cannot split an empty index"
+
+
+-- Given a pure index with no hitchhikers, create a node.
+extendIndex :: Monoid h
+            => Int
+            -> (Index k a -> h -> a)
+            -> Index k a
+            -> Index k a
+extendIndex maxIdxKeys mkNode = go
+  where
+    maxIdxVals = maxIdxKeys + 1
+
+    go index
+      | numVals <= maxIdxVals =
+          singletonIndex $ mkNode index mempty
+
+      | numVals <= 2 * maxIdxVals =
+          let (leftIndex, middleKey, rightIndex) =
+                splitIndexAt (div numVals 2 - 1) index
+          in indexFromList (Q.singleton middleKey)
+                           (Q.fromList [mkNode leftIndex mempty,
+                                        mkNode rightIndex mempty])
+
+      | otherwise = error "TODO: Implement extendIndex for more than 2 split"
+      where
+        numVals = indexNumVals index
