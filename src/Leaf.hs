@@ -10,12 +10,13 @@ import qualified Data.Sequence as Q
 
 -- splitLeafMany returns an index to all the leaves, even if it's a singleton
 -- leaf.
-splitLeafMany :: forall k v a
+splitLeafMany :: forall k v a lt
                . Int
-              -> (LeafVector k v -> a)
-              -> LeafVector k v
+              -> (Seq lt -> a)
+              -> (lt -> k)
+              -> Seq lt
               -> Index k a
-splitLeafMany maxLeafItems mkNode items
+splitLeafMany maxLeafItems mkNode leafKey items
   -- Leaf items don't overflow a single node.
   | Q.length items <= maxLeafItems =
       singletonIndex $ mkNode items
@@ -24,7 +25,7 @@ splitLeafMany maxLeafItems mkNode items
   | Q.length items <= 2 * maxLeafItems =
       let numLeft = div (Q.length items) 2
           (leftLeaf, rightLeaf) = Q.splitAt numLeft items
-          rightFirstItem = fst $ qHeadUnsafe rightLeaf
+          rightFirstItem = leafKey $ qHeadUnsafe rightLeaf
       in indexFromList (Q.singleton rightFirstItem)
                        (Q.fromList [mkNode leftLeaf,
                                     mkNode rightLeaf])
@@ -33,16 +34,16 @@ splitLeafMany maxLeafItems mkNode items
   | otherwise = uncurry indexFromList $ split' items (Q.Empty, Q.Empty)
 
   where
-    split' :: LeafVector k v -> (Seq k, Seq a) -> (Seq k, Seq a)
+    split' :: Seq lt -> (Seq k, Seq a) -> (Seq k, Seq a)
     split' items (keys, leafs)
       | Q.length items > 2 * maxLeafItems =
           let (leaf, rem') = Q.splitAt maxLeafItems items
-              key = fst $ qHeadUnsafe rem'
+              key = leafKey $ qHeadUnsafe rem'
           in split' rem' (keys |> key, leafs |> (mkNode leaf))
       | Q.length items > maxLeafItems =
           let numLeft = div (Q.length items) 2
               (leftLeaf, rightLeaf) = Q.splitAt numLeft items
-              key = fst $ qHeadUnsafe rightLeaf
+              key = leafKey $ qHeadUnsafe rightLeaf
           in (keys |> key,
               leafs |> (mkNode leftLeaf) |> (mkNode rightLeaf))
       | otherwise = error "split many error"

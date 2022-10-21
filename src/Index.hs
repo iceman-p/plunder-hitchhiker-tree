@@ -7,6 +7,9 @@ import           Utils
 
 import qualified Data.Sequence as Q
 
+emptyIndex :: Index k v
+emptyIndex = Index mempty mempty
+
 indexFromList :: Seq k -> Seq v -> Index k v
 indexFromList keys valPtrs = Index keys valPtrs
 
