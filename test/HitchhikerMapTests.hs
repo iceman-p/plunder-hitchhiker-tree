@@ -7,6 +7,7 @@ import           System.Random.Shuffle (shuffle')
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Test.Tasty.QuickCheck
+import           Types
 
 import qualified Data.Map              as M
 import qualified HitchhikerMap         as H
@@ -20,7 +21,7 @@ instance Arbitrary TestPair where
   arbitrary = TestPair <$> choose (0, 256) <*> (listOf $ elements ['a'..'z'])
 
 prop_map_fulltree_eq :: [TestPair] -> Bool
-prop_map_fulltree_eq raw = go raw (H.empty H.twoThreeConfig) (M.empty)
+prop_map_fulltree_eq raw = go raw (H.empty twoThreeConfig) (M.empty)
   where
     go ((TestPair k v):xs) ft m =
       let ft' = force $ H.insert k v ft

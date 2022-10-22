@@ -31,7 +31,7 @@ main = do
   let srcTree :: (HitchhikerMap Int String) =
         H.insert 7 "seven" $ H.insert 2 "one" $ H.insert 4 "four" $
         H.insert 10 "ten" $ H.insert 1 "ah" $ H.insert 9 "nine" $
-        H.insert 5 "hello" $ H.empty H.twoThreeConfig
+        H.insert 5 "hello" $ H.empty twoThreeConfig
 
   traceM ("Full srctree: " ++ show srcTree)
 

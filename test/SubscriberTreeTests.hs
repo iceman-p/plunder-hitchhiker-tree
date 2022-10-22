@@ -58,7 +58,7 @@ filterChanges ((TestPair k _):xs) tp@(TestPair tk _) =
 
 prop_map_subscribe_pull :: [TestPair] -> Bool
 prop_map_subscribe_pull raw =
-  let (ft, m) = applyPairs raw (H.empty H.twoThreeConfig) M.empty
+  let (ft, m) = applyPairs raw (H.empty twoThreeConfig) M.empty
       pt = toPublishTree ft
   in case checkResult (take 4 $ doShuffle raw) m pt
                       (S.newSubscriberFromRoot $ publishRoot pt) of
@@ -67,7 +67,7 @@ prop_map_subscribe_pull raw =
 
 prop_map_retain_after_update :: [TestPair] -> [TestPair] -> Bool
 prop_map_retain_after_update one two = isJust $ do
-  let (ft, m) = applyPairs one (H.empty H.twoThreeConfig) M.empty
+  let (ft, m) = applyPairs one (H.empty twoThreeConfig) M.empty
       pt = toPublishTree ft
 
   let oneChecks = take 6 $ doShuffle one
@@ -87,7 +87,7 @@ prop_map_retain_after_update one two = isJust $ do
 
 prop_map_fetch_new_after_update :: [TestPair] -> [TestPair] -> Bool
 prop_map_fetch_new_after_update one two = isJust $ do
-  let (ft, m) = applyPairs one (H.empty H.twoThreeConfig) M.empty
+  let (ft, m) = applyPairs one (H.empty twoThreeConfig) M.empty
       pt = toPublishTree ft
 
   let oneChecks = take 4 $ doShuffle one

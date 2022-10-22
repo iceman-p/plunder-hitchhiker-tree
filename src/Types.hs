@@ -44,18 +44,49 @@ data TreeConfig = TREECONFIG {
   }
   deriving (Show, Generic, NFData)
 
+-- Stolen directly from hasky-btree for testing. Too small in practice to hold
+-- up a real large channel database.
+twoThreeConfig :: TreeConfig
+twoThreeConfig = TREECONFIG {
+    minFanout = minFanout'
+  , maxFanout = maxFanout'
+  , minIdxKeys = minFanout' - 1
+  , maxIdxKeys = maxFanout' - 1
+  , minLeafItems = minFanout'
+  , maxLeafItems = 2*minFanout' - 1
+  , maxHitchhikers = minFanout'
+  }
+  where
+    minFanout' = 2
+    maxFanout' = 2*minFanout' - 1
+
+-- -----------------------------------------------------------------------
+
 -- The shared node between both FullTrees and PartialTrees.
 data HitchhikerMapNode k v
   -- Inner B+ index with hitchhiker information.
-  = HitchhikerNodeIndex (Index k (HitchhikerMapNode k v)) (Hitchhikers k v)
+  = HitchhikerMapNodeIndex (Index k (HitchhikerMapNode k v)) (Hitchhikers k v)
   -- Sorted list of leaf values. (in sire, rows access is O(1)).
-  | HitchhikerNodeLeaf (LeafVector k v)
+  | HitchhikerMapNodeLeaf (LeafVector k v)
   deriving (Show, Eq, Generic, NFData)
 
 -- A Hitchhiker tree where all the links are manual.
-data HitchhikerMap k v = HITCHHIKERTREE {
+data HitchhikerMap k v = HITCHHIKERMAP {
   config :: TreeConfig,
   root   :: Maybe (HitchhikerMapNode k v)
+  }
+  deriving (Show, Generic, NFData)
+
+-- -----------------------------------------------------------------------
+
+data HitchhikerSetNode k
+  = HitchhikerSetNodeIndex (Index k (HitchhikerSetNode k)) (Seq k)
+  | HitchhikerSetNodeLeaf (Seq k)
+  deriving (Show, Eq, Generic, NFData)
+
+data HitchhikerSet k = HITCHHIKERSET {
+  config :: TreeConfig,
+  root   :: Maybe (HitchhikerSetNode k)
   }
   deriving (Show, Generic, NFData)
 

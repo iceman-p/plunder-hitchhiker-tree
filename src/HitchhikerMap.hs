@@ -13,28 +13,12 @@ import           Utils
 import qualified Data.Map      as M
 import qualified Data.Sequence as Q
 
--- Stolen directly from hasky-btree for testing. Too small in practice to hold
--- up a real large channel database.
-twoThreeConfig :: TreeConfig
-twoThreeConfig = TREECONFIG {
-    minFanout = minFanout'
-  , maxFanout = maxFanout'
-  , minIdxKeys = minFanout' - 1
-  , maxIdxKeys = maxFanout' - 1
-  , minLeafItems = minFanout'
-  , maxLeafItems = 2*minFanout' - 1
-  , maxHitchhikers = minFanout'
-  }
-  where
-    minFanout' = 2
-    maxFanout' = 2*minFanout' - 1
-
 empty :: TreeConfig -> HitchhikerMap k v
-empty config = HITCHHIKERTREE config Nothing
+empty config = HITCHHIKERMAP config Nothing
 
 insert :: Ord k => k -> v -> HitchhikerMap k v -> HitchhikerMap k v
-insert !k !v !(HITCHHIKERTREE config (Just root)) =
-  HITCHHIKERTREE config (Just newRoot)
+insert !k !v !(HITCHHIKERMAP config (Just root)) =
+  HITCHHIKERMAP config (Just newRoot)
   where
     newRoot = let newRootIdx =
                     insertRec config hhMapTF (Q.singleton (k, v)) root
@@ -47,35 +31,35 @@ insert !k !v !(HITCHHIKERTREE config (Just root)) =
             -- The insert resulted in a index with multiple nodes, i.e.
             -- the splitting propagated to the root. Create a new 'Idx'
             -- node with the index. This increments the height.
-            HitchhikerNodeIndex newRootIdx mempty
+            HitchhikerMapNodeIndex newRootIdx mempty
 
-insert k v (HITCHHIKERTREE config Nothing)
-  = HITCHHIKERTREE config (Just $ HitchhikerNodeLeaf $ Q.singleton (k, v))
+insert !k !v (HITCHHIKERMAP config Nothing)
+  = HITCHHIKERMAP config (Just $ HitchhikerMapNodeLeaf $ Q.singleton (k, v))
 
 -- -----------------------------------------------------------------------
 
 hhMapTF :: Ord k => TreeFun k (HitchhikerMapNode k v) (k, v) (k, v)
 hhMapTF = TreeFun {
-  mkIndex = HitchhikerNodeIndex,
-  mkLeaf = HitchhikerNodeLeaf,
+  mkIndex = HitchhikerMapNodeIndex,
+  mkLeaf = HitchhikerMapNodeLeaf,
   caseNode = \case
-      HitchhikerNodeIndex a b -> Left (a, b)
-      HitchhikerNodeLeaf l    -> Right l,
-  leafMerge = foldl $ \items (k, v) -> qSortedInsert k v items,
-  hhMerge = foldl $ \items (k, v) -> qSortedInsert k v items,
-  leafKey = \(k, _) -> k,
-  hhKey = \(k, _) -> k
+      HitchhikerMapNodeIndex a b -> Left (a, b)
+      HitchhikerMapNodeLeaf l    -> Right l,
+  leafMerge = foldl $ \items (k, v) -> qSortedAssocInsert k v items,
+  hhMerge = foldl $ \items (k, v) -> qSortedAssocInsert k v items,
+  leafKey = fst,
+  hhKey = fst
   }
 
 -- Lookup --------------------------------------------------------------------
 
 lookup :: Ord k => k -> HitchhikerMap k v -> Maybe v
-lookup key (HITCHHIKERTREE _ Nothing) = Nothing
-lookup key (HITCHHIKERTREE _ (Just top)) = lookInNode top
+lookup key (HITCHHIKERMAP _ Nothing) = Nothing
+lookup key (HITCHHIKERMAP _ (Just top)) = lookInNode top
   where
     lookInNode = \case
-      HitchhikerNodeIndex index hitchhikers ->
+      HitchhikerMapNodeIndex index hitchhikers ->
         case findInHitchhikers key hitchhikers of
           Just v  -> Just v
           Nothing -> lookInNode $ findSubnodeByKey key index
-      HitchhikerNodeLeaf items -> findInLeaves key items
+      HitchhikerMapNodeLeaf items -> findInLeaves key items
