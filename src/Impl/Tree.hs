@@ -35,7 +35,7 @@ data TreeFun k a hh lt = TreeFun {
   }
 
 
-insertRec :: Ord k
+insertRec :: (Show k, Show a, Show lt, Show hh, Ord k)
           => TreeConfig
           -> TreeFun k a hh lt
           -> Seq hh
@@ -48,14 +48,12 @@ insertRec config tf@TreeFun{..} toAdd node =
           -- We have reached the maximum number of hitchhikers, we now need to
           -- flush these downwards.
           extendIndex (maxLeafItems config) mkIndex $
-             distributeDownwards config tf merged children emptyIndex
+            distributeDownwards config tf merged children emptyIndex
       | otherwise ->
           -- All we must do is rebuild the node with the new k/v pair added on
           -- as a hitchhiker to this node.
           singletonIndex $ mkIndex children merged
       where
-        -- TODO: OK, we're currently failing here because I previously just
-        -- assumed that the type of the hitchhikers was the type of the leafs.
         merged = hhMerge hitchhikers toAdd
 
     Right items                  ->
@@ -66,7 +64,7 @@ insertRec config tf@TreeFun{..} toAdd node =
 -- level. This function is responsible for sending the right output to
 -- indexRec, and parsing that return value back into a coherent index.
 distributeDownwards
-  :: Ord k
+  :: (Show k, Show a, Show lt, Show hh, Ord k)
   => TreeConfig
   -> TreeFun k a hh lt
   -> Seq hh
@@ -78,7 +76,7 @@ distributeDownwards
 distributeDownwards config tf@TreeFun{..}
                     hitchhikers
                     (Index Empty (node :<| Empty))
-                    (Index oKeys oHashes) =
+                    o@(Index oKeys oHashes) =
   case hitchhikers of
     Empty ->
       -- there are no hitchhikers, running insertRec will just break the node
@@ -93,7 +91,7 @@ distributeDownwards config tf@TreeFun{..}
 distributeDownwards config tf@TreeFun{..}
                     hitchhikers
                     i@(Index (key :<| restKeys) (node :<| restNodes))
-                    (Index outKeys outNodes) =
+                    o@(Index outKeys outNodes) =
   let (toAdd, rest) = Q.spanl (\h -> (hhKey h) < key) hitchhikers
   in case toAdd of
     Empty ->

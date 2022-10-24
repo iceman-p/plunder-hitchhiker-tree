@@ -4,6 +4,7 @@ import           Test.Tasty
 import           Test.Tasty.TH
 
 import qualified HitchhikerMapTests
+import qualified HitchhikerSetMapTests
 import qualified HitchhikerSetTests
 import qualified SubscriberTreeTests
 import qualified UtilTests
@@ -14,5 +15,6 @@ main = defaultMain $
   [ UtilTests.tests
   , HitchhikerMapTests.tests
   , HitchhikerSetTests.tests
+  , HitchhikerSetMapTests.tests
   , SubscriberTreeTests.tests
   ]

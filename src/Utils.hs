@@ -21,6 +21,15 @@ qSortedAssocInsert k v s = case Q.findIndexL (\(i, _) -> k <= i) s of
     Just _                        -> Q.insertAt idx (k,v) s
     Nothing                       -> error "impossible"
 
+qSortedAssocSetInsert :: (Ord k, Ord v) => k -> v -> Seq (k, v) -> Seq (k, v)
+qSortedAssocSetInsert k v s = case Q.findIndexL ((k, v) <=) s of
+  Nothing -> s |> (k, v)
+  Just idx -> case Q.lookup idx s of
+    Just (curk, curv)
+      | curk == k && curv == v -> s
+      | otherwise              -> Q.insertAt idx (k, v) s
+    Nothing -> error "impossible"
+
 qSortedInsert :: (Ord k) => k -> Seq k -> Seq k
 qSortedInsert k s = case Q.findIndexL (\i -> k <= i) s of
   Nothing  -> s |> k

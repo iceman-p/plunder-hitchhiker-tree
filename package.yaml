@@ -24,6 +24,7 @@ dependencies:
 - hashable
 - haskey-btree
 - mtl
+- multimap
 - random
 - random-shuffle
 - tasty

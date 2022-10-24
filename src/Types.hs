@@ -42,7 +42,10 @@ data TreeConfig = TREECONFIG {
   maxLeafItems   :: Int,
   maxHitchhikers :: Int
   }
-  deriving (Show, Generic, NFData)
+  deriving (Eq, Generic, NFData)
+
+instance Show TreeConfig where
+  show _ = "TREECONFIG"
 
 -- Stolen directly from hasky-btree for testing. Too small in practice to hold
 -- up a real large channel database.
@@ -68,7 +71,7 @@ data HitchhikerMapNode k v
   = HitchhikerMapNodeIndex (Index k (HitchhikerMapNode k v)) (Hitchhikers k v)
   -- Sorted list of leaf values. (in sire, rows access is O(1)).
   | HitchhikerMapNodeLeaf (LeafVector k v)
-  deriving (Show, Eq, Generic, NFData)
+  deriving (Show, Generic, NFData)
 
 -- A Hitchhiker tree where all the links are manual.
 data HitchhikerMap k v = HITCHHIKERMAP {
@@ -82,13 +85,28 @@ data HitchhikerMap k v = HITCHHIKERMAP {
 data HitchhikerSetNode k
   = HitchhikerSetNodeIndex (Index k (HitchhikerSetNode k)) (Seq k)
   | HitchhikerSetNodeLeaf (Seq k)
-  deriving (Show, Eq, Generic, NFData)
+  deriving (Show, Generic, NFData)
 
 data HitchhikerSet k = HITCHHIKERSET {
   config :: TreeConfig,
   root   :: Maybe (HitchhikerSetNode k)
   }
   deriving (Show, Generic, NFData)
+
+-- -----------------------------------------------------------------------
+
+data HitchhikerSetMapNode k v
+  = HitchhikerSetMapNodeIndex (Index k (HitchhikerSetMapNode k v))
+                              (Hitchhikers k v)
+  | HitchhikerSetMapNodeLeaf (Seq (k, (HitchhikerSet v)))
+  deriving (Show, Generic, NFData)
+
+data HitchhikerSetMap k v = HITCHHIKERSETMAP {
+  config :: TreeConfig,
+  root   :: Maybe (HitchhikerSetMapNode k v)
+  }
+  deriving (Show, Generic, NFData)
+
 
 -- -----------------------------------------------------------------------
 

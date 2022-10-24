@@ -11,13 +11,33 @@ import           Leaf
 import           Types
 import           Utils
 
+import qualified Data.Foldable as F
 import qualified Data.Map      as M
 import qualified Data.Sequence as Q
+import qualified Data.Set      as S
 
 empty :: TreeConfig -> HitchhikerSet k
 empty config = HITCHHIKERSET config Nothing
 
-insert :: Ord k => k -> HitchhikerSet k -> HitchhikerSet k
+singleton :: TreeConfig -> k -> HitchhikerSet k
+singleton config k
+  = HITCHHIKERSET config (Just $ HitchhikerSetNodeLeaf $ Q.singleton k)
+
+fromSeq :: (Show k, Ord k) => TreeConfig -> Seq k -> HitchhikerSet k
+fromSeq config ks = foldl (flip insert) (empty config) ks
+
+toSet :: (Show k, Ord k) => HitchhikerSet k -> S.Set k
+toSet (HITCHHIKERSET config Nothing) = S.empty
+toSet (HITCHHIKERSET config (Just root)) = collect root
+  where
+    collect = \case
+      HitchhikerSetNodeIndex (Index _ nodes) hh ->
+        foldl (<>) (mkSet hh) $ fmap collect nodes
+      HitchhikerSetNodeLeaf l -> mkSet l
+
+    mkSet = S.fromList . F.toList
+
+insert :: (Show k, Ord k) => k -> HitchhikerSet k -> HitchhikerSet k
 insert !k !(HITCHHIKERSET config (Just root)) =
   HITCHHIKERSET config (Just newRoot)
   where

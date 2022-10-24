@@ -11,7 +11,8 @@ import qualified Data.Sequence as Q
 -- splitLeafMany returns an index to all the leaves, even if it's a singleton
 -- leaf.
 splitLeafMany :: forall k v a lt
-               . Int
+               . (Show k, Show a, Show lt)
+              => Int
               -> (Seq lt -> a)
               -> (lt -> k)
               -> Seq lt
@@ -29,6 +30,7 @@ splitLeafMany maxLeafItems mkNode leafKey items
       in indexFromList (Q.singleton rightFirstItem)
                        (Q.fromList [mkNode leftLeaf,
                                     mkNode rightLeaf])
+
 
   -- We have to split the node into more than two nodes.
   | otherwise = uncurry indexFromList $ split' items (Q.Empty, Q.Empty)

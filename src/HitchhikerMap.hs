@@ -16,7 +16,7 @@ import qualified Data.Sequence as Q
 empty :: TreeConfig -> HitchhikerMap k v
 empty config = HITCHHIKERMAP config Nothing
 
-insert :: Ord k => k -> v -> HitchhikerMap k v -> HitchhikerMap k v
+insert :: (Show k, Show v, Ord k) => k -> v -> HitchhikerMap k v -> HitchhikerMap k v
 insert !k !v !(HITCHHIKERMAP config (Just root)) =
   HITCHHIKERMAP config (Just newRoot)
   where
