@@ -38,21 +38,8 @@ toSet (HITCHHIKERSET config (Just root)) = collect root
     mkSet = S.fromList . F.toList
 
 insert :: (Show k, Ord k) => k -> HitchhikerSet k -> HitchhikerSet k
-insert !k !(HITCHHIKERSET config (Just root)) =
-  HITCHHIKERSET config (Just newRoot)
-  where
-    newRoot = let newRootIdx =
-                    insertRec config hhSetTF (Q.singleton k) root
-      in case fromSingletonIndex newRootIdx of
-          Just newRootNode ->
-            -- The result from the recursive insert is a single node. Use
-            -- this as a new root.
-            newRootNode
-          Nothing ->
-            -- The insert resulted in a index with multiple nodes, i.e.
-            -- the splitting propagated to the root. Create a new 'Idx'
-            -- node with the index. This increments the height.
-            HitchhikerSetNodeIndex newRootIdx mempty
+insert !k !(HITCHHIKERSET config (Just root)) = HITCHHIKERSET config $ Just $
+  fixUp config hhSetTF $ insertRec config hhSetTF (Q.singleton k) root
 
 insert !k (HITCHHIKERSET config Nothing)
   = HITCHHIKERSET config (Just $ HitchhikerSetNodeLeaf $ Q.singleton k)

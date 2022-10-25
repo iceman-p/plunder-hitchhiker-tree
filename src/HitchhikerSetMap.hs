@@ -28,10 +28,13 @@ hhSetMapTF setConfig = TreeFun {
       HitchhikerSetMapNodeIndex a b -> Left (a, b)
       HitchhikerSetMapNodeLeaf l    -> Right l,
   leafMerge = hhSetLeafMerge setConfig,
-  hhMerge = foldl $ \items (k, v) -> qSortedAssocSetInsert k v items,
+  hhMerge = hhMergeImpl,
   leafKey = fst,
   hhKey = fst
   }
+
+hhMergeImpl :: (Ord k, Ord v) => Seq (k, v) -> Seq (k, v) -> Seq (k, v)
+hhMergeImpl = foldl $ \items (k, v) -> qSortedAssocSetInsert k v items
 
 hhSetLeafMerge :: (Show k, Show v, Ord k, Ord v)
                => TreeConfig
@@ -52,25 +55,25 @@ hhSetLeafMerge config sets ((k, v) :<| xs) = hhSetLeafMerge config combined xs
 insert :: (Show k, Show v, Ord k, Ord v)
        => k -> v -> HitchhikerSetMap k v -> HitchhikerSetMap k v
 insert !k !v !(HITCHHIKERSETMAP config (Just root)) =
-    HITCHHIKERSETMAP config (Just newRoot)
-  where
-    newRoot =
-      let newRootIdx =
-            insertRec config (hhSetMapTF config) (Q.singleton (k, v)) root
-      in case fromSingletonIndex newRootIdx of
-          Just newRootNode ->
-            -- The result from the recursive insert is a single node. Use
-            -- this as a new root.
-            newRootNode
-          Nothing ->
-            -- The insert resulted in a index with multiple nodes, i.e.
-            -- the splitting propagated to the root. Create a new 'Idx'
-            -- node with the index. This increments the height.
-            HitchhikerSetMapNodeIndex newRootIdx mempty
+    HITCHHIKERSETMAP config $ Just $
+    fixUp config (hhSetMapTF config) $
+    insertRec config (hhSetMapTF config) (Q.singleton (k, v)) root
 
 insert !k !v (HITCHHIKERSETMAP config Nothing)
   = HITCHHIKERSETMAP config $ Just $ HitchhikerSetMapNodeLeaf $
                        Q.singleton (k, S.singleton config v)
+
+insertMany :: (Show k, Show v, Ord k, Ord v)
+           => Seq (k, v) -> HitchhikerSetMap k v -> HitchhikerSetMap k v
+insertMany !items !(HITCHHIKERSETMAP config Nothing)
+  = HITCHHIKERSETMAP config $ Just $ fixUp config (hhSetMapTF config) $
+    splitLeafMany (maxLeafItems config) HitchhikerSetMapNodeLeaf fst $
+    hhSetLeafMerge config Q.empty $
+    hhMergeImpl Q.empty items
+
+insertMany !items !(HITCHHIKERSETMAP config (Just root))
+  = HITCHHIKERSETMAP config $ Just $ fixUp config (hhSetMapTF config) $
+    insertRec config (hhSetMapTF config) (hhMergeImpl Q.empty items) root
 
 -- For SetMap lookup, we must always resolve our hitchhikers downwards to a
 -- leaf for combination into a set. We can't just stop halfway.

@@ -34,6 +34,15 @@ data TreeFun k a hh lt = TreeFun {
   hhKey     :: hh -> k
   }
 
+fixUp :: TreeConfig
+      -> TreeFun k a hh lt
+      -> Index k a
+      -> a
+fixUp config tf@TreeFun{..} idx = case fromSingletonIndex idx of
+  Just newRootNode -> newRootNode
+  Nothing          ->
+    fixUp config tf (extendIndex (maxLeafItems config) mkIndex idx)
+
 
 insertRec :: (Show k, Show a, Show lt, Show hh, Ord k)
           => TreeConfig

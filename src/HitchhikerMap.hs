@@ -16,25 +16,29 @@ import qualified Data.Sequence as Q
 empty :: TreeConfig -> HitchhikerMap k v
 empty config = HITCHHIKERMAP config Nothing
 
-insert :: (Show k, Show v, Ord k) => k -> v -> HitchhikerMap k v -> HitchhikerMap k v
+insert :: (Show k, Show v, Ord k)
+       => k -> v -> HitchhikerMap k v -> HitchhikerMap k v
 insert !k !v !(HITCHHIKERMAP config (Just root)) =
-  HITCHHIKERMAP config (Just newRoot)
-  where
-    newRoot = let newRootIdx =
-                    insertRec config hhMapTF (Q.singleton (k, v)) root
-      in case fromSingletonIndex newRootIdx of
-          Just newRootNode ->
-            -- The result from the recursive insert is a single node. Use
-            -- this as a new root.
-            newRootNode
-          Nothing ->
-            -- The insert resulted in a index with multiple nodes, i.e.
-            -- the splitting propagated to the root. Create a new 'Idx'
-            -- node with the index. This increments the height.
-            HitchhikerMapNodeIndex newRootIdx mempty
+  HITCHHIKERMAP config $ Just $
+  fixUp config hhMapTF $
+  insertRec config hhMapTF (Q.singleton (k, v)) root
 
 insert !k !v (HITCHHIKERMAP config Nothing)
   = HITCHHIKERMAP config (Just $ HitchhikerMapNodeLeaf $ Q.singleton (k, v))
+
+insertMany :: (Show k, Show v, Ord k, Ord v)
+           => Seq (k, v) -> HitchhikerMap k v -> HitchhikerMap k v
+
+insertMany !items !(HITCHHIKERMAP config Nothing) =
+  HITCHHIKERMAP config $ Just $
+  fixUp config hhMapTF $
+  splitLeafMany (maxLeafItems config) HitchhikerMapNodeLeaf fst $
+  hhMergeImpl Q.empty items
+
+insertMany !items !(HITCHHIKERMAP config (Just root)) =
+  HITCHHIKERMAP config $ Just $
+  fixUp config hhMapTF $
+  insertRec config hhMapTF (hhMergeImpl Q.empty items) root
 
 -- -----------------------------------------------------------------------
 
@@ -46,10 +50,13 @@ hhMapTF = TreeFun {
       HitchhikerMapNodeIndex a b -> Left (a, b)
       HitchhikerMapNodeLeaf l    -> Right l,
   leafMerge = foldl $ \items (k, v) -> qSortedAssocInsert k v items,
-  hhMerge = foldl $ \items (k, v) -> qSortedAssocInsert k v items,
+  hhMerge = hhMergeImpl,
   leafKey = fst,
   hhKey = fst
   }
+
+hhMergeImpl :: Ord k => Seq (k, v) -> Seq (k, v) -> Seq (k, v)
+hhMergeImpl = foldl $ \items (k, v) -> qSortedAssocInsert k v items
 
 -- Lookup --------------------------------------------------------------------
 

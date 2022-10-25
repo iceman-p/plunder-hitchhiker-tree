@@ -10,6 +10,12 @@ import qualified Data.Sequence as Q
 emptyIndex :: Index k v
 emptyIndex = Index mempty mempty
 
+mergeIndex :: Index key val -> key -> Index key val -> Index key val
+mergeIndex (Index leftKeys leftVals) middleKey (Index rightKeys rightVals) =
+    Index
+      (leftKeys <> Q.singleton middleKey <> rightKeys)
+      (leftVals <> rightVals)
+
 indexFromList :: Seq k -> Seq v -> Index k v
 indexFromList keys valPtrs = Index keys valPtrs
 
@@ -57,6 +63,11 @@ extendIndex maxIdxKeys mkNode = go
                            (Q.fromList [mkNode leftIndex mempty,
                                         mkNode rightIndex mempty])
 
-      | otherwise = error "TODO: Implement extendIndex for more than 2 split"
+      | otherwise =
+          let (leftIndex, middleKey, rightIndex) =
+                splitIndexAt maxIdxKeys index
+          in mergeIndex (singletonIndex (mkNode leftIndex mempty))
+                        middleKey
+                        (go rightIndex)
       where
         numVals = indexNumVals index
