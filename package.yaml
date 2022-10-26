@@ -17,10 +17,13 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 dependencies:
 - QuickCheck
+- aeson
 - base >= 4.7 && < 5
 - bytestring
 - containers
 - deepseq
+- directory
+- filepath
 - hashable
 - haskey-btree
 - mtl
@@ -31,8 +34,8 @@ dependencies:
 - repline
 - tasty
 - tasty-hunit
-- tasty-th
 - tasty-quickcheck
+- tasty-th
 - text
 
 ghc-options:

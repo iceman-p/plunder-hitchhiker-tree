@@ -1,15 +1,22 @@
 module Main (main) where
 
+import           Control.Monad             (forM, join)
 import           Control.Monad.State       (MonadState, StateT, evalStateT,
                                             execState, get, gets, modify', put,
                                             runStateT)
+import           Data.Aeson
 import           Data.Maybe
 import           Debug.Trace
 import           Optics                    hiding ((%%))
+import           System.Directory
+import           System.Environment
+import           System.FilePath
 
 --import System.Console.Repline
 import           Data.BTree.Primitives.Key
 import           Types
+
+import qualified Data.ByteString.Lazy      as BS
 
 import qualified Data.BTree.Pure           as HB
 import qualified Data.BTree.Pure.Setup     as HB
@@ -24,6 +31,21 @@ import qualified HitchhikerSetMap          as SM
 data Item = Item { idNum :: Int, tags :: [String] {- , data :: ByteString -} }
   deriving (Show)
 
+instance FromJSON Item where
+  parseJSON (Object v) =
+    Item <$> v .: "id"
+         <*> v .: "tags"
+  parseJSON _ = fail "not an object"
+
+-- The "images" container in the derpibooru
+data ImagesJSON = ImagesJSON [Item]
+  deriving (Show)
+
+instance FromJSON ImagesJSON where
+  parseJSON (Object v) = (v .: "images") >>= fmap ImagesJSON . parseJSON
+  parseJSON _          = fail "not an object"
+
+
 -- The entire world.
 data Model = Model {
   items :: HitchhikerMap Int Item,
@@ -32,7 +54,7 @@ data Model = Model {
 
 makeFieldLabelsNoPrefix ''Model
 
-emptyModel = Model (HM.empty twoThreeConfig) (SM.empty twoThreeConfig)
+emptyModel = Model (HM.empty largeConfig) (SM.empty largeConfig)
 
 addEntry :: Monad m => Item -> StateT Model m ()
 addEntry item@(Item idNum tags) = do
@@ -49,17 +71,23 @@ search tags = do
     x:[]   -> pure $ x
     (x:xs) -> pure $ foldl S.intersection x xs
 
-main = do
-  flip evalStateT emptyModel $ do
-    addEntry $ Item 1 ["twilight sparkle", "safe"]
-    addEntry $ Item 2 ["twilight sparkle", "questionable"]
-    addEntry $ Item 3 ["twilight sparkle", "safe", "looking at you"]
-    addEntry $ Item 4 ["twilight sparkle", "questionable", "looking at you"]
-    addEntry $ Item 5 ["rainbow dash", "safe"]
-    addEntry $ Item 6 ["rainbow dash", "questionable", "iwtcird"]
-    addEntry $ Item 7 ["rainbow dash", "questionable", "looking at you"]
+-- OK, we're going to parse the
 
-    s <- search ["questionable", "looking at you"]
+main = do
+  -- Load the json into a series of Items
+  [indir] <- getArgs
+  files :: [FilePath] <- listDirectory indir
+
+  allImages <- forM files $ \file -> do
+    bs <- BS.readFile (indir </> file)
+    case eitherDecode bs of
+      Left err                 -> do { putStrLn err; pure [] }
+      Right (ImagesJSON items) -> pure items
+
+  flip evalStateT emptyModel $ do
+    mapM addEntry (join allImages)
+
+    s <- search ["twilight sparkle", "cute"]
     traceM $ show s
 
     (Model items tags) <- get

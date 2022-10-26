@@ -63,6 +63,21 @@ twoThreeConfig = TREECONFIG {
     minFanout' = 2
     maxFanout' = 2*minFanout' - 1
 
+-- A config with larger corfficients for more realistic testing.
+largeConfig :: TreeConfig
+largeConfig = TREECONFIG {
+    minFanout = minFanout'
+  , maxFanout = maxFanout'
+  , minIdxKeys = minFanout' - 1
+  , maxIdxKeys = maxFanout' - 1
+  , minLeafItems = minFanout'
+  , maxLeafItems = 2*minFanout' - 1
+  , maxHitchhikers = minFanout'
+  }
+  where
+    minFanout' = 64
+    maxFanout' = 2 * minFanout' - 1
+
 -- -----------------------------------------------------------------------
 
 -- The shared node between both FullTrees and PartialTrees.
