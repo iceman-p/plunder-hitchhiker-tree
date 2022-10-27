@@ -1,18 +1,20 @@
 module Main (main) where
 
+import           Control.DeepSeq
 import           Control.Monad             (forM, join)
 import           Control.Monad.State       (MonadState, StateT, evalStateT,
-                                            execState, get, gets, modify', put,
-                                            runStateT)
-import           Data.Aeson
+                                            execState, get, gets, liftIO,
+                                            modify', put, runStateT)
+import           Data.Aeson                hiding (parse)
 import           Data.Maybe
 import           Debug.Trace
-import           Optics                    hiding ((%%))
+import           Optics                    hiding (noneOf, (%%))
 import           System.Directory
 import           System.Environment
 import           System.FilePath
+import           System.IO
+import           Text.Parsec
 
---import System.Console.Repline
 import           Data.BTree.Primitives.Key
 import           Types
 
@@ -57,9 +59,10 @@ makeFieldLabelsNoPrefix ''Model
 emptyModel = Model (HM.empty largeConfig) (SM.empty largeConfig)
 
 addEntry :: Monad m => Item -> StateT Model m ()
-addEntry item@(Item idNum tags) = do
+addEntry !item@(Item idNum tags) = do
   modifying' #items (HM.insert idNum item)
-  modifying' #tags (SM.insertMany (Q.fromList $ fmap (\t -> (t, idNum)) tags))
+  modifying' #tags $
+    (SM.insertMany (Q.fromList $ force $ fmap (\t -> (t, idNum)) tags))
 
 -- Searches for a given set of tags.
 search :: Monad m => [String] -> StateT Model m (S.Set Int)
@@ -86,31 +89,45 @@ main = do
 
   flip evalStateT emptyModel $ do
     mapM addEntry (join allImages)
+    modifying' #tags force
 
-    s <- search ["twilight sparkle", "cute"]
-    traceM $ show s
+    repl
 
-    (Model items tags) <- get
-    traceM $ show items
-    traceM $ show tags
+delim = do
+  many (char ' ')
+  char ','
+  many (char ' ')
+  pure ()
 
+read' :: StateT Model IO String
+read' = liftIO $ do
+  putStr "SEARCH> "
+  hFlush stdout
+  getLine
 
-{-
+repl :: StateT Model IO ()
+repl = do
+  raw <- read'
 
-type Repl a = HaskelineT (StateT Model IO) a
-
-cmd :: String -> Repl ()
-cmd input = do
-  let
-
-repl :: IO ()
-repl = flip evalStateT emptyModel $
-  evalRepl (const $ pure ">>> ") cmd opts Nothing Nothing
-
-main :: IO ()
-main = loop emptyModel
-  where
-    loop
--}
-
--- main = putStrLn "todo"
+  -- Chunk out on comma.
+  let c = parse (sepBy (many (noneOf ",")) delim) "" raw
+  case c of
+    Left err -> do
+      liftIO $ putStrLn $ show err
+      repl
+    Right [":showitems"] -> do
+      (Model items _) <- get
+      traceM $ show items
+      repl
+    Right [":showtags"] -> do
+      (Model _ tags) <- get
+      traceM $ show tags
+      repl
+    Right [":quit"] -> do
+      liftIO $ putStrLn "goodbye"
+      pure ()
+    Right tags -> do
+      liftIO $ putStrLn ("TAGS: " ++ show tags)
+      s <- search tags
+      liftIO $ putStrLn ("RESULT: " ++ show s)
+      repl
