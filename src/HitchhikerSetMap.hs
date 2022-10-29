@@ -103,4 +103,4 @@ lookup key (HITCHHIKERSETMAP config (Just top)) = lookInNode Q.empty top
     -- final list.
     buildSetFrom leaves hh = case findInLeaves key leaves of
       Nothing  -> S.fromSeq config hh
-      Just ret -> foldl (flip S.insert) ret hh
+      Just ret -> S.insertMany hh ret

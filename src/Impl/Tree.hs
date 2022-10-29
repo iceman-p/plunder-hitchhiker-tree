@@ -1,5 +1,6 @@
 module Impl.Tree where
 
+import           Control.Monad
 import           Data.Map      (Map)
 import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 
@@ -118,3 +119,20 @@ distributeDownwards config tf@TreeFun{..}
                              rest
                              (Index restKeys restNodes)
                              out
+
+-- Forces a flush of all hitchhikers down to the leaf levels and return the
+-- resulting leaf vectors.
+
+flushDownwards :: Ord k => TreeFun k a hh lt -> a -> Seq (Seq lt)
+flushDownwards tf@TreeFun{..} = go Empty
+  where
+    go hh node = case caseNode node of
+      Right leaves                 -> Q.singleton $ leafMerge leaves hh
+      Left (children, hitchhikers) ->
+        distribute children (hhMerge hitchhikers hh)
+
+    distribute (Index Empty (node :<| Empty)) hitchhikers =
+      go hitchhikers node
+    distribute (Index (key :<| xsKeys) (node :<| xsNodes)) hitchhikers =
+      let (toAdd, rest) = Q.spanl (\h -> (hhKey h) < key) hitchhikers
+      in (go toAdd node) <> (distribute (Index xsKeys xsNodes) rest)

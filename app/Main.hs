@@ -65,14 +65,14 @@ addEntry !item@(Item idNum tags) = do
     (SM.insertMany (Q.fromList $ force $ fmap (\t -> (t, idNum)) tags))
 
 -- Searches for a given set of tags.
-search :: Monad m => [String] -> StateT Model m (S.Set Int)
+search :: Monad m => [String] -> StateT Model m (HitchhikerSet Int)
 search tags = do
   tagMap <- use #tags
-  let sets = map (\t -> HS.toSet $ SM.lookup t tagMap) tags
+  let sets = map (\t -> SM.lookup t tagMap) tags
   case sets of
-    []     -> pure $ S.empty
+    []     -> pure $ HS.empty largeConfig
     x:[]   -> pure $ x
-    (x:xs) -> pure $ foldl S.intersection x xs
+    (x:xs) -> pure $ foldl HS.intersection x xs
 
 -- OK, we're going to parse the
 
@@ -128,6 +128,6 @@ repl = do
       pure ()
     Right tags -> do
       liftIO $ putStrLn ("TAGS: " ++ show tags)
-      s <- search tags
+      s <- HS.toSet <$> search tags
       liftIO $ putStrLn ("RESULT: " ++ show s)
       repl
