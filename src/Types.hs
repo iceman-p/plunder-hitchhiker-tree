@@ -129,9 +129,9 @@ data HitchhikerSetMap k v = HITCHHIKERSETMAP {
 -- The shared node between both FullTrees and PartialTrees.
 data PublishTreeNode k v
   -- Inner B+ index with hitchhiker information.
-  = PublishNodeIndex (Index k Hash256) (Hitchhikers k v)
+  = PublishNodeIndex (Index k Hash256) (Map k v)
   -- Sorted list of leaf values. (in sire, rows access is O(1)).
-  | PublishNodeLeaf (LeafVector k v)
+  | PublishNodeLeaf (Map k v)
   deriving (Show, Eq, Generic, NFData)
 
 -- Content addressed storage of all the nodes.

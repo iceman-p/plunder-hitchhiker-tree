@@ -6,7 +6,6 @@ import           Types
 
 import qualified Data.Sequence as Q
 
-
 -- Seq utils -----------------------------------------------------------------
 
 qHeadUnsafe :: Seq a -> a
@@ -17,28 +16,6 @@ qUncons :: Seq a -> Maybe (a, Seq a)
 qUncons = \case
   (head :<| rest) -> Just (head, rest)
   Q.Empty         -> Nothing
-
--- Hitchhiker utils ----------------------------------------------------------
-
--- | Finds a value in the hitchhikers by scanning from the back, since
--- placement in the hitchhiker tree is an event log.
-findInHitchhikers :: Eq k => k -> Hitchhikers k v -> Maybe v
-findInHitchhikers key hh =
-  case Q.findIndexR (\(k, v) -> k == key) hh of
-    Just idx -> case Q.lookup idx hh of
-      Nothing     -> Nothing -- impossible
-      Just (_, v) -> Just v
-    Nothing -> Nothing
-
-findInLeaves :: Eq k => k -> LeafVector k v -> Maybe v
-findInLeaves key leaves =
-  -- TODO: This could be a binary search instead, since this seq is
-  -- ordered.
-  case Q.findIndexL (\(k, v) -> k == key) leaves of
-    Just idx -> case Q.lookup idx leaves of
-      Nothing     -> Nothing --impossible
-      Just (_, v) -> Just v
-    Nothing -> Nothing
 
 -- Index transformation ------------------------------------------------------
 

@@ -9,6 +9,7 @@ module SubscriberTree (SubscriberTree(..),
 
 import           Control.Monad
 import           Data.Hashable
+import           Data.Map      (Map)
 import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Data.Set      (Set)
 import           Impl.Index
@@ -37,7 +38,7 @@ type PartialIndex k v = Index k (Hash256, SubscriberTreeNode k v)
 -- their own Hash256.
 data SubscriberTreeNode k v
   -- An index node that may have holes in it.
-  = PartialIndex Hash256 (Index k (SubscriberTreeNode k v)) (Hitchhikers k v)
+  = PartialIndex Hash256 (Index k (SubscriberTreeNode k v)) (Map k v)
 
   -- | We don't have a copy of this node. We store instead the part of the
   -- index that covered this range in hopes of reconstituting grandchild nodes
@@ -45,7 +46,7 @@ data SubscriberTreeNode k v
   | MissingNode Hash256 (Maybe (Index k (SubscriberTreeNode k v)))
 
   -- All leaf nodes are complete.
-  | CompletedLeaf Hash256 (LeafVector k v)
+  | CompletedLeaf Hash256 (Map k v)
   deriving (Show, Eq)
 
 -- | A pair of a KeyLoc and the hash to search by content address.
@@ -109,12 +110,12 @@ lookup key (SubscriberTree Nothing)     = Right $ Nothing
 lookup key (SubscriberTree (Just node)) = lookupIn node
   where
     lookupIn (PartialIndex hash idx hitchhikers) =
-      case findInHitchhikers key hitchhikers of
+      case M.lookup key hitchhikers of
         Just v  -> Right $ Just v
         Nothing -> lookupIn $ findSubnodeByKey key idx
     lookupIn (MissingNode hash idx) = Left $ (Just key, hash)
     lookupIn (CompletedLeaf _ leaves) =
-      Right $ findInLeaves key leaves
+      Right $ M.lookup key leaves
 
 -- | We have received a piece requested. We now insert that back into the
 -- structure, reconstituting as much of the tree as we can if the MissingNode

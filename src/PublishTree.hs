@@ -12,7 +12,7 @@ toPublishTree :: (Hashable k, Hashable v)
               => HitchhikerMap k v
               -> PublishTree k v
 toPublishTree (HITCHHIKERMAP _ Nothing)     = (PUBLISHTREE Nothing mempty)
-toPublishTree (HITCHHIKERMAP _ (Just root)) = undefined {- PUBLISHTREE (Just ptRoot) storage
+toPublishTree (HITCHHIKERMAP _ (Just root)) = PUBLISHTREE (Just ptRoot) storage
   where
     (ptRoot, storage) = runState (gather root) M.empty
 
@@ -26,4 +26,4 @@ toPublishTree (HITCHHIKERMAP _ (Just root)) = undefined {- PUBLISHTREE (Just ptR
       let h = hash pub
       modify' (M.insert h pub)
       pure h
--}
+
