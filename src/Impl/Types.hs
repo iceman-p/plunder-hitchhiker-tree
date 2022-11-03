@@ -2,8 +2,8 @@ module Impl.Types where
 
 import           Types
 
--- TreeFun2 k n l h
-data TreeFun2 key subnode hhMap leafMap = TreeFun2 {
+-- Bundle of functions for manipulating a given tree type.
+data TreeFun key subnode hhMap leafMap = TreeFun {
   -- Constructor/elimination.
   mkNode       :: Index key subnode -> hhMap -> subnode,
   mkLeaf       :: leafMap -> subnode,

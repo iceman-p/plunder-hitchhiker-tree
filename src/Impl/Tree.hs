@@ -1,12 +1,12 @@
-module Impl.Tree2 where
+module Impl.Tree where
 
 import           Control.Monad
 import           Data.Map      (Map)
 import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Debug.Trace
 
-import           Impl.Index2
-import           Impl.Leaf2
+import           Impl.Index
+import           Impl.Leaf
 import           Impl.Types
 import           Types
 import           Utils
@@ -15,21 +15,21 @@ import qualified Data.Map      as M
 import qualified Data.Sequence as Q
 
 fixUp :: TreeConfig
-      -> TreeFun2 k a hh lt
+      -> TreeFun k a hh lt
       -> Index k a
       -> a
-fixUp config tf@TreeFun2{..} idx = case fromSingletonIndex idx of
+fixUp config tf@TreeFun{..} idx = case fromSingletonIndex idx of
   Just newRootNode -> newRootNode
   Nothing          ->
     fixUp config tf (extendIndex tf (maxLeafItems config) idx)
 
 insertRec :: (Show k, Show a, Show lt, Show hh, Ord k)
           => TreeConfig
-          -> TreeFun2 k a hh lt
+          -> TreeFun k a hh lt
           -> hh
           -> a
           -> Index k a
-insertRec config tf@TreeFun2{..} toAdd node =
+insertRec config tf@TreeFun{..} toAdd node =
   case caseNode node of
     Left (children, hitchhikers)
       | hhLength merged > maxHitchhikers config ->
@@ -53,14 +53,14 @@ insertRec config tf@TreeFun2{..} toAdd node =
 distributeDownwards
   :: (Show k, Show a, Show lt, Show hh, Ord k)
   => TreeConfig
-  -> TreeFun2 k a hh lt
+  -> TreeFun k a hh lt
   -> hh
   -> Index k a  -- input
   -> Index k a  -- building output
   -> Index k a
 
 -- Base case: single subtree or end of list:
-distributeDownwards config tf@TreeFun2{..}
+distributeDownwards config tf@TreeFun{..}
                     hitchhikers
                     (Index Empty (node :<| Empty))
                     o@(Index oKeys oHashes) =
@@ -75,7 +75,7 @@ distributeDownwards config tf@TreeFun2{..}
       let (Index endKeys endHashes) = insertRec config tf hitchhikers node
       in Index (oKeys <> endKeys) (oHashes <> endHashes)
 
-distributeDownwards config tf@TreeFun2{..}
+distributeDownwards config tf@TreeFun{..}
                     hitchhikers
                     i@(Index (key :<| restKeys) (node :<| restNodes))
                     o@(Index outKeys outNodes) =
@@ -101,8 +101,8 @@ distributeDownwards config tf@TreeFun2{..}
 -- Forces a flush of all hitchhikers down to the leaf levels and return the
 -- resulting leaf vectors.
 
-flushDownwards :: Ord k => TreeFun2 k a hh lt -> a -> Seq lt
-flushDownwards tf@TreeFun2{..} = go hhEmpty
+flushDownwards :: Ord k => TreeFun k a hh lt -> a -> Seq lt
+flushDownwards tf@TreeFun{..} = go hhEmpty
   where
     go hh node = case caseNode node of
       Right leaves                 -> Q.singleton $ leafMerge leaves hh

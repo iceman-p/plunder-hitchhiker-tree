@@ -14,9 +14,9 @@ import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Data.Set      (Set)
 import           Debug.Trace
 
-import           Impl.Index2
-import           Impl.Leaf2
-import           Impl.Tree2
+import           Impl.Index
+import           Impl.Leaf
+import           Impl.Tree
 import           Impl.Types
 import           Types
 import           Utils
@@ -68,8 +68,8 @@ insertMany !items !(HITCHHIKERSET config (Just top)) =
 
 -- -----------------------------------------------------------------------
 
-hhSetTF :: Ord k => TreeFun2 k (HitchhikerSetNode k) (Set k) (Set k)
-hhSetTF = TreeFun2 {
+hhSetTF :: Ord k => TreeFun k (HitchhikerSetNode k) (Set k) (Set k)
+hhSetTF = TreeFun {
   mkNode = HitchhikerSetNodeIndex,
   mkLeaf = HitchhikerSetNodeLeaf,
   caseNode = \case

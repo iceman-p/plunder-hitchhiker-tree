@@ -4,9 +4,9 @@ import           Data.Map      (Map)
 import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Debug.Trace
 
-import           Impl.Index2
-import           Impl.Leaf2
-import           Impl.Tree2
+import           Impl.Index
+import           Impl.Leaf
+import           Impl.Tree
 import           Impl.Types
 import           Types
 import           Utils
@@ -42,8 +42,9 @@ insertMany !items !(HITCHHIKERMAP config (Just root)) =
 
 -- -----------------------------------------------------------------------
 
-hhMapTF :: (Show k, Show v, Ord k) => TreeFun2 k (HitchhikerMapNode k v) (Map k v) (Map k v)
-hhMapTF = TreeFun2 {
+hhMapTF :: (Show k, Show v, Ord k)
+        => TreeFun k (HitchhikerMapNode k v) (Map k v) (Map k v)
+hhMapTF = TreeFun {
   mkNode = HitchhikerMapNodeIndex,
   mkLeaf = HitchhikerMapNodeLeaf,
   caseNode = \case

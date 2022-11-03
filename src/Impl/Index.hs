@@ -1,4 +1,4 @@
-module Impl.Index2 where
+module Impl.Index where
 
 import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 
@@ -44,11 +44,11 @@ splitIndexAt numLeftKeys (Index keys vals)
 
 
 -- Given a pure index with no hitchhikers, create a node.
-extendIndex :: TreeFun2 k a hh lt
+extendIndex :: TreeFun k a hh lt
             -> Int
             -> Index k a
             -> Index k a
-extendIndex tf@TreeFun2{..} maxIdxKeys = go
+extendIndex tf@TreeFun{..} maxIdxKeys = go
   where
     maxIdxVals = maxIdxKeys + 1
 

@@ -5,9 +5,9 @@ import           Data.Maybe
 import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Data.Set      (Set)
 
-import           Impl.Index2
-import           Impl.Leaf2
-import           Impl.Tree2
+import           Impl.Index
+import           Impl.Leaf
+import           Impl.Tree
 import           Impl.Types
 import           Types
 import           Utils
@@ -28,11 +28,11 @@ empty config = HITCHHIKERSETMAP config Nothing
 hhSetMapTF
   :: (Show k, Show v, Ord k, Ord v)
   => TreeConfig
-  -> TreeFun2 k
-              (HitchhikerSetMapNode k v)
-              (Map k (Set v))
-              (Map k (HitchhikerSet v))
-hhSetMapTF setConfig = TreeFun2 {
+  -> TreeFun k
+             (HitchhikerSetMapNode k v)
+             (Map k (Set v))
+             (Map k (HitchhikerSet v))
+hhSetMapTF setConfig = TreeFun {
   mkNode = HitchhikerSetMapNodeIndex,
   mkLeaf = HitchhikerSetMapNodeLeaf,
   caseNode = \case

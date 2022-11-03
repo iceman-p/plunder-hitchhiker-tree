@@ -11,7 +11,7 @@ import           Control.Monad
 import           Data.Hashable
 import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Data.Set      (Set)
-import           Impl.Index2
+import           Impl.Index
 import           Types
 import           Utils
 

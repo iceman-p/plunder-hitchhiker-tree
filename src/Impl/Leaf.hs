@@ -1,17 +1,17 @@
-module Impl.Leaf2 where
+module Impl.Leaf where
 
 import           Control.Arrow ((***))
 import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 
-import           Impl.Index2
+import           Impl.Index
 import           Impl.Types
 import           Types
 import           Utils
 
 import qualified Data.Sequence as Q
 
-splitLeafMany2 :: forall k n h l. TreeFun2 k n h l -> Int -> l -> Index k n
-splitLeafMany2 TreeFun2{..} maxLeafItems items
+splitLeafMany2 :: forall k n h l. TreeFun k n h l -> Int -> l -> Index k n
+splitLeafMany2 TreeFun{..} maxLeafItems items
   -- Leaf items don't overflow a single node.
   | itemLen <= maxLeafItems =
       singletonIndex $ mkLeaf items
