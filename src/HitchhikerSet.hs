@@ -1,6 +1,6 @@
 module HitchhikerSet ( empty
                      , singleton
-                     , fromSeq
+                     , fromSet
                      , toSet
                      , insert
                      , insertMany
@@ -9,14 +9,15 @@ module HitchhikerSet ( empty
                      ) where
 
 import           Control.Monad
-import           Data.Map      (Map)
 import           Data.Maybe
 import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
+import           Data.Set      (Set)
 import           Debug.Trace
 
-import           Impl.Tree
-import           Index
-import           Leaf
+import           Impl.Index2
+import           Impl.Leaf2
+import           Impl.Tree2
+import           Impl.Types
 import           Types
 import           Utils
 
@@ -30,10 +31,10 @@ empty config = HITCHHIKERSET config Nothing
 
 singleton :: TreeConfig -> k -> HitchhikerSet k
 singleton config k
-  = HITCHHIKERSET config (Just $ HitchhikerSetNodeLeaf $ Q.singleton k)
+  = HITCHHIKERSET config (Just $ HitchhikerSetNodeLeaf $ S.singleton k)
 
-fromSeq :: (Show k, Ord k) => TreeConfig -> Seq k -> HitchhikerSet k
-fromSeq config ks = insertMany ks $ empty config
+fromSet :: (Show k, Ord k) => TreeConfig -> Set k -> HitchhikerSet k
+fromSet config ks = insertMany ks $ empty config
 
 toSet :: (Show k, Ord k) => HitchhikerSet k -> S.Set k
 toSet (HITCHHIKERSET config Nothing) = S.empty
@@ -48,41 +49,47 @@ toSet (HITCHHIKERSET config (Just root)) = collect root
 
 insert :: (Show k, Ord k) => k -> HitchhikerSet k -> HitchhikerSet k
 insert !k !(HITCHHIKERSET config (Just root)) = HITCHHIKERSET config $ Just $
-  fixUp config hhSetTF $ insertRec config hhSetTF (Q.singleton k) root
+  fixUp config hhSetTF $ insertRec config hhSetTF (S.singleton k) root
 
 insert !k (HITCHHIKERSET config Nothing)
-  = HITCHHIKERSET config (Just $ HitchhikerSetNodeLeaf $ Q.singleton k)
+  = HITCHHIKERSET config (Just $ HitchhikerSetNodeLeaf $ S.singleton k)
 
 
-insertMany :: (Show k, Ord k) => Seq k -> HitchhikerSet k -> HitchhikerSet k
+insertMany :: (Show k, Ord k) => Set k -> HitchhikerSet k -> HitchhikerSet k
 insertMany !items !(HITCHHIKERSET config Nothing) =
   HITCHHIKERSET config $ Just $
   fixUp config hhSetTF $
-  splitLeafMany (maxLeafItems config) HitchhikerSetNodeLeaf id $
-  hhMergeImpl Q.empty items
+  splitLeafMany2 hhSetTF (maxLeafItems config) items
 
 insertMany !items !(HITCHHIKERSET config (Just top)) =
   HITCHHIKERSET config $ Just $
   fixUp config hhSetTF $
-  insertRec config hhSetTF (hhMergeImpl Q.empty items) top
+  insertRec config hhSetTF items top
 
 -- -----------------------------------------------------------------------
 
-hhSetTF :: Ord k => TreeFun k (HitchhikerSetNode k) k k
-hhSetTF = TreeFun {
-  mkIndex = HitchhikerSetNodeIndex,
+hhSetTF :: Ord k => TreeFun2 k (HitchhikerSetNode k) (Set k) (Set k)
+hhSetTF = TreeFun2 {
+  mkNode = HitchhikerSetNodeIndex,
   mkLeaf = HitchhikerSetNodeLeaf,
   caseNode = \case
       HitchhikerSetNodeIndex a b -> Left (a, b)
       HitchhikerSetNodeLeaf l    -> Right l,
-  leafMerge = foldl $ \items k -> qSortedInsert k items,
-  hhMerge = hhMergeImpl,
-  leafKey = id,
-  hhKey = id
+
+  leafMerge = S.union,
+  leafLength = S.size,
+  leafSplitAt = S.splitAt,
+  leafFirstKey = S.findMin,
+  leafEmpty = S.empty,
+
+  hhMerge = S.union,
+  hhLength = S.size,
+  hhSplit = splitImpl,
+  hhEmpty = S.empty
   }
 
-hhMergeImpl :: Ord k => Seq k -> Seq k -> Seq k
-hhMergeImpl = foldl $ \items k -> qSortedInsert k items
+splitImpl :: Ord k => k -> Set k -> (Set k, Set k)
+splitImpl k s = S.spanAntitone (< k) s
 
 -- -----------------------------------------------------------------------
 
@@ -92,16 +99,10 @@ member key (HITCHHIKERSET _ (Just top)) = lookInNode top
   where
     lookInNode = \case
       HitchhikerSetNodeIndex index hitchhikers ->
-        case findInSetHitchhikers key hitchhikers of
+        case S.member key hitchhikers of
           True  -> True
           False -> lookInNode $ findSubnodeByKey key index
-      HitchhikerSetNodeLeaf items -> findInSetLeaves key items
-
-findInSetHitchhikers :: Eq k => k -> Seq k -> Bool
-findInSetHitchhikers key hh = isJust $ Q.findIndexR (== key) hh
-
-findInSetLeaves :: Eq k => k -> Seq k -> Bool
-findInSetLeaves key leaves = isJust $ Q.findIndexL (== key) leaves
+      HitchhikerSetNodeLeaf items -> S.member key items
 
 -- -----------------------------------------------------------------------
 
@@ -112,14 +113,7 @@ intersection :: (Show k, Ord k)
 intersection n@(HITCHHIKERSET _ Nothing) _ = n
 intersection _ n@(HITCHHIKERSET _ Nothing) = n
 intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
-  fromSeq conf $ go Empty as bs
+  fromSet conf $ S.intersection as bs
   where
-    as = join $ flushDownwards hhSetTF a
-    bs = join $ flushDownwards hhSetTF b
-
-    go out _ Empty = out
-    go out Empty _ = out
-    go out (a :<| as) (b :<| bs)
-      | a == b = go (out |> a) as bs
-      | a > b = go out (a :<| as) bs
-      | a < b = go out as (b :<| bs)
+    as = S.unions $ flushDownwards hhSetTF a
+    bs = S.unions $ flushDownwards hhSetTF b

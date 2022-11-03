@@ -3,6 +3,7 @@ module Types where
 import           Data.Hashable
 import           Data.Map        (Map)
 import           Data.Sequence   (Seq)
+import           Data.Set        (Set)
 
 import           Control.DeepSeq
 import           GHC.Generics    (Generic, Generic1)
@@ -83,9 +84,9 @@ largeConfig = TREECONFIG {
 -- The shared node between both FullTrees and PartialTrees.
 data HitchhikerMapNode k v
   -- Inner B+ index with hitchhiker information.
-  = HitchhikerMapNodeIndex (Index k (HitchhikerMapNode k v)) (Hitchhikers k v)
+  = HitchhikerMapNodeIndex (Index k (HitchhikerMapNode k v)) (Map k v)
   -- Sorted list of leaf values. (in sire, rows access is O(1)).
-  | HitchhikerMapNodeLeaf (LeafVector k v)
+  | HitchhikerMapNodeLeaf (Map k v)
   deriving (Show, Generic, NFData)
 
 -- A Hitchhiker tree where all the links are manual.
@@ -98,8 +99,8 @@ data HitchhikerMap k v = HITCHHIKERMAP {
 -- -----------------------------------------------------------------------
 
 data HitchhikerSetNode k
-  = HitchhikerSetNodeIndex (Index k (HitchhikerSetNode k)) (Seq k)
-  | HitchhikerSetNodeLeaf (Seq k)
+  = HitchhikerSetNodeIndex (Index k (HitchhikerSetNode k)) (Set k)
+  | HitchhikerSetNodeLeaf (Set k)
   deriving (Show, Generic, NFData)
 
 data HitchhikerSet k = HITCHHIKERSET {
@@ -112,8 +113,8 @@ data HitchhikerSet k = HITCHHIKERSET {
 
 data HitchhikerSetMapNode k v
   = HitchhikerSetMapNodeIndex (Index k (HitchhikerSetMapNode k v))
-                              (Hitchhikers k v)
-  | HitchhikerSetMapNodeLeaf (Seq (k, (HitchhikerSet v)))
+                              (Map k (Set v))
+  | HitchhikerSetMapNodeLeaf (Map k (HitchhikerSet v))
   deriving (Show, Generic, NFData)
 
 data HitchhikerSetMap k v = HITCHHIKERSETMAP {

@@ -32,7 +32,7 @@ prop_set_insertMany_eq raw = case doShuffle raw of
   []    -> True -- empty list, ok.
   (k:_) -> H.member k ft == S.member k s
   where
-    ft = H.insertMany (Q.fromList raw) (H.empty twoThreeConfig)
+    ft = H.insertMany (S.fromList raw) (H.empty twoThreeConfig)
     s = S.fromList raw
 
 prop_set_intersection_eq :: [Int] -> [Int] -> Bool

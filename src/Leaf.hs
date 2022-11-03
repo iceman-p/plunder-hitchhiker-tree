@@ -2,6 +2,7 @@ module Leaf where
 
 import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 
+import           Impl.Types
 import           Index
 import           Types
 import           Utils

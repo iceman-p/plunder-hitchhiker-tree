@@ -62,7 +62,7 @@ addEntry :: Monad m => Item -> StateT Model m ()
 addEntry !item@(Item idNum tags) = do
   modifying' #items (HM.insert idNum item)
   modifying' #tags $
-    (SM.insertMany (Q.fromList $ force $ fmap (\t -> (t, idNum)) tags))
+    (SM.insertMany (force $ fmap (\t -> (t, idNum)) tags))
 
 -- Searches for a given set of tags.
 search :: Monad m => [String] -> StateT Model m (HitchhikerSet Int)

@@ -4,9 +4,10 @@ import           Data.Map      (Map)
 import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Debug.Trace
 
-import           Impl.Tree
-import           Index
-import           Leaf
+import           Impl.Index2
+import           Impl.Leaf2
+import           Impl.Tree2
+import           Impl.Types
 import           Types
 import           Utils
 
@@ -21,42 +22,48 @@ insert :: (Show k, Show v, Ord k)
 insert !k !v !(HITCHHIKERMAP config (Just root)) =
   HITCHHIKERMAP config $ Just $
   fixUp config hhMapTF $
-  insertRec config hhMapTF (Q.singleton (k, v)) root
+  insertRec config hhMapTF (M.singleton k v) root
 
 insert !k !v (HITCHHIKERMAP config Nothing)
-  = HITCHHIKERMAP config (Just $ HitchhikerMapNodeLeaf $ Q.singleton (k, v))
+  = HITCHHIKERMAP config (Just $ HitchhikerMapNodeLeaf $ M.singleton k v)
 
 insertMany :: (Show k, Show v, Ord k, Ord v)
-           => Seq (k, v) -> HitchhikerMap k v -> HitchhikerMap k v
+           => Map k v -> HitchhikerMap k v -> HitchhikerMap k v
 
 insertMany !items !(HITCHHIKERMAP config Nothing) =
   HITCHHIKERMAP config $ Just $
   fixUp config hhMapTF $
-  splitLeafMany (maxLeafItems config) HitchhikerMapNodeLeaf fst $
-  hhMergeImpl Q.empty items
+  splitLeafMany2 hhMapTF (maxLeafItems config) items
 
 insertMany !items !(HITCHHIKERMAP config (Just root)) =
   HITCHHIKERMAP config $ Just $
   fixUp config hhMapTF $
-  insertRec config hhMapTF (hhMergeImpl Q.empty items) root
+  insertRec config hhMapTF items root
 
 -- -----------------------------------------------------------------------
 
-hhMapTF :: Ord k => TreeFun k (HitchhikerMapNode k v) (k, v) (k, v)
-hhMapTF = TreeFun {
-  mkIndex = HitchhikerMapNodeIndex,
+hhMapTF :: (Show k, Show v, Ord k) => TreeFun2 k (HitchhikerMapNode k v) (Map k v) (Map k v)
+hhMapTF = TreeFun2 {
+  mkNode = HitchhikerMapNodeIndex,
   mkLeaf = HitchhikerMapNodeLeaf,
   caseNode = \case
       HitchhikerMapNodeIndex a b -> Left (a, b)
       HitchhikerMapNodeLeaf l    -> Right l,
-  leafMerge = foldl $ \items (k, v) -> qSortedAssocInsert k v items,
-  hhMerge = hhMergeImpl,
-  leafKey = fst,
-  hhKey = fst
+
+  leafMerge = M.unionWith (\a b -> b),
+  leafLength = M.size,
+  leafSplitAt = M.splitAt,
+  leafFirstKey = fst . M.findMin,
+  leafEmpty = M.empty,
+
+  hhMerge = M.unionWith (\a b -> b),
+  hhLength = M.size,
+  hhSplit = splitImpl,
+  hhEmpty = M.empty
   }
 
-hhMergeImpl :: Ord k => Seq (k, v) -> Seq (k, v) -> Seq (k, v)
-hhMergeImpl = foldl $ \items (k, v) -> qSortedAssocInsert k v items
+splitImpl :: Ord k => k -> Map k v -> (Map k v, Map k v)
+splitImpl k m = M.spanAntitone (< k) m
 
 -- Lookup --------------------------------------------------------------------
 
@@ -66,7 +73,7 @@ lookup key (HITCHHIKERMAP _ (Just top)) = lookInNode top
   where
     lookInNode = \case
       HitchhikerMapNodeIndex index hitchhikers ->
-        case findInHitchhikers key hitchhikers of
+        case M.lookup key hitchhikers of
           Just v  -> Just v
           Nothing -> lookInNode $ findSubnodeByKey key index
-      HitchhikerMapNodeLeaf items -> findInLeaves key items
+      HitchhikerMapNodeLeaf items -> M.lookup key items

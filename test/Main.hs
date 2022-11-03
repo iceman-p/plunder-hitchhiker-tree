@@ -16,5 +16,5 @@ main = defaultMain $
   , HitchhikerMapTests.tests
   , HitchhikerSetTests.tests
   , HitchhikerSetMapTests.tests
-  , SubscriberTreeTests.tests
+  -- , SubscriberTreeTests.tests
   ]

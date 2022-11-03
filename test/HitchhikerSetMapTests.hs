@@ -50,7 +50,7 @@ prop_map_insertmany_eq raw = go raw (S.empty)
         in (HS.toSet $ SM.lookup k hm) == S.lookup k m
 
     emp = SM.empty twoThreeConfig
-    asItems = Q.fromList $ map toTup raw
+    asItems = map toTup raw
 
 
 doShuffle :: [a] -> [a]
