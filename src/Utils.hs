@@ -13,36 +13,9 @@ qHeadUnsafe :: Seq a -> a
 qHeadUnsafe (first :<| _) = first
 qHeadUnsafe _             = error "qHeadUnsafe"
 
-qSortedAssocInsert :: (Ord k) => k -> v -> Seq (k, v) -> Seq (k, v)
-qSortedAssocInsert k v s = case Q.findIndexL (\(i, _) -> k <= i) s of
-  Nothing  -> s |> (k, v)
-  Just idx -> case Q.lookup idx s of
-    Just (curk, curv) | curk == k -> Q.update idx (k,v) s
-    Just _                        -> Q.insertAt idx (k,v) s
-    Nothing                       -> error "impossible"
-
-qSortedAssocSetInsert :: (Ord k, Ord v) => k -> v -> Seq (k, v) -> Seq (k, v)
-qSortedAssocSetInsert k v s = case Q.findIndexL ((k, v) <=) s of
-  Nothing -> s |> (k, v)
-  Just idx -> case Q.lookup idx s of
-    Just (curk, curv)
-      | curk == k && curv == v -> s
-      | otherwise              -> Q.insertAt idx (k, v) s
-    Nothing -> error "impossible"
-
-qSortedInsert :: (Ord k) => k -> Seq k -> Seq k
-qSortedInsert k s = case Q.findIndexL (\i -> k <= i) s of
-  Nothing  -> s |> k
-  Just idx -> Q.insertAt idx k s
-
 qUncons :: Seq a -> Maybe (a, Seq a)
 qUncons = \case
   (head :<| rest) -> Just (head, rest)
-  Q.Empty         -> Nothing
-
-qUnsnoc :: Seq a -> Maybe (a, Seq a)
-qUnsnoc = \case
-  (rest :|> head) -> Just (head, rest)
   Q.Empty         -> Nothing
 
 -- Hitchhiker utils ----------------------------------------------------------

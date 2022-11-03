@@ -3,8 +3,8 @@ module Impl.Leaf2 where
 import           Control.Arrow ((***))
 import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 
+import           Impl.Index2
 import           Impl.Types
-import           Index
 import           Types
 import           Utils
 

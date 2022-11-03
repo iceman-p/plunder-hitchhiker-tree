@@ -8,7 +8,6 @@ import           Debug.Trace
 import           Impl.Index2
 import           Impl.Leaf2
 import           Impl.Types
-import           Leaf
 import           Types
 import           Utils
 
