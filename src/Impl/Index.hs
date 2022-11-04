@@ -1,12 +1,12 @@
 module Impl.Index where
 
-import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
+import           Data.Vector (Vector)
 
 import           Impl.Types
 import           Types
 import           Utils
 
-import qualified Data.Sequence as Q
+import qualified Data.Vector as V
 
 emptyIndex :: Index k v
 emptyIndex = Index mempty mempty
@@ -14,34 +14,33 @@ emptyIndex = Index mempty mempty
 mergeIndex :: Index key val -> key -> Index key val -> Index key val
 mergeIndex (Index leftKeys leftVals) middleKey (Index rightKeys rightVals) =
     Index
-      (leftKeys <> Q.singleton middleKey <> rightKeys)
+      (V.concat [leftKeys, V.singleton middleKey, rightKeys])
       (leftVals <> rightVals)
 
-indexFromList :: Seq k -> Seq v -> Index k v
+indexFromList :: Vector k -> Vector v -> Index k v
 indexFromList keys valPtrs = Index keys valPtrs
 
 singletonIndex :: v -> Index k v
-singletonIndex = Index Q.empty . Q.singleton
+singletonIndex = Index V.empty . V.singleton
 
 fromSingletonIndex :: Index k v -> Maybe v
 fromSingletonIndex (Index _keys vals) =
-    if Q.length vals == 1 then Just $! qHeadUnsafe vals else Nothing
+    if V.length vals == 1 then Just $! V.head vals else Nothing
 
 indexNumKeys :: Index k v -> Int
-indexNumKeys (Index keys _vals) = Q.length keys
+indexNumKeys (Index keys _vals) = V.length keys
 
 indexNumVals :: Index k v -> Int
-indexNumVals (Index _keys vals) = Q.length vals
+indexNumVals (Index _keys vals) = V.length vals
 
 splitIndexAt :: Int -> Index k v -> (Index k v, k, Index k v)
 splitIndexAt numLeftKeys (Index keys vals)
-    | (leftKeys, middleKeyAndRightKeys) <- Q.splitAt numLeftKeys     keys
-    , (leftVals, rightVals)             <- Q.splitAt (numLeftKeys+1) vals
-    = case qUncons middleKeyAndRightKeys of
-        Just (middleKey,rightKeys) ->
+    | (leftKeys, middleKeyAndRightKeys) <- V.splitAt numLeftKeys     keys
+    , (leftVals, rightVals)             <- V.splitAt (numLeftKeys+1) vals
+    = case V.uncons middleKeyAndRightKeys of
+        Just (middleKey, rightKeys) ->
             (Index leftKeys leftVals, middleKey, Index rightKeys rightVals)
         Nothing -> error "splitIndex: cannot split an empty index"
-
 
 -- Given a pure index with no hitchhikers, create a node.
 extendIndex :: TreeFun k a hh lt
@@ -59,8 +58,8 @@ extendIndex tf@TreeFun{..} maxIdxKeys = go
       | numVals <= 2 * maxIdxVals =
           let (leftIndex, middleKey, rightIndex) =
                 splitIndexAt (div numVals 2 - 1) index
-          in indexFromList (Q.singleton middleKey)
-                           (Q.fromList [mkNode leftIndex hhEmpty,
+          in indexFromList (V.singleton middleKey)
+                           (V.fromList [mkNode leftIndex hhEmpty,
                                         mkNode rightIndex hhEmpty])
 
       | otherwise =

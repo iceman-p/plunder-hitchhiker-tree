@@ -10,14 +10,14 @@ module SubscriberTree (SubscriberTree(..),
 import           Control.Monad
 import           Data.Hashable
 import           Data.Map      (Map)
-import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Data.Set      (Set)
+
 import           Impl.Index
+import           Impl.Types
 import           Types
 import           Utils
 
 import qualified Data.Map      as M
-import qualified Data.Sequence as Q
 
 -- A SubscriberTree is a partial mirror of a FullTree. SubscriberTree is meant
 -- to replicate as much structure as possible from a FullTree and be updatable
@@ -84,12 +84,12 @@ partialTreeToIndex (SubscriberTree ptn) = fmap singletonIndex ptn
 --
 -- Returns an empty set when the range is fully synced.
 ensureRange :: forall k v. Ord k
-            => Range k -> SubscriberTree k v -> Seq (FetchRequest k)
-ensureRange _     (SubscriberTree Nothing)     = Empty
+            => Range k -> SubscriberTree k v -> [FetchRequest k]
+ensureRange _     (SubscriberTree Nothing)     = []
 ensureRange range (SubscriberTree (Just root)) = scan range Nothing root
   where
-    scan _     _   (CompletedLeaf _ _)             = Empty
-    scan range loc (MissingNode hash _)      = Q.singleton (loc, hash)
+    scan _     _   (CompletedLeaf _ _)             = []
+    scan range loc (MissingNode hash _)      = [(loc, hash)]
     scan range _   (PartialIndex _ idx _) =
       join $ fmap (\(k,v) -> scan range k v) $ indexPairs $
                     filterNodes range idx

@@ -1,17 +1,16 @@
 module Impl.Leaf where
 
 import           Control.Arrow ((***))
-import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 
 import           Impl.Index
 import           Impl.Types
 import           Types
 import           Utils
 
-import qualified Data.Sequence as Q
+import qualified Data.Vector   as V
 
-splitLeafMany2 :: forall k n h l. TreeFun k n h l -> Int -> l -> Index k n
-splitLeafMany2 TreeFun{..} maxLeafItems items
+splitLeafMany :: forall k n h l. TreeFun k n h l -> Int -> l -> Index k n
+splitLeafMany TreeFun{..} maxLeafItems items
   -- Leaf items don't overflow a single node.
   | itemLen <= maxLeafItems =
       singletonIndex $ mkLeaf items
@@ -21,14 +20,14 @@ splitLeafMany2 TreeFun{..} maxLeafItems items
       let numLeft = div itemLen 2
           (leftLeaf, rightLeaf) = leafSplitAt numLeft items
           rightFirstItem = leafFirstKey rightLeaf
-      in indexFromList (Q.singleton rightFirstItem)
-                       (Q.fromList [mkLeaf leftLeaf,
+      in indexFromList (V.singleton rightFirstItem)
+                       (V.fromList [mkLeaf leftLeaf,
                                     mkLeaf rightLeaf])
 
   -- We have to split the node into more than two nodes.
   | otherwise =
       uncurry indexFromList $
-      (Q.fromList *** (Q.fromList . map mkLeaf)) $
+      (V.fromList *** (V.fromList . map mkLeaf)) $
       split' items ([], [])
 
   where

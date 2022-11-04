@@ -1,88 +1,98 @@
 module Utils where
 
-import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
+import           Data.Bits     (shiftR)
+import           Data.Vector   (Vector)
 import           Debug.Trace
+
+import           Impl.Types
 import           Types
 
-import qualified Data.Sequence as Q
+import qualified Control.Arrow as Arrow
+import qualified Data.Vector   as V
 
--- Seq utils -----------------------------------------------------------------
+-- Vector search -------------------------------------------------------------
 
-qHeadUnsafe :: Seq a -> a
-qHeadUnsafe (first :<| _) = first
-qHeadUnsafe _             = error "qHeadUnsafe"
+-- Binary search that finds the lower bound index where an a could be inserted.
+vBinarySearchLower :: (a -> Ordering) -> Vector a -> Int
+vBinarySearchLower cmp v = go 0 (V.length v)
+  where
+    go !l !u
+      | u <= l = l
+      | otherwise = let !k = (u + l) `shiftR` 1
+                        !x = v V.! k
+                    in case cmp x of
+                          GT -> go (k+1) u
+                          _  -> go l k
 
-qUncons :: Seq a -> Maybe (a, Seq a)
-qUncons = \case
-  (head :<| rest) -> Just (head, rest)
-  Q.Empty         -> Nothing
+vBinarySearchLowerEq :: (a -> Ordering) -> Vector a -> Int
+vBinarySearchLowerEq cmp v = go 0 (V.length v)
+  where
+    go !l !u
+      | u <= l = l
+      | otherwise = let !k = (u + l) `shiftR` 1
+                        !x = v V.! k
+                    in case cmp x of
+                          LT -> go l k
+                          EQ -> (k + 1)
+                          _  -> go (k+1) u
 
 -- Index transformation ------------------------------------------------------
 
--- | Find the val for recursing downward. Returns a pair of the key to the
--- right of the subnode value (or Nothing for the final value) and value.
---
--- TODO: A real version here could use binary search on keys, and O(1) position
--- lookup.
+-- | Find the val for recursing downward.
 findSubnodeByKey :: Ord k => k -> Index k v -> v
-findSubnodeByKey key i@(Index keys vals) = subnode
+findSubnodeByKey key i@(Index keys vals) = vals V.! n
   where
-    (leftKeys, rightKeys) = Q.spanl (<=key) keys
-    n = Q.length leftKeys
-    (_, valAndRightVals) = Q.splitAt n vals
-    subnode = case qUncons valAndRightVals of
-      Nothing       -> error "Impossible in findSubnodeByKey"
-      Just (val, _) -> val
+    n = vBinarySearchLowerEq (compare key) keys
+
+getLocIdx :: Ord k => Maybe k -> Vector k -> Int
+getLocIdx Nothing _  = 0
+getLocIdx (Just x) a = vBinarySearchLowerEq (compare x) a
 
 -- | Apply fun to the node whose rightmost key is the given KeyLoc.
 mapSubnodeByLoc :: Ord k => (v -> v) -> Maybe k -> Index k v -> Index k v
 
-mapSubnodeByLoc fun Nothing (Index keys vals) = Index keys $
-  case vals of
-    x :<| xs -> fun x <| xs
-    Empty    -> Empty
-
-mapSubnodeByLoc fun (Just k) (Index keys vals) = Index keys newVals
+mapSubnodeByLoc fun loc (Index keys vals) =
+  Index keys $ V.update vals $ V.fromList [(idx, fun (vals V.! idx))]
   where
-    i = Q.length $ fst $ Q.spanl (<= k) keys
-    newVals =  Q.adjust fun i vals
+    idx = getLocIdx loc keys
 
 -- | Get the subnode from an index by location.
 getSubnodeByLoc :: Ord k => Maybe k -> Index k v -> v
-
-getSubnodeByLoc Nothing (Index keys vals) = case vals of
-  x :<| xs -> x
-  Empty    -> error "Impossible empty Index"
-
-getSubnodeByLoc (Just k) (Index keys vals) = Q.index vals i
+getSubnodeByLoc loc (Index keys vals) = vals V.! idx
   where
-    i = Q.length $ fst $ Q.spanl (<= k) keys
+    idx = getLocIdx loc keys
 
 -- | Return the index in a form where the leftmost key is returned with each
 -- vector, or Nothing at the beginning.
-indexPairs :: Index k v -> Seq (Maybe k, v)
-indexPairs (Index keys vals) = Q.zip (Nothing <| fmap Just keys) vals
+indexPairs :: Index k v -> [(Maybe k, v)]
+indexPairs (Index keys vals) =
+  zip (Nothing : (fmap Just $ V.toList keys)) (V.toList vals)
 
 -- | Returns the index with the left key and the right key to every node.
-indexTriples :: Index k v -> Seq (Maybe k, Maybe k, v)
+indexTriples :: Index k v -> [(Maybe k, Maybe k, v)]
 indexTriples (Index keys vals) =
-  Q.zip3 (Nothing <| fmap Just keys) (fmap Just keys |> Nothing) vals
+  let keyList = V.toList keys
+  in zip3 (Nothing : (fmap Just keyList))
+          ((fmap Just keyList) ++ [Nothing])
+          (V.toList vals)
 
 mapIndexWithLoc :: ((Maybe k, Maybe k, v) -> u) -> Index k v -> Index k u
 mapIndexWithLoc fun idx@(Index keys _) =
-  Index keys $ fmap fun $ indexTriples idx
+  Index keys $ V.fromList $ map fun $ indexTriples idx
 
 -- Limits the index to nodes that contain values greater than a value
 removeGreaterThan :: Ord k => k -> Index k v -> Index k v
-removeGreaterThan key (Index keys vals) = Index prunedKeys prunedVals
+removeGreaterThan key (Index keys vals) =
+  Index (V.take n keys) (V.take (n+1) vals)
   where
-    (prunedKeys, _) = Q.spanl (< key) keys
-    n = Q.length prunedKeys
-    (prunedVals, _) = Q.splitAt (n + 1) vals
+    n = vBinarySearchLower (compare key) keys
 
 removeLessThan :: Ord k => k -> Index k v -> Index k v
-removeLessThan key (Index keys vals) = Index prunedKeys prunedVals
+removeLessThan key (Index keys vals) = Index (V.drop n keys) (V.drop n vals)
   where
-    (dropped, prunedKeys) = Q.spanl (key >=) keys
-    n = Q.length dropped
-    (_, prunedVals) = Q.splitAt n vals
+    n = vBinarySearchLower (compare key) keys
+
+-- Other ---------------------------------------------------------------------
+
+concatUnzip :: [(Vector a, Vector b)] -> (Vector a, Vector b)
+concatUnzip = (V.concat Arrow.*** V.concat) . unzip

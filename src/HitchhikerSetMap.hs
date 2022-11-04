@@ -2,7 +2,6 @@ module HitchhikerSetMap where
 
 import           Data.Map      (Map)
 import           Data.Maybe
-import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Data.Set      (Set)
 
 import           Impl.Index
@@ -15,7 +14,6 @@ import           Utils
 import qualified HitchhikerSet as HS
 
 import qualified Data.Map      as M
-import qualified Data.Sequence as Q
 import qualified Data.Set      as S
 
 empty :: TreeConfig -> HitchhikerSetMap k v
@@ -84,9 +82,9 @@ insertMany :: (Show k, Show v, Ord k, Ord v)
            => [(k, v)] -> HitchhikerSetMap k v -> HitchhikerSetMap k v
 insertMany !items !(HITCHHIKERSETMAP config Nothing)
   = HITCHHIKERSETMAP config $ Just $ fixUp config (hhSetMapTF config) $
-    splitLeafMany2 (hhSetMapTF config)
-                   (maxLeafItems config)
-                   (listToLeaves config items)
+    splitLeafMany (hhSetMapTF config)
+                  (maxLeafItems config)
+                  (listToLeaves config items)
 
 insertMany !items !(HITCHHIKERSETMAP config (Just root))
   = HITCHHIKERSETMAP config $ Just $

@@ -4,6 +4,7 @@ import           Control.Monad.State.Strict (State, evalState, get, modify',
                                              runState)
 import           Data.Hashable
 
+import           Impl.Types
 import           Types
 
 import qualified Data.Map                   as M

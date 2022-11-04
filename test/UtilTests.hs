@@ -1,12 +1,13 @@
 module UtilTests (tests) where
 
+import           Impl.Types
 import           Types
 import           Utils
 
 import           Test.Tasty
 import           Test.Tasty.HUnit
 
-import qualified Data.Sequence    as Q
+import qualified Data.Vector      as V
 
 tests :: TestTree
 tests =
@@ -25,7 +26,7 @@ tests =
     ]
 
 indexFromList :: [k] -> [v] -> Index k v
-indexFromList ks vs = Index (Q.fromList ks) (Q.fromList vs)
+indexFromList ks vs = Index (V.fromList ks) (V.fromList vs)
 
 -- Sample one level index for quick testing.
 largeIndex :: Index Int Int

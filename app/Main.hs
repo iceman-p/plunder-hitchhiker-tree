@@ -22,7 +22,6 @@ import qualified Data.ByteString.Lazy      as BS
 
 import qualified Data.BTree.Pure           as HB
 import qualified Data.BTree.Pure.Setup     as HB
-import qualified Data.Sequence             as Q
 import qualified Data.Set                  as S
 
 import qualified HitchhikerMap             as HM

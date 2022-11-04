@@ -9,7 +9,6 @@ import           Test.Tasty.HUnit
 import           Test.Tasty.QuickCheck
 import           Types
 
-import qualified Data.Sequence         as Q
 import qualified Data.Set              as S
 import qualified HitchhikerSet         as H
 

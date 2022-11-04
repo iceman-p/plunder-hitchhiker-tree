@@ -1,7 +1,6 @@
 module HitchhikerMap where
 
-import           Data.Map      (Map)
-import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
+import           Data.Map    (Map)
 import           Debug.Trace
 
 import           Impl.Index
@@ -11,8 +10,7 @@ import           Impl.Types
 import           Types
 import           Utils
 
-import qualified Data.Map      as M
-import qualified Data.Sequence as Q
+import qualified Data.Map    as M
 
 empty :: TreeConfig -> HitchhikerMap k v
 empty config = HITCHHIKERMAP config Nothing
@@ -33,7 +31,7 @@ insertMany :: (Show k, Show v, Ord k, Ord v)
 insertMany !items !(HITCHHIKERMAP config Nothing) =
   HITCHHIKERMAP config $ Just $
   fixUp config hhMapTF $
-  splitLeafMany2 hhMapTF (maxLeafItems config) items
+  splitLeafMany hhMapTF (maxLeafItems config) items
 
 insertMany !items !(HITCHHIKERMAP config (Just root)) =
   HITCHHIKERMAP config $ Just $

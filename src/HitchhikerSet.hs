@@ -10,7 +10,6 @@ module HitchhikerSet ( empty
 
 import           Control.Monad
 import           Data.Maybe
-import           Data.Sequence (Seq (Empty, (:<|), (:|>)), (<|), (|>))
 import           Data.Set      (Set)
 import           Debug.Trace
 
@@ -23,7 +22,6 @@ import           Utils
 
 import qualified Data.Foldable as F
 import qualified Data.Map      as M
-import qualified Data.Sequence as Q
 import qualified Data.Set      as S
 
 empty :: TreeConfig -> HitchhikerSet k
@@ -59,7 +57,7 @@ insertMany :: (Show k, Ord k) => Set k -> HitchhikerSet k -> HitchhikerSet k
 insertMany !items !(HITCHHIKERSET config Nothing) =
   HITCHHIKERSET config $ Just $
   fixUp config hhSetTF $
-  splitLeafMany2 hhSetTF (maxLeafItems config) items
+  splitLeafMany hhSetTF (maxLeafItems config) items
 
 insertMany !items !(HITCHHIKERSET config (Just top)) =
   HITCHHIKERSET config $ Just $

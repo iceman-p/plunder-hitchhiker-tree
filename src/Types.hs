@@ -2,34 +2,20 @@ module Types where
 
 import           Data.Hashable
 import           Data.Map        (Map)
-import           Data.Sequence   (Seq)
 import           Data.Set        (Set)
 
 import           Control.DeepSeq
 import           GHC.Generics    (Generic, Generic1)
 
+import           Impl.Types
+
+import qualified Data.Vector     as V
+
 -- TODO: For now, hash is just an int. Change this in production.
 type Hash256 = Int
 
--- An Index is the main payload of an index node: the inner node of a B+ tree.
---
--- An index is a parallel array where each key is the smallest item in the
--- following value sequence.
---
--- (Contrast that with how the Clojure hitchhiker tree works where things are
--- right aligned instead.)
-data Index k v = Index (Seq k) (Seq v)
-  deriving (Show, Eq, Generic, NFData)
-
 -- | The rightmost index of the node (for traversing back to it).
 type KeyLoc k = Maybe k
-
--- The unsorted insertion log that tags along on index nodes, which might have
--- duplicates.
-type Hitchhikers k v = Seq (k, v)  -- Unsorted
-
--- The sorted list in the leaves.
-type LeafVector k v = Seq (k, v)   -- Sorted
 
 -- ----------------------------------------------------------------------------
 
@@ -149,5 +135,5 @@ instance (Hashable k, Hashable v) => Hashable (PublishTreeNode k v) where
   hashWithSalt s (PublishNodeLeaf lv) =
     s `hashWithSalt` (0 :: Int) `hashWithSalt` lv
   hashWithSalt s (PublishNodeIndex (Index k hashes) hh) =
-    s `hashWithSalt` (1 :: Int) `hashWithSalt` k `hashWithSalt`
-    hashes `hashWithSalt` hh
+    s `hashWithSalt` (1 :: Int) `hashWithSalt` (V.toList k) `hashWithSalt`
+    (V.toList hashes) `hashWithSalt` hh

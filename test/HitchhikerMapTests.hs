@@ -10,7 +10,6 @@ import           Test.Tasty.QuickCheck
 import           Types
 
 import qualified Data.Map              as M
-import qualified Data.Sequence         as Q
 import qualified HitchhikerMap         as H
 
 data TestPair = TestPair Int String

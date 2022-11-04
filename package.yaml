@@ -38,6 +38,7 @@ dependencies:
 - tasty-quickcheck
 - tasty-th
 - text
+- vector
 
 ghc-options:
 - -Wdefault
