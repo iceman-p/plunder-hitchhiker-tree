@@ -38,7 +38,13 @@ dependencies:
 - tasty-quickcheck
 - tasty-th
 - text
+- unix
 - vector
+- wai
+- wai-app-static
+- wai-websockets
+- warp
+- websockets
 
 ghc-options:
 - -Wdefault
@@ -55,15 +61,26 @@ library:
   source-dirs: src
 
 executables:
-  hitchhiker-haskell-exe:
+  tag-console:
     main:                Main.hs
-    source-dirs:         app
+    source-dirs:         app/tag-console
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
     - hitchhiker-haskell
+
+  tag-site-demo:
+    main:                Main.hs
+    source-dirs:         app/tag-site-demo
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - hitchhiker-haskell
+
 
 tests:
   hitchhiker-haskell-test:
