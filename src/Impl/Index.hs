@@ -1,52 +1,54 @@
 module Impl.Index where
 
-import           Data.Vector (Vector)
+import           ClassyPrelude
 
 import           Impl.Types
 import           Types
 import           Utils
 
-import qualified Data.Vector as V
+import qualified Data.Vector   as V
 
-emptyIndex :: Index k v
-emptyIndex = Index mempty mempty
+emptyIndex :: TreeIndex k v
+emptyIndex = TreeIndex mempty mempty
 
-mergeIndex :: Index key val -> key -> Index key val -> Index key val
-mergeIndex (Index leftKeys leftVals) middleKey (Index rightKeys rightVals) =
-    Index
+mergeIndex :: TreeIndex key val -> key -> TreeIndex key val -> TreeIndex key val
+mergeIndex (TreeIndex leftKeys leftVals) middleKey
+           (TreeIndex rightKeys rightVals) =
+    TreeIndex
       (V.concat [leftKeys, V.singleton middleKey, rightKeys])
       (leftVals <> rightVals)
 
-indexFromList :: Vector k -> Vector v -> Index k v
-indexFromList keys valPtrs = Index keys valPtrs
+indexFromList :: Vector k -> Vector v -> TreeIndex k v
+indexFromList keys valPtrs = TreeIndex keys valPtrs
 
-singletonIndex :: v -> Index k v
-singletonIndex = Index V.empty . V.singleton
+singletonIndex :: v -> TreeIndex k v
+singletonIndex = TreeIndex V.empty . V.singleton
 
-fromSingletonIndex :: Index k v -> Maybe v
-fromSingletonIndex (Index _keys vals) =
+fromSingletonIndex :: TreeIndex k v -> Maybe v
+fromSingletonIndex (TreeIndex _keys vals) =
     if V.length vals == 1 then Just $! V.head vals else Nothing
 
-indexNumKeys :: Index k v -> Int
-indexNumKeys (Index keys _vals) = V.length keys
+indexNumKeys :: TreeIndex k v -> Int
+indexNumKeys (TreeIndex keys _vals) = V.length keys
 
-indexNumVals :: Index k v -> Int
-indexNumVals (Index _keys vals) = V.length vals
+indexNumVals :: TreeIndex k v -> Int
+indexNumVals (TreeIndex _keys vals) = V.length vals
 
-splitIndexAt :: Int -> Index k v -> (Index k v, k, Index k v)
-splitIndexAt numLeftKeys (Index keys vals)
+splitIndexAt :: Int -> TreeIndex k v -> (TreeIndex k v, k, TreeIndex k v)
+splitIndexAt numLeftKeys (TreeIndex keys vals)
     | (leftKeys, middleKeyAndRightKeys) <- V.splitAt numLeftKeys     keys
     , (leftVals, rightVals)             <- V.splitAt (numLeftKeys+1) vals
     = case V.uncons middleKeyAndRightKeys of
         Just (middleKey, rightKeys) ->
-            (Index leftKeys leftVals, middleKey, Index rightKeys rightVals)
+            (TreeIndex leftKeys leftVals, middleKey,
+             TreeIndex rightKeys rightVals)
         Nothing -> error "splitIndex: cannot split an empty index"
 
 -- Given a pure index with no hitchhikers, create a node.
 extendIndex :: TreeFun k a hh lt
             -> Int
-            -> Index k a
-            -> Index k a
+            -> TreeIndex k a
+            -> TreeIndex k a
 extendIndex tf@TreeFun{..} maxIdxKeys = go
   where
     maxIdxVals = maxIdxKeys + 1

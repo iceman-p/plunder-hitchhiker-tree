@@ -1,8 +1,6 @@
 module Impl.Types where
 
-import           Control.DeepSeq
-import           Data.Vector     (Vector)
-import           GHC.Generics    (Generic, Generic1)
+import           ClassyPrelude
 
 -- An Index is the main payload of an index node: the inner node of a B+ tree.
 --
@@ -11,7 +9,7 @@ import           GHC.Generics    (Generic, Generic1)
 --
 -- (Contrast that with how the Clojure hitchhiker tree works where things are
 -- right aligned instead.)
-data Index k v = Index (Vector k) (Vector v)
+data TreeIndex k v = TreeIndex (Vector k) (Vector v)
   deriving (Show, Eq, Generic, NFData)
 
 -- | Bundle of functions for manipulating a given tree type.
@@ -21,9 +19,9 @@ data Index k v = Index (Vector k) (Vector v)
 -- requirements, but all otherwise share the core tree.
 data TreeFun key subnode hhMap leafMap = TreeFun {
   -- Constructor/elimination.
-  mkNode       :: Index key subnode -> hhMap -> subnode,
+  mkNode       :: TreeIndex key subnode -> hhMap -> subnode,
   mkLeaf       :: leafMap -> subnode,
-  caseNode     :: subnode -> Either ((Index key subnode), hhMap) leafMap,
+  caseNode     :: subnode -> Either ((TreeIndex key subnode), hhMap) leafMap,
 
   -- Leaf storage options.
   leafMerge    :: leafMap -> hhMap -> leafMap,

@@ -1,7 +1,8 @@
 module HitchhikerSetMap where
 
+import           ClassyPrelude
+
 import           Data.Map      (Map)
-import           Data.Maybe
 import           Data.Set      (Set)
 
 import           Impl.Index
@@ -56,7 +57,7 @@ leafMergeImpl :: (Show k, Show v, Ord k, Ord v)
               -> Map k (HitchhikerSet v)
               -> Map k (Set v)
               -> Map k (HitchhikerSet v)
-leafMergeImpl config leaf hh = foldl merge leaf (M.toList hh)
+leafMergeImpl config leaf hh = foldl' merge leaf (M.toList hh)
   where
     merge items (k, vSet) = M.alter (alt vSet) k items
 

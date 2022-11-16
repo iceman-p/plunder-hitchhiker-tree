@@ -1,9 +1,9 @@
 module Impl.Tree where
 
-import           Control.Monad
+import           ClassyPrelude
+
 import           Data.Map      (Map)
 import           Data.Vector   (Vector)
-import           Debug.Trace
 
 import           Impl.Index
 import           Impl.Leaf
@@ -17,7 +17,7 @@ import qualified Data.Vector   as V
 
 fixUp :: TreeConfig
       -> TreeFun k a hh lt
-      -> Index k a
+      -> TreeIndex k a
       -> a
 fixUp config tf@TreeFun{..} idx = case fromSingletonIndex idx of
   Just newRootNode -> newRootNode
@@ -29,7 +29,7 @@ insertRec :: (Show k, Show a, Show lt, Show hh, Ord k)
           -> TreeFun k a hh lt
           -> hh
           -> a
-          -> Index k a
+          -> TreeIndex k a
 insertRec config tf@TreeFun{..} toAdd node =
   case caseNode node of
     Left (children, hitchhikers)
@@ -62,13 +62,13 @@ distributeDownwards
   => TreeConfig
   -> TreeFun k a hh lt
   -> hh
-  -> Index k a
-  -> Index k a
-distributeDownwards config tf@TreeFun{..} inHitchhikers (Index keys vals) =
+  -> TreeIndex k a
+  -> TreeIndex k a
+distributeDownwards config tf@TreeFun{..} inHitchhikers (TreeIndex keys vals) =
   build $ L.unfoldr go (0, inHitchhikers)
   where
-    build :: [(Vector k, Vector a)] -> Index k a
-    build = uncurry Index . concatUnzip
+    build :: [(Vector k, Vector a)] -> TreeIndex k a
+    build = uncurry TreeIndex . concatUnzip
 
     go :: (Int, hh) -> Maybe ((Vector k, Vector a), (Int, hh))
     go (idx, hh) = case (keys V.!? idx, vals V.!? idx) of
@@ -83,7 +83,7 @@ distributeDownwards config tf@TreeFun{..} inHitchhikers (Index keys vals) =
           _ ->
             -- This is when we're in a singleton val index or in the rightmost
             -- entry.
-            let (Index oKeys oVals) = insertRec config tf hh node
+            let (TreeIndex oKeys oVals) = insertRec config tf hh node
             in Just ((oKeys, oVals), (idx + 1, hhEmpty))
       (Just key, Just node) ->
         let (toAdd, rest) = hhSplit key hh
@@ -94,7 +94,8 @@ distributeDownwards config tf@TreeFun{..} inHitchhikers (Index keys vals) =
                Just ((V.singleton key, V.singleton node),
                      (idx + 1, hh))
              _ ->
-               let (Index subKeys subHashes) = insertRec config tf toAdd node
+               let (TreeIndex subKeys subHashes) =
+                     insertRec config tf toAdd node
                in Just ((V.snoc subKeys key, subHashes),
                         (idx + 1, rest))
 
@@ -108,7 +109,7 @@ flushDownwards tf@TreeFun{..} = go hhEmpty
       Left (children, hitchhikers) ->
         join $ L.unfoldr distribute (0, children, hhMerge hitchhikers hh)
 
-    distribute (idx, i@(Index keys vals), hh) =
+    distribute (idx, i@(TreeIndex keys vals), hh) =
       case (keys V.!? idx, vals V.!? idx) of
         (Nothing, Nothing) -> Nothing
         (Just _, Nothing) -> error "Completely broken tree structure."

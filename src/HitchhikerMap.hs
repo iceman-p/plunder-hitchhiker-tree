@@ -1,7 +1,8 @@
 module HitchhikerMap where
 
-import           Data.Map    (Map)
-import           Debug.Trace
+import           ClassyPrelude
+
+import           Data.Map      (Map)
 
 import           Impl.Index
 import           Impl.Leaf
@@ -10,7 +11,7 @@ import           Impl.Types
 import           Types
 import           Utils
 
-import qualified Data.Map    as M
+import qualified Data.Map      as M
 
 empty :: TreeConfig -> HitchhikerMap k v
 empty config = HITCHHIKERMAP config Nothing

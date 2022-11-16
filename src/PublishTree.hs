@@ -1,8 +1,9 @@
 module PublishTree where
 
+import           ClassyPrelude
+
 import           Control.Monad.State.Strict (State, evalState, get, modify',
                                              runState)
-import           Data.Hashable
 
 import           Impl.Types
 import           Types
@@ -18,9 +19,9 @@ toPublishTree (HITCHHIKERMAP _ (Just root)) = PUBLISHTREE (Just ptRoot) storage
     (ptRoot, storage) = runState (gather root) M.empty
 
     gather = \case
-      HitchhikerMapNodeIndex (Index keys vals) hh -> do
+      HitchhikerMapNodeIndex (TreeIndex keys vals) hh -> do
          hashvals <- mapM gather vals
-         hashAdd $ PublishNodeIndex (Index keys hashvals) hh
+         hashAdd $ PublishNodeIndex (TreeIndex keys hashvals) hh
       HitchhikerMapNodeLeaf lv -> hashAdd (PublishNodeLeaf lv)
 
     hashAdd pub = do

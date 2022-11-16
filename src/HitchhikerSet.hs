@@ -1,4 +1,5 @@
 module HitchhikerSet ( empty
+                     , null
                      , singleton
                      , fromSet
                      , toSet
@@ -8,10 +9,10 @@ module HitchhikerSet ( empty
                      , intersection
                      ) where
 
-import           Control.Monad
-import           Data.Maybe
+import           ClassyPrelude hiding (empty, intersection, member, null,
+                                singleton)
+
 import           Data.Set      (Set)
-import           Debug.Trace
 
 import           Impl.Index
 import           Impl.Leaf
@@ -27,20 +28,25 @@ import qualified Data.Set      as S
 empty :: TreeConfig -> HitchhikerSet k
 empty config = HITCHHIKERSET config Nothing
 
+null :: HitchhikerSet k -> Bool
+null (HITCHHIKERSET config tree) = not $ isJust tree
+
 singleton :: TreeConfig -> k -> HitchhikerSet k
 singleton config k
   = HITCHHIKERSET config (Just $ HitchhikerSetNodeLeaf $ S.singleton k)
 
 fromSet :: (Show k, Ord k) => TreeConfig -> Set k -> HitchhikerSet k
-fromSet config ks = insertMany ks $ empty config
+fromSet config ks
+  | S.null ks = empty config
+  | otherwise = insertMany ks $ empty config
 
 toSet :: (Show k, Ord k) => HitchhikerSet k -> S.Set k
 toSet (HITCHHIKERSET config Nothing) = S.empty
 toSet (HITCHHIKERSET config (Just root)) = collect root
   where
     collect = \case
-      HitchhikerSetNodeIndex (Index _ nodes) hh ->
-        foldl (<>) (mkSet hh) $ fmap collect nodes
+      HitchhikerSetNodeIndex (TreeIndex _ nodes) hh ->
+        foldl' (<>) (mkSet hh) $ fmap collect nodes
       HitchhikerSetNodeLeaf l -> mkSet l
 
     mkSet = S.fromList . F.toList

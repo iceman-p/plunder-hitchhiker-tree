@@ -7,8 +7,8 @@ module SubscriberTree (SubscriberTree(..),
                        fetched
                       ) where
 
-import           Control.Monad
-import           Data.Hashable
+import           ClassyPrelude
+
 import           Data.Map      (Map)
 import           Data.Set      (Set)
 
@@ -30,7 +30,7 @@ import qualified Data.Map      as M
 data SubscriberTree k v = SubscriberTree (Maybe (SubscriberTreeNode k v))
   deriving (Show)
 
-type PartialIndex k v = Index k (Hash256, SubscriberTreeNode k v)
+type PartialIndex k v = TreeIndex k (Hash256, SubscriberTreeNode k v)
 
 -- -----------------------------------------------------------------------
 
@@ -38,12 +38,12 @@ type PartialIndex k v = Index k (Hash256, SubscriberTreeNode k v)
 -- their own Hash256.
 data SubscriberTreeNode k v
   -- An index node that may have holes in it.
-  = PartialIndex Hash256 (Index k (SubscriberTreeNode k v)) (Map k v)
+  = PartialIndex Hash256 (TreeIndex k (SubscriberTreeNode k v)) (Map k v)
 
   -- | We don't have a copy of this node. We store instead the part of the
   -- index that covered this range in hopes of reconstituting grandchild nodes
   -- in the future.
-  | MissingNode Hash256 (Maybe (Index k (SubscriberTreeNode k v)))
+  | MissingNode Hash256 (Maybe (TreeIndex k (SubscriberTreeNode k v)))
 
   -- All leaf nodes are complete.
   | CompletedLeaf Hash256 (Map k v)
@@ -76,7 +76,7 @@ updateRoot (Just newHash) oldTree =
   SubscriberTree (Just $ MissingNode newHash $ partialTreeToIndex oldTree)
 
 partialTreeToIndex :: SubscriberTree k v
-                   -> Maybe (Index k (SubscriberTreeNode k v))
+                   -> Maybe (TreeIndex k (SubscriberTreeNode k v))
 partialTreeToIndex (SubscriberTree ptn) = fmap singletonIndex ptn
 
 -- | Given a range (from, to), calculate all the nodes we know we'd need to
@@ -164,7 +164,7 @@ fetched (fetchK, hash) fetched (SubscriberTree (Just tree))
         -- Given a location and a hash, we return a node. Either a MissingNode
         -- with a restricted prevIndex if there's nothing in `prevIndex` to
         -- complete with, or
-        completeFromPrevious :: Maybe (Index k (SubscriberTreeNode k v))
+        completeFromPrevious :: Maybe (TreeIndex k (SubscriberTreeNode k v))
                              -> (Maybe k, Maybe k, Hash256)
                              -> SubscriberTreeNode k v
 
@@ -185,7 +185,7 @@ fetched (fetchK, hash) fetched (SubscriberTree (Just tree))
 -- index, returning the node if found.
 findHashInIndex :: (Show k, Show v, Ord k)
                 => (Maybe k, Hash256)
-                -> Index k (SubscriberTreeNode k v)
+                -> TreeIndex k (SubscriberTreeNode k v)
                 -> Maybe (SubscriberTreeNode k v)
 findHashInIndex (left, hash) index =
   case getSubnodeByLoc left index of
@@ -202,8 +202,8 @@ findHashInIndex (left, hash) index =
 narrowIndex :: Ord k
             => Maybe k
             -> Maybe k
-            -> Index k (SubscriberTreeNode k v)
-            -> Index k (SubscriberTreeNode k v)
+            -> TreeIndex k (SubscriberTreeNode k v)
+            -> TreeIndex k (SubscriberTreeNode k v)
 narrowIndex prev next idx = rightNarrowed
   where
     leftNarrowed = case prev of

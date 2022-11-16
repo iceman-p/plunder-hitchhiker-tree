@@ -1,7 +1,6 @@
 module HitchhikerMapTests (tests) where
 
 import           Control.DeepSeq
-import           Debug.Trace
 import           System.Random
 import           System.Random.Shuffle (shuffle')
 import           Test.Tasty

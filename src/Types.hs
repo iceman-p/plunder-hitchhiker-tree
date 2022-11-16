@@ -1,15 +1,13 @@
 module Types where
 
-import           Data.Hashable
-import           Data.Map        (Map)
-import           Data.Set        (Set)
+import           ClassyPrelude
 
-import           Control.DeepSeq
-import           GHC.Generics    (Generic, Generic1)
+import           Data.Map      (Map)
+import           Data.Set      (Set)
 
 import           Impl.Types
 
-import qualified Data.Vector     as V
+import qualified Data.Vector   as V
 
 -- TODO: For now, hash is just an int. Change this in production.
 type Hash256 = Int
@@ -70,7 +68,7 @@ largeConfig = TREECONFIG {
 -- The shared node between both FullTrees and PartialTrees.
 data HitchhikerMapNode k v
   -- Inner B+ index with hitchhiker information.
-  = HitchhikerMapNodeIndex (Index k (HitchhikerMapNode k v)) (Map k v)
+  = HitchhikerMapNodeIndex (TreeIndex k (HitchhikerMapNode k v)) (Map k v)
   -- Sorted list of leaf values. (in sire, rows access is O(1)).
   | HitchhikerMapNodeLeaf (Map k v)
   deriving (Show, Generic, NFData)
@@ -85,7 +83,7 @@ data HitchhikerMap k v = HITCHHIKERMAP {
 -- -----------------------------------------------------------------------
 
 data HitchhikerSetNode k
-  = HitchhikerSetNodeIndex (Index k (HitchhikerSetNode k)) (Set k)
+  = HitchhikerSetNodeIndex (TreeIndex k (HitchhikerSetNode k)) (Set k)
   | HitchhikerSetNodeLeaf (Set k)
   deriving (Show, Generic, NFData)
 
@@ -98,7 +96,7 @@ data HitchhikerSet k = HITCHHIKERSET {
 -- -----------------------------------------------------------------------
 
 data HitchhikerSetMapNode k v
-  = HitchhikerSetMapNodeIndex (Index k (HitchhikerSetMapNode k v))
+  = HitchhikerSetMapNodeIndex (TreeIndex k (HitchhikerSetMapNode k v))
                               (Map k (Set v))
   | HitchhikerSetMapNodeLeaf (Map k (HitchhikerSet v))
   deriving (Show, Generic, NFData)
@@ -115,7 +113,7 @@ data HitchhikerSetMap k v = HITCHHIKERSETMAP {
 -- The shared node between both FullTrees and PartialTrees.
 data PublishTreeNode k v
   -- Inner B+ index with hitchhiker information.
-  = PublishNodeIndex (Index k Hash256) (Map k v)
+  = PublishNodeIndex (TreeIndex k Hash256) (Map k v)
   -- Sorted list of leaf values. (in sire, rows access is O(1)).
   | PublishNodeLeaf (Map k v)
   deriving (Show, Eq, Generic, NFData)
@@ -134,6 +132,6 @@ data PublishTree k v = PUBLISHTREE {
 instance (Hashable k, Hashable v) => Hashable (PublishTreeNode k v) where
   hashWithSalt s (PublishNodeLeaf lv) =
     s `hashWithSalt` (0 :: Int) `hashWithSalt` lv
-  hashWithSalt s (PublishNodeIndex (Index k hashes) hh) =
+  hashWithSalt s (PublishNodeIndex (TreeIndex k hashes) hh) =
     s `hashWithSalt` (1 :: Int) `hashWithSalt` (V.toList k) `hashWithSalt`
     (V.toList hashes) `hashWithSalt` hh

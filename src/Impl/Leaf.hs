@@ -1,5 +1,7 @@
 module Impl.Leaf where
 
+import           ClassyPrelude
+
 import           Control.Arrow ((***))
 
 import           Impl.Index
@@ -9,7 +11,7 @@ import           Utils
 
 import qualified Data.Vector   as V
 
-splitLeafMany :: forall k n h l. TreeFun k n h l -> Int -> l -> Index k n
+splitLeafMany :: forall k n h l. TreeFun k n h l -> Int -> l -> TreeIndex k n
 splitLeafMany TreeFun{..} maxLeafItems items
   -- Leaf items don't overflow a single node.
   | itemLen <= maxLeafItems =

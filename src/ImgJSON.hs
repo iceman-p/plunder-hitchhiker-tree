@@ -1,11 +1,12 @@
 module ImgJSON where
 
-import           Control.DeepSeq
+import           ClassyPrelude
+
+import           Control.Monad             (fail)
 import           Control.Monad.State       (MonadState, StateT, evalStateT,
                                             execState, get, gets, liftIO,
                                             modify', put, runStateT)
 import           Data.Aeson                hiding (parse)
-import           Data.Maybe
 import           Optics                    hiding (noneOf, (%%))
 import           System.Directory
 import           System.Environment
@@ -39,7 +40,7 @@ instance FromJSON Item where
   parseJSON (Object v) = do
     i <- v .: "id"
     t <- v .: "tags"
-    rep <- v .: "representation"
+    rep <- v .: "representations"
     thumb <- rep .: "thumb"
     medium <- rep .: "medium"
     pure $ Item i t thumb medium
@@ -71,11 +72,21 @@ addEntry !item@(Item idNum tags _ _) = do
     (SM.insertMany (force $ fmap (\t -> (t, idNum)) tags))
 
 -- Searches for a given set of tags.
-search :: Monad m => [String] -> StateT Model m (HitchhikerSet Int)
+--
+-- Returns either a list of tags that don't exist in the database, or the set
+-- of images that match all those tags.
+search :: Monad m
+       => [String]
+       -> StateT Model m (Either [String] (HitchhikerSet Int))
 search tags = do
   tagMap <- use #tags
-  let sets = map (\t -> SM.lookup t tagMap) tags
-  case sets of
-    []     -> pure $ HS.empty largeConfig
-    x:[]   -> pure $ x
-    (x:xs) -> pure $ foldl HS.intersection x xs
+  let sets = map (lookupTag tagMap) tags
+  pure $ case (lefts sets, rights sets) of
+    ([], [])   -> Right $ HS.empty largeConfig
+    ([], x:xs) -> Right $ foldl' HS.intersection x xs
+    (lefts, _) -> Left lefts
+  where
+    lookupTag m t = let s = SM.lookup t m
+                    in if HS.null s
+                       then Left t
+                       else Right s

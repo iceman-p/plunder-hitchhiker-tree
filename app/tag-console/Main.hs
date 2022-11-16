@@ -1,18 +1,15 @@
 module Main (main) where
 
-import           Control.DeepSeq
-import           Control.Monad             (forM, join)
+import           ClassyPrelude             hiding (many)
+
 import           Control.Monad.State       (MonadState, StateT, evalStateT,
                                             execState, get, gets, liftIO,
                                             modify', put, runStateT)
 import           Data.Aeson                hiding (parse)
-import           Debug.Trace
 
 import           Optics                    hiding (noneOf, (%%))
 import           System.Directory
-import           System.Environment
 import           System.FilePath
-import           System.IO
 import           Text.Parsec
 
 import           Data.BTree.Primitives.Key
@@ -34,13 +31,14 @@ import           ImgJSON
 
 main = do
   -- Load the json into a series of Items
-  [indir] <- getArgs
+  [_, i] <- getArgs
+  let indir = unpack i
   files :: [FilePath] <- listDirectory indir
 
   allImages <- forM files $ \file -> do
     bs <- BS.readFile (indir </> file)
     case eitherDecode bs of
-      Left err                 -> do { putStrLn err; pure [] }
+      Left err                 -> do { putStrLn $ pack err; pure [] }
       Right (ImagesJSON items) -> pure items
 
   flip evalStateT emptyModel $ do
@@ -55,7 +53,7 @@ delim = do
   many (char ' ')
   pure ()
 
-read' :: StateT Model IO String
+read' :: StateT Model IO Text
 read' = liftIO $ do
   putStr "SEARCH> "
   hFlush stdout
@@ -69,7 +67,7 @@ repl = do
   let c = parse (sepBy (many (noneOf ",")) delim) "" raw
   case c of
     Left err -> do
-      liftIO $ putStrLn $ show err
+      liftIO $ putStrLn $ tshow err
       repl
     Right [":showitems"] -> do
       (Model items _) <- get
@@ -83,7 +81,9 @@ repl = do
       liftIO $ putStrLn "goodbye"
       pure ()
     Right tags -> do
-      liftIO $ putStrLn ("TAGS: " ++ show tags)
-      s <- HS.toSet <$> search tags
-      liftIO $ putStrLn ("RESULT: " ++ show s)
+      liftIO $ putStrLn ("TAGS: " ++ tshow tags)
+      s <- search tags
+      case s of
+        Left tags -> liftIO $ putStrLn ("INVALID TAGS: " ++ tshow tags)
+        Right s   -> liftIO $ putStrLn ("RESULT: " ++ (tshow $ HS.toSet s))
       repl
