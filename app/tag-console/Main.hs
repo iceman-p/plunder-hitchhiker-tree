@@ -31,12 +31,15 @@ import           ImgJSON
 
 main = do
   -- Load the json into a series of Items
-  [_, i] <- getArgs
-  let indir = unpack i
-  files :: [FilePath] <- listDirectory indir
+  [i] <- getArgs
+  let datadir = unpack i
+      jsondir = datadir </> "json"
+
+  files :: [FilePath] <- listDirectory jsondir
 
   allImages <- forM files $ \file -> do
-    bs <- BS.readFile (indir </> file)
+    let path = jsondir </> file
+    bs <- BS.readFile path
     case eitherDecode bs of
       Left err                 -> do { putStrLn $ pack err; pure [] }
       Right (ImagesJSON items) -> pure items
@@ -85,5 +88,8 @@ repl = do
       s <- search tags
       case s of
         Left tags -> liftIO $ putStrLn ("INVALID TAGS: " ++ tshow tags)
-        Right s   -> liftIO $ putStrLn ("RESULT: " ++ (tshow $ HS.toSet s))
+        Right s   -> do
+          longResults <- lookupItems s
+          forM_ longResults $ \(imgid, thumb) -> do
+            putStrLn (" " ++ (tshow imgid) ++ ": " ++ pack thumb)
       repl

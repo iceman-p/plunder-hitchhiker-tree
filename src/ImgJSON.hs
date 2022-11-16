@@ -90,3 +90,16 @@ search tags = do
                     in if HS.null s
                        then Left t
                        else Right s
+
+type SearchResult = (Int, String)  -- imgid, thumbnail url
+
+lookupItems :: Monad m
+            => HitchhikerSet Int
+            -> StateT Model m [SearchResult]
+lookupItems s = do
+  itemMap <- use #items
+  pure $ catMaybes $ map (toSearchResult itemMap) $ S.toList $ HS.toSet s
+  where
+    toSearchResult im i = case HM.lookup i im of
+      Nothing       -> Nothing
+      Just Item{..} -> Just (idNum, thumb)
