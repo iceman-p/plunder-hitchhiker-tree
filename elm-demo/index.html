@@ -1,0 +1,57 @@
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Main</title>
+  <script src="elm.js"></script>
+</head>
+
+<body>
+    <div id="myapp"></div>
+    <script>
+    var app = Elm.Main.init({
+      node: document.getElementById('myapp'),
+      flags: Date.now(),
+    });
+
+    // Create your WebSocket.
+    var socket = new WebSocket('ws://' + location.host + '/ws');
+
+    /*
+        When a command goes to the `sendMessage` port, we pass the
+        message along to the WebSocket.
+    */
+    console.log(app);
+    console.log(app.ports);
+    app.ports.sendMessage.subscribe(function(message) {
+        console.log("send", message)
+        const msgTxt = JSON.stringify(message)
+        console.log("send.text", msgTxt);
+        const blob = new Blob([msgTxt], { type: 'text/plain' });
+        console.log("send.blob", blob);
+        socket.send(blob);
+    });
+
+    /*
+        When a message comes into our WebSocket, we pass the message
+        along to the `messageReceiver` port.
+    */
+    socket.addEventListener("message", function(event) {
+        console.log("recv", event);
+        const blob = event.data;
+        fr = new FileReader();
+        fr.onload = function() {
+            const json = JSON.parse(this.result);
+            console.log(json);
+            app.ports.messageReceiver.send(json);
+        };
+        fr.readAsText(blob);
+    });
+
+    /*
+        If you want to use a JavaScript library to manage your
+        WebSocket connection, replace the code in JS with the alternate
+        implementation.
+    */
+    </script>
+</body>
+</html>
