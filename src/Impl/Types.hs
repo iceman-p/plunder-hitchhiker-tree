@@ -17,22 +17,25 @@ data TreeIndex k v = TreeIndex (Vector k) (Vector v)
 -- This generalizes how to deal with the leaves and hitchhiker data on each
 -- node since HitchhikerMap, HitchhierSet and HitchhikerSetMap have different
 -- requirements, but all otherwise share the core tree.
-data TreeFun key subnode hhMap leafMap = TreeFun {
+data TreeFun key value subnode hhMap leafMap = TreeFun {
   -- Constructor/elimination.
   mkNode       :: TreeIndex key subnode -> hhMap -> subnode,
   mkLeaf       :: leafMap -> subnode,
   caseNode     :: subnode -> Either ((TreeIndex key subnode), hhMap) leafMap,
 
   -- Leaf storage options.
-  leafMerge    :: leafMap -> hhMap -> leafMap,
+  leafInsert   :: leafMap -> hhMap -> leafMap,
+  leafMerge    :: leafMap -> leafMap -> leafMap,
   leafLength   :: leafMap -> Int,
   leafSplitAt  :: Int -> leafMap -> (leafMap, leafMap),
   leafFirstKey :: leafMap -> key,
   leafEmpty    :: leafMap,
+  leafDelete   :: key -> Maybe value -> leafMap -> leafMap,
 
   -- Hitchhiker storage options.
   hhMerge      :: hhMap -> hhMap -> hhMap,
   hhLength     :: hhMap -> Int,
   hhSplit      :: key -> hhMap -> (hhMap, hhMap),
-  hhEmpty      :: hhMap
+  hhEmpty      :: hhMap,
+  hhDelete     :: key -> Maybe value -> hhMap -> hhMap
   };

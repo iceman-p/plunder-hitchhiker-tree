@@ -16,7 +16,7 @@ import qualified Data.Map      as M
 import qualified Data.Vector   as V
 
 fixUp :: TreeConfig
-      -> TreeFun k a hh lt
+      -> TreeFun k v a hh lt
       -> TreeIndex k a
       -> a
 fixUp config tf@TreeFun{..} idx = case fromSingletonIndex idx of
@@ -26,7 +26,7 @@ fixUp config tf@TreeFun{..} idx = case fromSingletonIndex idx of
 
 insertRec :: (Show k, Show a, Show lt, Show hh, Ord k)
           => TreeConfig
-          -> TreeFun k a hh lt
+          -> TreeFun k v a hh lt
           -> hh
           -> a
           -> TreeIndex k a
@@ -46,21 +46,16 @@ insertRec config tf@TreeFun{..} toAdd node =
         merged = hhMerge hitchhikers toAdd
 
     Right items                  ->
-      splitLeafMany tf (maxLeafItems config) $ leafMerge items toAdd
-
--- OK, first porting job: distributeDownwards was done before I changed the
--- structure of
-
-
+      splitLeafMany tf (maxLeafItems config) $ leafInsert items toAdd
 
 -- Given a list of hitchhikers, try to distribute each downward to the next
 -- level. This function is responsible for sending the right output to
 -- indexRec, and parsing that return value back into a coherent index.
 distributeDownwards
-  :: forall k a hh lt
+  :: forall k v a hh lt
    . (Show k, Show a, Show hh, Show lt, Ord k)
   => TreeConfig
-  -> TreeFun k a hh lt
+  -> TreeFun k v a hh lt
   -> hh
   -> TreeIndex k a
   -> TreeIndex k a
@@ -68,7 +63,7 @@ distributeDownwards config tf@TreeFun{..} inHitchhikers (TreeIndex keys vals) =
   build $ L.unfoldr go (0, inHitchhikers)
   where
     build :: [(Vector k, Vector a)] -> TreeIndex k a
-    build = uncurry TreeIndex . concatUnzip
+    build a = uncurry TreeIndex $ concatUnzip a
 
     go :: (Int, hh) -> Maybe ((Vector k, Vector a), (Int, hh))
     go (idx, hh) = case (keys V.!? idx, vals V.!? idx) of
@@ -101,11 +96,11 @@ distributeDownwards config tf@TreeFun{..} inHitchhikers (TreeIndex keys vals) =
 
 -- Forces a flush of all hitchhikers down to the leaf levels and return the
 -- resulting leaf vectors.
-flushDownwards :: Ord k => TreeFun k a hh lt -> a -> [lt]
+flushDownwards :: Ord k => TreeFun k v a hh lt -> a -> [lt]
 flushDownwards tf@TreeFun{..} = go hhEmpty
   where
     go hh node = case caseNode node of
-      Right leaves                 -> [leafMerge leaves hh]
+      Right leaves                 -> [leafInsert leaves hh]
       Left (children, hitchhikers) ->
         join $ L.unfoldr distribute (0, children, hhMerge hitchhikers hh)
 
@@ -117,3 +112,61 @@ flushDownwards tf@TreeFun{..} = go hhEmpty
         (Just key, Just node) ->
           let (toAdd, rest) = hhSplit key hh
           in Just (go toAdd node, (idx + 1, i, rest))
+
+
+-- Deletion
+
+-- What do we have to do here? haskey-btree just recurses downwards, but
+-- hitchhiker trees also have to delete entries at each level.
+--
+-- Some users of Tree will want to delete just a key while others will want to
+-- delete a specific k/v pair. We make this generic by passing maybe the value
+-- to delete.
+deleteRec :: (Show k, Show a, Show lt, Show hh, Ord k)
+          => TreeConfig
+          -> TreeFun k v a hh lt
+          -> k
+          -> Maybe v
+          -> a
+          -> a
+deleteRec config tf@TreeFun{..} key mybV node =
+  case caseNode node of
+    Right items                  -> mkLeaf $ leafDelete key mybV items
+    Left (children, hitchhikers) ->
+      let (ctx, child) = valView key children
+          newChild = deleteRec config tf key mybV child
+          childNeedsMerge = nodeNeedsMerge config tf newChild
+          prunedHH = hhDelete key mybV hitchhikers
+      in case (childNeedsMerge, leftView ctx, rightView ctx) of
+           (True, _, Just (rKey, rChild, rCtx)) ->
+             mkNode (putIdx rCtx (mergeNodes config tf newChild rKey rChild))
+                    prunedHH
+           (True, Just (lCtx, lChild, lKey), _) ->
+             mkNode (putIdx lCtx (mergeNodes config tf lChild lKey newChild))
+                    prunedHH
+           (True, _, _) -> error "deleteRec: node with single child"
+           _ -> mkNode (putVal ctx newChild) prunedHH
+
+nodeNeedsMerge :: TreeConfig
+               -> TreeFun k v a hh lt
+               -> a
+               -> Bool
+nodeNeedsMerge config TreeFun{..} node = case caseNode node of
+  Left (children, hitchhikers) -> indexNumKeys children < minIdxKeys config
+  Right items                  -> leafLength items < minLeafItems config
+
+mergeNodes :: (Show k, Show a, Show hh, Show lt, Ord k)
+           => TreeConfig
+           -> TreeFun k v a hh lt
+           -> a
+           -> k
+           -> a
+           -> TreeIndex k a
+mergeNodes config tf@TreeFun{..} left middleKey right =
+  case (caseNode left, caseNode right) of
+    (Left (leftIdx, leftHH), Left (rightIdx, rightHH)) ->
+      let left  = distributeDownwards config tf leftHH leftIdx
+          right = distributeDownwards config tf rightHH rightIdx
+      in extendIndex tf (maxIdxKeys config) (mergeIndex left middleKey right)
+    (Right leftLeaf, Right rightLeaf)                  ->
+      splitLeafMany tf (maxLeafItems config) (leafMerge leftLeaf rightLeaf)

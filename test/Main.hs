@@ -1,5 +1,7 @@
 module Main where
 
+import           ClassyPrelude
+
 import           Test.Tasty
 import           Test.Tasty.TH
 

@@ -5,12 +5,14 @@ module HitchhikerSet ( empty
                      , toSet
                      , insert
                      , insertMany
+                     , delete
                      , member
                      , intersection
+                     , union
                      ) where
 
-import           ClassyPrelude hiding (empty, intersection, member, null,
-                                singleton)
+import           ClassyPrelude hiding (delete, empty, intersection, member,
+                                null, singleton, union)
 
 import           Data.Set      (Set)
 
@@ -70,9 +72,23 @@ insertMany !items !(HITCHHIKERSET config (Just top)) =
   fixUp config hhSetTF $
   insertRec config hhSetTF items top
 
+
+delete :: (Show k, Ord k)
+       => k -> HitchhikerSet k -> HitchhikerSet k
+delete _ !(HITCHHIKERSET config Nothing) = HITCHHIKERSET config Nothing
+delete !k !(HITCHHIKERSET config (Just root)) =
+  case deleteRec config hhSetTF k Nothing root of
+    HitchhikerSetNodeIndex index hitchhikers
+      | Just childNode <- fromSingletonIndex index ->
+          if S.null hitchhikers then HITCHHIKERSET config (Just childNode)
+          else insertMany hitchhikers $ HITCHHIKERSET config (Just childNode)
+    HitchhikerSetNodeLeaf items
+      | S.null items -> HITCHHIKERSET config Nothing
+    newRootNode -> HITCHHIKERSET config (Just newRootNode)
+
 -- -----------------------------------------------------------------------
 
-hhSetTF :: Ord k => TreeFun k (HitchhikerSetNode k) (Set k) (Set k)
+hhSetTF :: Ord k => TreeFun k v (HitchhikerSetNode k) (Set k) (Set k)
 hhSetTF = TreeFun {
   mkNode = HitchhikerSetNodeIndex,
   mkLeaf = HitchhikerSetNodeLeaf,
@@ -80,16 +96,23 @@ hhSetTF = TreeFun {
       HitchhikerSetNodeIndex a b -> Left (a, b)
       HitchhikerSetNodeLeaf l    -> Right l,
 
-  leafMerge = S.union,
+  leafInsert = S.union,
+  leafMerge = (<>),
   leafLength = S.size,
   leafSplitAt = S.splitAt,
   leafFirstKey = S.findMin,
   leafEmpty = S.empty,
+  leafDelete = \k mybV s -> case mybV of
+      Nothing -> S.delete k s
+      Just _  -> error "Can't delete specific values in set",
 
   hhMerge = S.union,
   hhLength = S.size,
   hhSplit = splitImpl,
-  hhEmpty = S.empty
+  hhEmpty = S.empty,
+  hhDelete = \k mybV s -> case mybV of
+      Nothing -> S.delete k s
+      Just _  -> error "Can't delete specific values in set"
   }
 
 splitImpl :: Ord k => k -> Set k -> (Set k, Set k)
@@ -121,3 +144,16 @@ intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
   where
     as = S.unions $ flushDownwards hhSetTF a
     bs = S.unions $ flushDownwards hhSetTF b
+
+-- intersection here is super basic and kinda inefficient. it has a bunch of
+
+union :: (Show k, Ord k)
+      => HitchhikerSet k -> HitchhikerSet k -> HitchhikerSet k
+union n@(HITCHHIKERSET _ Nothing) _ = n
+union _ n@(HITCHHIKERSET _ Nothing) = n
+union (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
+  fromSet conf $ S.union as bs
+  where
+    as = S.unions $ flushDownwards hhSetTF a
+    bs = S.unions $ flushDownwards hhSetTF b
+

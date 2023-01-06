@@ -45,7 +45,7 @@ splitIndexAt numLeftKeys (TreeIndex keys vals)
         Nothing -> error "splitIndex: cannot split an empty index"
 
 -- Given a pure index with no hitchhikers, create a node.
-extendIndex :: TreeFun k a hh lt
+extendIndex :: TreeFun k v a hh lt
             -> Int
             -> TreeIndex k a
             -> TreeIndex k a
@@ -72,3 +72,69 @@ extendIndex tf@TreeFun{..} maxIdxKeys = go
                         (go rightIndex)
       where
         numVals = indexNumVals index
+
+-- ----------------------------------------------------------------------------
+
+vecUncons :: Vector a -> Maybe (a, Vector a)
+vecUncons v
+    | V.null v  = Nothing
+    | otherwise = Just (V.unsafeHead v, V.unsafeTail v)
+
+vecUnsnoc :: Vector a -> Maybe (Vector a, a)
+vecUnsnoc v
+    | V.null v  = Nothing
+    | otherwise = Just (V.unsafeInit v, V.unsafeLast v)
+
+-- A TreeIndex with a hole in it.
+--
+data IndexContext k a = IndexContext {
+  leftKeys  :: Vector k,
+  leftVals  :: Vector a,
+  rightKeys :: Vector k,
+  rightVals :: Vector a
+  }
+
+-- Like splitIndexAt, but instead breaks on where a given key should be.
+valView :: Ord k
+        => k
+        -> TreeIndex k a
+        -> (IndexContext k a, a)
+valView key (TreeIndex keys vals)
+    | (leftKeys, rightKeys)       <- V.span (<=key) keys
+    , n                           <- V.length leftKeys
+    , (leftVals, valAndRightVals) <- V.splitAt n vals
+    , Just (val, rightVals)       <- vecUncons valAndRightVals
+    = ( IndexContext{..}, val )
+    | otherwise
+    = error "valView: cannot split an empty index"
+
+
+leftView :: IndexContext key val -> Maybe (IndexContext key val, val, key)
+leftView ctx = do
+  (leftVals, leftVal) <- vecUnsnoc (leftVals ctx)
+  (leftKeys, leftKey) <- vecUnsnoc (leftKeys ctx)
+  pure (ctx { leftKeys = leftKeys
+            , leftVals = leftVals
+            }, leftVal, leftKey)
+
+rightView :: IndexContext key val -> Maybe (key, val, IndexContext key val)
+rightView ctx = do
+  (rightVal, rightVals) <- vecUncons (rightVals ctx)
+  (rightKey, rightKeys) <- vecUncons (rightKeys ctx)
+  pure (rightKey, rightVal,
+         ctx { rightKeys = rightKeys
+             , rightVals = rightVals
+             })
+
+putVal :: IndexContext key val -> val -> TreeIndex key val
+putVal ctx val =
+  TreeIndex
+    (leftKeys ctx <> rightKeys ctx)
+    (leftVals ctx <> V.singleton val <> rightVals ctx)
+
+putIdx :: IndexContext key val -> TreeIndex key val -> TreeIndex key val
+putIdx ctx (TreeIndex keys vals) =
+  TreeIndex
+    (leftKeys ctx <> keys <> rightKeys ctx)
+    (leftVals ctx <> vals <> rightVals ctx)
+

@@ -28,6 +28,7 @@ hhSetMapTF
   :: (Show k, Show v, Ord k, Ord v)
   => TreeConfig
   -> TreeFun k
+             v
              (HitchhikerSetMapNode k v)
              (Map k (Set v))
              (Map k (HitchhikerSet v))
@@ -38,32 +39,38 @@ hhSetMapTF setConfig = TreeFun {
       HitchhikerSetMapNodeIndex a b -> Left (a, b)
       HitchhikerSetMapNodeLeaf l    -> Right l,
 
-  leafMerge = leafMergeImpl setConfig,
+  leafInsert = leafInsertImpl setConfig,
+  leafMerge = M.unionWith HS.union,
   leafLength = M.size,
   leafSplitAt = M.splitAt,
   leafFirstKey = fst . M.findMin,
   leafEmpty = M.empty,
+  leafDelete = \k mybV sm -> case mybV of
+      Just v  -> M.update (Just . HS.delete v) k sm
+      Nothing -> error "Impossible leaf delete in setmap",
 
   hhMerge = M.unionWith S.union,
   -- For the hitchhikers, we count the number of all items in a set instead of
   -- the number of keys.
   hhLength = sum . map S.size . M.elems,
   hhSplit = splitImpl,
-  hhEmpty = M.empty
+  hhEmpty = M.empty,
+  hhDelete = \k mybV sm -> case mybV of
+      Just v  -> M.update (Just . S.delete v) k sm
+      Nothing -> error "Impossible leaf delete in setmap"
   }
 
-leafMergeImpl :: (Show k, Show v, Ord k, Ord v)
-              => TreeConfig
-              -> Map k (HitchhikerSet v)
-              -> Map k (Set v)
-              -> Map k (HitchhikerSet v)
-leafMergeImpl config leaf hh = foldl' merge leaf (M.toList hh)
+leafInsertImpl :: (Show k, Show v, Ord k, Ord v)
+               => TreeConfig
+               -> Map k (HitchhikerSet v)
+               -> Map k (Set v)
+               -> Map k (HitchhikerSet v)
+leafInsertImpl config leaf hh = foldl' merge leaf (M.toList hh)
   where
     merge items (k, vSet) = M.alter (alt vSet) k items
 
     alt new Nothing    = Just (HS.fromSet config new)
     alt new (Just old) = Just (HS.insertMany new old)
-
 
 splitImpl :: Ord k => k -> Map k v -> (Map k v, Map k v)
 splitImpl k m = M.spanAntitone (< k) m
@@ -91,6 +98,20 @@ insertMany !items !(HITCHHIKERSETMAP config (Just root))
   = HITCHHIKERSETMAP config $ Just $
     fixUp config (hhSetMapTF config) $
     insertRec config (hhSetMapTF config) (listToHitchhikers items) root
+
+delete :: (Show k, Ord k, Show v, Ord v)
+       => k -> v -> HitchhikerSetMap k v -> HitchhikerSetMap k v
+delete _ _ !(HITCHHIKERSETMAP config Nothing) = HITCHHIKERSETMAP config Nothing
+delete !k !v !(HITCHHIKERSETMAP config (Just root)) =
+  case deleteRec config (hhSetMapTF config) k (Just v) root of
+    HitchhikerSetMapNodeIndex index hitchhikers
+      | Just childNode <- fromSingletonIndex index ->
+          if M.null hitchhikers then HITCHHIKERSETMAP config (Just childNode)
+          else insertMany (mapSetToList hitchhikers) $
+               HITCHHIKERSETMAP config (Just childNode)
+    HitchhikerSetMapNodeLeaf items
+      | M.null items -> HITCHHIKERSETMAP config Nothing
+    newRootNode -> HITCHHIKERSETMAP config (Just newRootNode)
 
 listToLeaves :: (Show v, Show k, Ord k, Ord v)
              => TreeConfig -> [(k, v)] -> Map k (HitchhikerSet v)

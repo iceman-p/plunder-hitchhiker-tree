@@ -1,5 +1,7 @@
 module SubscriberTreeTests (tests) where
 
+import           ClassyPrelude
+
 import           Data.Maybe
 import           System.Random
 import           System.Random.Shuffle (shuffle')

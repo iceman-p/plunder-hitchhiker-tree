@@ -1,5 +1,7 @@
 module UtilTests (tests) where
 
+import           ClassyPrelude
+
 import           Impl.Types
 import           Types
 import           Utils
@@ -25,11 +27,11 @@ tests =
     testCase "findSubnodeByKey last" $ findSubnodeByKeyLast
     ]
 
-indexFromList :: [k] -> [v] -> Index k v
-indexFromList ks vs = Index (V.fromList ks) (V.fromList vs)
+indexFromList :: [k] -> [v] -> TreeIndex k v
+indexFromList ks vs = TreeIndex (V.fromList ks) (V.fromList vs)
 
 -- Sample one level index for quick testing.
-largeIndex :: Index Int Int
+largeIndex :: TreeIndex Int Int
 largeIndex = indexFromList [5, 7, 10] [1, 2, 3, 4]
 
 removeGTLeftmost = removeGreaterThan 2 largeIndex @?= indexFromList [] [1]

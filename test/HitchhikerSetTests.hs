@@ -1,5 +1,7 @@
 module HitchhikerSetTests (tests) where
 
+import           ClassyPrelude
+
 import           Control.DeepSeq
 import           System.Random
 import           System.Random.Shuffle (shuffle')
@@ -33,6 +35,22 @@ prop_set_insertMany_eq raw = case doShuffle raw of
     ft = H.insertMany (S.fromList raw) (H.empty twoThreeConfig)
     s = S.fromList raw
 
+prop_set_delete_eq :: [Int] -> Bool
+prop_set_delete_eq raw = go raw (H.empty twoThreeConfig) (S.empty)
+  where
+    go (x:xs) ft m =
+      let ft' = force $ H.insert x ft
+      in go xs ft' (S.insert x m)
+    go [] ft m = case doShuffle raw of
+      []    -> True -- empty list, ok.
+      (k:_) ->
+        let dft = H.delete k ft
+            dm = S.delete k m
+            isGone = not $ H.member k dft
+        in isGone && all (exists dft) (S.toList dm)
+
+    exists dft k = H.member k dft
+
 prop_set_intersection_eq :: [Int] -> [Int] -> Bool
 prop_set_intersection_eq raw1 raw2 =
   eq (mkHHSet raw1) (mkHHSet raw2) (S.fromList raw1) (S.fromList raw2)
@@ -50,5 +68,6 @@ tests =
   testGroup "HitchhikerSet" [
     testProperty "Insert same as set" prop_set_insert_eq,
     testProperty "InsertMany same as set" prop_set_insertMany_eq,
+    testProperty "Delete same as set" prop_set_delete_eq,
     testProperty "Same intersection" prop_set_intersection_eq
     ]
