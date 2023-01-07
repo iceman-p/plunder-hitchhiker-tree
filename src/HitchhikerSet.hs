@@ -133,7 +133,10 @@ member key (HITCHHIKERSET _ (Just top)) = lookInNode top
 
 -- -----------------------------------------------------------------------
 
--- set merge: step one
+-- intersection and union here are super basic and kinda inefficient. these
+-- just union the leaves into Data.Set values and perform intersection and
+-- union on those. a real implementation should instead operate on the
+-- hitchhiker set tree itself.
 
 intersection :: (Show k, Ord k)
              => HitchhikerSet k -> HitchhikerSet k -> HitchhikerSet k
@@ -144,8 +147,6 @@ intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
   where
     as = S.unions $ flushDownwards hhSetTF a
     bs = S.unions $ flushDownwards hhSetTF b
-
--- intersection here is super basic and kinda inefficient. it has a bunch of
 
 union :: (Show k, Ord k)
       => HitchhikerSet k -> HitchhikerSet k -> HitchhikerSet k
