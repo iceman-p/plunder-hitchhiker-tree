@@ -119,7 +119,6 @@ noCmd a = (a, Cmd.none)
 port sendMessage : Json.Encode.Value -> Cmd msg
 port messageReceiver : (Json.Encode.Value -> msg) -> Sub msg
 
-
 sendSearch : Model -> String -> (Model, Cmd Msg)
 sendSearch model query =
     let tokenized = tokenizeTags query
@@ -140,23 +139,31 @@ sendSearch model query =
              queryState = QueryWaiting results tokenized Nothing },
          sendCmd (UC_Search tokenized))
 
+-- Called when we received an answer to a previous query and may need to kick
+-- off the next one.
+getNextQuery : Model -> Model -> (Model, Cmd Msg)
+getNextQuery oldModel newModel = case oldModel.queryState of
+  QueryWaiting _ cur (Just next) ->
+      if cur /= next then (newModel, sendCmd (UC_Search next))
+                     else (newModel, Cmd.none)
+  _ -> (newModel, Cmd.none)
+
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
     ChangeQuery newQuery -> sendSearch model newQuery
 
-    -- TODO: !
-    Recv jsonMsg -> noCmd <| case (decodeResponse jsonMsg) of
+    Recv jsonMsg -> case (decodeResponse jsonMsg) of
         Err e ->
             let foo = Debug.log "PORT RECV ERR2" e
-            in model
+            in noCmd model
         Ok (SearchResponseBadTag badTags) ->
-            { model
+            getNextQuery model { model
               | queryState =
                   QueryComplete (prevImgResults model.queryState) (Just badTags)
             }
         Ok (SearchResponseOK imgResults) ->
-            { model
+            getNextQuery model { model
               | queryState = QueryComplete (Just imgResults) Nothing }
 
 -- VIEW
