@@ -96,13 +96,32 @@ distributeDownwards config tf@TreeFun{..} inHitchhikers (TreeIndex keys vals) =
 
 -- Forces a flush of all hitchhikers down to the leaf levels and return the
 -- resulting leaf vectors.
-flushDownwards :: Ord k => TreeFun k v a hh lt -> a -> [lt]
-flushDownwards tf@TreeFun{..} = go hhEmpty
+getLeafList :: Ord k => TreeFun k v a hh lt -> a -> [lt]
+getLeafList tf@TreeFun{..} = go hhEmpty
   where
     go hh node = case caseNode node of
       Right leaves                 -> [leafInsert leaves hh]
       Left (children, hitchhikers) ->
         join $ L.unfoldr distribute (0, children, hhMerge hitchhikers hh)
+
+    distribute (idx, i@(TreeIndex keys vals), hh) =
+      case (keys V.!? idx, vals V.!? idx) of
+        (Nothing, Nothing) -> Nothing
+        (Just _, Nothing) -> error "Completely broken tree structure."
+        (Nothing, Just node) -> Just (go hh node, (idx + 1, i, hhEmpty))
+        (Just key, Just node) ->
+          let (toAdd, rest) = hhSplit key hh
+          in Just (go toAdd node, (idx + 1, i, rest))
+
+-- Given a node, ensure that all hitchhikers have been pushed down to leaves.
+flushDownwards :: Ord k => TreeFun k v a hh lt -> a -> a
+flushDownwards tf@TreeFun{..} = go hhEmpty
+  where
+    go hh node = case caseNode node of
+      Right leaves                 -> mkLeaf $ leafInsert leaves hh
+      Left (children@(TreeIndex keys vals), hitchhikers) ->
+        let newVals = V.unfoldr distribute (0, children, hhMerge hitchhikers hh)
+        in mkNode (TreeIndex keys newVals) hhEmpty
 
     distribute (idx, i@(TreeIndex keys vals), hh) =
       case (keys V.!? idx, vals V.!? idx) of

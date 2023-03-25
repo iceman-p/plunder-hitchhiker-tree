@@ -7,8 +7,8 @@ module HitchhikerSet ( empty
                      , insertMany
                      , delete
                      , member
-                     , intersection
                      , union
+                     , intersection
                      ) where
 
 import           ClassyPrelude hiding (delete, empty, intersection, member,
@@ -16,6 +16,7 @@ import           ClassyPrelude hiding (delete, empty, intersection, member,
 
 import           Data.Set      (Set)
 
+import           Data.Vector   ((!))
 import           Impl.Index
 import           Impl.Leaf
 import           Impl.Tree
@@ -24,8 +25,10 @@ import           Types
 import           Utils
 
 import qualified Data.Foldable as F
+import qualified Data.List     as L
 import qualified Data.Map      as M
 import qualified Data.Set      as S
+import qualified Data.Vector   as V
 
 empty :: TreeConfig -> HitchhikerSet k
 empty config = HITCHHIKERSET config Nothing
@@ -133,20 +136,9 @@ member key (HITCHHIKERSET _ (Just top)) = lookInNode top
 
 -- -----------------------------------------------------------------------
 
--- intersection and union here are super basic and kinda inefficient. these
--- just union the leaves into Data.Set values and perform intersection and
--- union on those. a real implementation should instead operate on the
--- hitchhiker set tree itself.
-
-intersection :: (Show k, Ord k)
-             => HitchhikerSet k -> HitchhikerSet k -> HitchhikerSet k
-intersection n@(HITCHHIKERSET _ Nothing) _ = n
-intersection _ n@(HITCHHIKERSET _ Nothing) = n
-intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
-  fromSet conf $ S.intersection as bs
-  where
-    as = S.unions $ flushDownwards hhSetTF a
-    bs = S.unions $ flushDownwards hhSetTF b
+-- union here is super basic and kinda inefficient. these just union the leaves
+-- into Data.Set values and perform intersection and union on those. a real
+-- implementation should instead operate on the hitchhiker set tree itself.
 
 union :: (Show k, Ord k)
       => HitchhikerSet k -> HitchhikerSet k -> HitchhikerSet k
@@ -155,6 +147,129 @@ union _ n@(HITCHHIKERSET _ Nothing) = n
 union (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
   fromSet conf $ S.union as bs
   where
-    as = S.unions $ flushDownwards hhSetTF a
-    bs = S.unions $ flushDownwards hhSetTF b
+    as = S.unions $ getLeafList hhSetTF a
+    bs = S.unions $ getLeafList hhSetTF b
 
+-- -----------------------------------------------------------------------
+
+data AdvanceOp
+  = AdvanceLeft
+  | AdvanceRight
+  | AdvanceBoth    -- actually possible!
+
+-- This is also wrong. Those hitchhiker values? Actually need to be checked.
+getLeftmostValue :: HitchhikerSetNode k -> k
+getLeftmostValue (HitchhikerSetNodeLeaf s)       = S.findMin s
+getLeftmostValue (HitchhikerSetNodeIndex (TreeIndex _ vals) hh)
+  | not $ S.null hh = error "Hitchhikers in set intersection"
+  | otherwise = getLeftmostValue $ V.head vals
+
+intersection :: forall k
+                . (Show k, Ord k)
+               => HitchhikerSet k -> HitchhikerSet k -> HitchhikerSet k
+intersection n@(HITCHHIKERSET _ Nothing) _ = n
+intersection _ n@(HITCHHIKERSET _ Nothing) = n
+intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
+  HITCHHIKERSET conf $ build
+                     $ consolidate (maxLeafItems conf)
+                     $ find (flushDownwards hhSetTF a)
+                            (flushDownwards hhSetTF b)
+  where
+    build :: [Set k] -> Maybe (HitchhikerSetNode k)
+    build [] = Nothing
+    build s = let vals = V.fromList $ map HitchhikerSetNodeLeaf s
+                  keys = V.fromList $ map S.findMin (L.tail s)
+              in Just $ fixUp conf hhSetTF $ TreeIndex keys vals
+
+    consolidate :: Int -> [Set k] -> [Set k]
+    consolidate _ [] = []
+    consolidate _ [x]
+      | S.null x = []
+      -- TODO: Check size of x is maxSize or smaller.
+      | otherwise = [x]
+    consolidate maxSize (x:y:xs) =
+      case compare (S.size x) maxSize of
+        LT -> consolidate maxSize ((x <> y):xs)
+        EQ -> x:(consolidate maxSize (y:xs))
+        GT -> let (head, tail) = (S.splitAt maxSize x)
+              in head:(consolidate maxSize (tail:y:xs))
+
+    find :: HitchhikerSetNode k
+         -> HitchhikerSetNode k
+         -> [Set k]
+    find (HitchhikerSetNodeLeaf a) (HitchhikerSetNodeLeaf b) =
+      [S.intersection a b]
+
+    find sn@(HitchhikerSetNodeIndex _ _) (HitchhikerSetNodeLeaf leaves) =
+      checkSetAgainst leaves sn
+
+    find (HitchhikerSetNodeLeaf leaves) sn@(HitchhikerSetNodeIndex _ _) =
+      checkSetAgainst leaves sn
+
+    find (HitchhikerSetNodeIndex treeA _) (HitchhikerSetNodeIndex treeB _) =
+      let (TreeIndex aIdxKeys aVals) = treeA
+          (TreeIndex bIdxKeys bVals) = treeB
+          aKeys = [getLeftmostValue $ aVals ! 0] ++ V.toList aIdxKeys
+          bKeys = [getLeftmostValue $ bVals ! 0] ++ V.toList bIdxKeys
+      in join $ L.unfoldr step (aKeys, V.toList aVals,
+                                bKeys, V.toList bVals)
+      where
+        step :: ([k], [HitchhikerSetNode k], [k], [HitchhikerSetNode k])
+             -> Maybe ( [Set k]
+                      , ([k], [HitchhikerSetNode k],
+                         [k], [HitchhikerSetNode k]))
+        step ([], [],  _,  _)           = Nothing
+        step (_,   _, [], [])           = Nothing
+
+        -- Both range to the end.
+        step ([amin], [a], [bmin], [b]) = Just (find a b, ([], [], [], []))
+
+        -- Right range is at the end.
+        step ((amin:amax:arest), (a:as), [bmin], [b])
+          | bmin <= amax = Just (find a b, (amax:arest, as, [bmin], [b]))
+          | otherwise    = Just ([],       (amax:arest, as, [bmin], [b]))
+
+        -- Left range is at the end.
+        step ([amin], [a], (bmin:bmax:brest), (b:bs))
+          | amin <= bmax = Just (find a b, ([amin], [a], bmax:brest, bs))
+          | otherwise    = Just ([],       ([amin], [a], bmax:brest, bs))
+
+        -- Both ranges.
+        step ((amin:amax:arest), (a:as), (bmin:bmax:brest), (b:bs)) =
+          let (overlaps, advanceOp) = checkOverlap amin amax bmin bmax
+              stepResult = if overlaps then find a b else []
+              advances = case advanceOp of
+                AdvanceLeft  -> (amax:arest, as, bmin:bmax:brest, b:bs)
+                AdvanceRight -> (amin:amax:arest, a:as, bmax:brest, bs)
+                AdvanceBoth  -> (amax:arest, as, bmax:brest, bs)
+          in Just $ (stepResult, advances)
+
+        checkOverlap :: k -> k -> k -> k -> (Bool, AdvanceOp)
+        checkOverlap aMin aMax bMin bMax = (overlap, advance)
+          where
+            overlap = aMin < bMax && bMin < aMax
+            advance = if | aMax == bMax -> AdvanceBoth
+                         | aMax > bMax  -> AdvanceRight
+                         | otherwise    -> AdvanceLeft
+
+    -- One side of the operation is a set, no need to keep track of ranges
+    -- anymore.
+    checkSetAgainst :: Set k -> HitchhikerSetNode k -> [Set k]
+    checkSetAgainst a (HitchhikerSetNodeLeaf b) = [S.intersection a b]
+    checkSetAgainst leaves (HitchhikerSetNodeIndex treeIdx _) =
+      scanSet leaves treeIdx
+      where
+        scanSet set idx = join $ flip L.unfoldr (set, Just idx) $ \case
+          (_, Nothing)      -> Nothing
+          (leaves, Just remainingIdx@(TreeIndex keys vals))
+            | S.null leaves -> Nothing
+            | otherwise     ->
+                let ((tryLeaves, restLeaves), subNode, restIndex) =
+                      case length vals of
+                        0 -> error "Invalid"
+                        1 -> ((leaves, S.empty), vals ! 0, Nothing)
+                        _ -> (splitImpl (keys ! 0) leaves,
+                              vals ! 0,
+                              Just $ TreeIndex (V.tail keys) (V.tail vals))
+                    result = checkSetAgainst tryLeaves subNode
+                in Just (result, (restLeaves, restIndex))

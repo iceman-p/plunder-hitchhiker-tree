@@ -69,5 +69,6 @@ tests =
     testProperty "Insert same as set" prop_set_insert_eq,
     testProperty "InsertMany same as set" prop_set_insertMany_eq,
     testProperty "Delete same as set" prop_set_delete_eq,
-    testProperty "Same intersection" prop_set_intersection_eq
+    localOption (QuickCheckTests 5000) $
+      testProperty "Same intersection" prop_set_intersection_eq
     ]
