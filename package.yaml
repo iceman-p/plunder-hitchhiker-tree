@@ -82,7 +82,20 @@ executables:
     dependencies:
     - hitchhiker-haskell
 
+  sync-imgs:
+    main:                Main.hs
+    source-dirs:         app/sync-imgs
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - hitchhiker-haskell
+    - http-client
+    - http-conduit
+    - network-uri
 
+    
 tests:
   hitchhiker-haskell-test:
     main:                Main.hs

@@ -31,7 +31,9 @@ import           ImgJSON
 
 main = do
   -- Load the json into a series of Items
-  [i] <- getArgs
+  x <- getArgs
+  putStrLn $ "args: " <> tshow x
+  [_, i] <- getArgs
   let datadir = unpack i
       jsondir = datadir </> "json"
 
