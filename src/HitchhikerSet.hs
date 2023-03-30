@@ -200,10 +200,10 @@ intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
     find (HitchhikerSetNodeLeaf a) (HitchhikerSetNodeLeaf b) =
       [S.intersection a b]
 
-    find sn@(HitchhikerSetNodeIndex _ _) (HitchhikerSetNodeLeaf leaves) =
+    find (HitchhikerSetNodeLeaf leaves) sn@(HitchhikerSetNodeIndex _ _) =
       checkSetAgainst leaves sn
 
-    find (HitchhikerSetNodeLeaf leaves) sn@(HitchhikerSetNodeIndex _ _) =
+    find sn@(HitchhikerSetNodeIndex _ _) (HitchhikerSetNodeLeaf leaves) =
       checkSetAgainst leaves sn
 
     find (HitchhikerSetNodeIndex treeA _) (HitchhikerSetNodeIndex treeB _) =

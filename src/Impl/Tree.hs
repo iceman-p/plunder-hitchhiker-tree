@@ -48,6 +48,7 @@ insertRec config tf@TreeFun{..} toAdd node =
     Right items                  ->
       splitLeafMany tf (maxLeafItems config) $ leafInsert items toAdd
 
+{-
 -- Given a list of hitchhikers, try to distribute each downward to the next
 -- level. This function is responsible for sending the right output to
 -- indexRec, and parsing that return value back into a coherent index.
@@ -93,6 +94,46 @@ distributeDownwards config tf@TreeFun{..} inHitchhikers (TreeIndex keys vals) =
                      insertRec config tf toAdd node
                in Just ((V.snoc subKeys key, subHashes),
                         (idx + 1, rest))
+-}
+
+-- Given a list of hitchhikers, try to distribute each downward, but written as
+-- a map.
+distributeDownwards
+  :: forall k v a hh lt
+   . (Show k, Show a, Show hh, Show lt, Ord k)
+  => TreeConfig
+  -> TreeFun k v a hh lt
+  -> hh
+  -> TreeIndex k a
+  -> TreeIndex k a
+distributeDownwards config tf@TreeFun{..} inHH treeIn@(TreeIndex keys vals)
+  -- No things to distribute, no need to do the calculations.
+  | hhLength inHH == 0 = treeIn
+
+  | otherwise =
+      let keyList    = V.toList keys
+          splitHH    = split keyList inHH
+          indexList  = map push $ zip splitHH (V.toList vals)
+          (newKeys, newVals) = joinIndex keyList indexList
+      in TreeIndex (V.fromList newKeys) (V.concat newVals)
+  where
+    split :: [k] -> hh -> [hh]
+    split [] hh = [hh]
+    split (key:keys) hh = let (toAdd, rest) = hhSplit key hh
+                          in (toAdd:(split keys rest))
+
+    push :: (hh, a) -> TreeIndex k a
+    push (hh, node)
+      | hhLength hh == 0 = singletonIndex node
+      | otherwise        = insertRec config tf hh node
+
+    joinIndex :: [k] -> [TreeIndex k a] -> ([k], [Vector a])
+    joinIndex [] [] = ([], [])
+    joinIndex [] [TreeIndex keys vals] = (V.toList keys, [vals])
+    joinIndex (k:ks) ((TreeIndex keys vals):ts) =
+      let (keyrest, valrest) = joinIndex ks ts
+      in ( (V.toList keys) ++ [k] ++ keyrest
+         , (vals:valrest) )
 
 -- Forces a flush of all hitchhikers down to the leaf levels and return the
 -- resulting leaf vectors.
