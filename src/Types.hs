@@ -95,10 +95,13 @@ data HitchhikerSet k = HITCHHIKERSET {
 
 -- -----------------------------------------------------------------------
 
+data NakedHitchhikerSet k = NAKEDSET (Maybe (HitchhikerSetNode k))
+  deriving (Show, Generic, NFData)
+
 data HitchhikerSetMapNode k v
   = HitchhikerSetMapNodeIndex (TreeIndex k (HitchhikerSetMapNode k v))
                               (Map k (Set v))
-  | HitchhikerSetMapNodeLeaf (Map k (HitchhikerSet v))
+  | HitchhikerSetMapNodeLeaf (Map k (NakedHitchhikerSet v))
   deriving (Show, Generic, NFData)
 
 data HitchhikerSetMap k v = HITCHHIKERSETMAP {

@@ -31,7 +31,7 @@ hhSetMapTF
              v
              (HitchhikerSetMapNode k v)
              (Map k (Set v))
-             (Map k (HitchhikerSet v))
+             (Map k (NakedHitchhikerSet v))
 hhSetMapTF setConfig = TreeFun {
   mkNode = HitchhikerSetMapNodeIndex,
   mkLeaf = HitchhikerSetMapNodeLeaf,
@@ -40,13 +40,13 @@ hhSetMapTF setConfig = TreeFun {
       HitchhikerSetMapNodeLeaf l    -> Right l,
 
   leafInsert = leafInsertImpl setConfig,
-  leafMerge = M.unionWith HS.union,
+  leafMerge = leafMergeImpl setConfig {- M.unionWith HS.union -},
   leafLength = M.size,
   leafSplitAt = M.splitAt,
   leafFirstKey = fst . M.findMin,
   leafEmpty = M.empty,
   leafDelete = \k mybV sm -> case mybV of
-      Just v  -> M.update (Just . HS.delete v) k sm
+      Just v  -> M.update (\s -> Just $ strip $ HS.delete v (weave setConfig s)) k sm
       Nothing -> error "Impossible leaf delete in setmap",
 
   hhMerge = M.unionWith S.union,
@@ -60,17 +60,40 @@ hhSetMapTF setConfig = TreeFun {
       Nothing -> error "Impossible leaf delete in setmap"
   }
 
-leafInsertImpl :: (Show k, Show v, Ord k, Ord v)
+strip :: HitchhikerSet v -> NakedHitchhikerSet v
+strip (HITCHHIKERSET _ x) = NAKEDSET x
+
+weave :: TreeConfig -> NakedHitchhikerSet v -> HitchhikerSet v
+weave tc (NAKEDSET x) = (HITCHHIKERSET tc x)
+
+leafInsertImpl :: forall k v
+                . (Show k, Show v, Ord k, Ord v)
                => TreeConfig
-               -> Map k (HitchhikerSet v)
+               -> Map k (NakedHitchhikerSet v)
                -> Map k (Set v)
-               -> Map k (HitchhikerSet v)
+               -> Map k (NakedHitchhikerSet v)
 leafInsertImpl config leaf hh = foldl' merge leaf (M.toList hh)
   where
     merge items (k, vSet) = M.alter (alt vSet) k items
 
-    alt new Nothing    = Just (HS.fromSet config new)
-    alt new (Just old) = Just (HS.insertMany new old)
+    alt :: Set v
+        -> Maybe (NakedHitchhikerSet v)
+        -> Maybe (NakedHitchhikerSet v)
+    alt new Nothing    = Just (strip $ HS.fromSet config new)
+    alt new (Just old) = Just (strip $ HS.insertMany new (weave config old))
+
+leafMergeImpl :: forall k v
+               . (Show k, Show v, Ord k, Ord v)
+              => TreeConfig
+              -> Map k (NakedHitchhikerSet v)
+              -> Map k (NakedHitchhikerSet v)
+              -> Map k (NakedHitchhikerSet v)
+leafMergeImpl config = M.unionWith doUnion
+  where
+    doUnion :: NakedHitchhikerSet v
+            -> NakedHitchhikerSet v
+            -> NakedHitchhikerSet v
+    doUnion a b = strip $ HS.union (weave config a) (weave config b)
 
 splitImpl :: Ord k => k -> Map k v -> (Map k v, Map k v)
 splitImpl k m = M.spanAntitone (< k) m
@@ -84,7 +107,7 @@ insert !k !v !(HITCHHIKERSETMAP config (Just root)) =
 
 insert !k !v (HITCHHIKERSETMAP config Nothing)
   = HITCHHIKERSETMAP config $ Just $ HitchhikerSetMapNodeLeaf $
-                       M.singleton k (HS.singleton config v)
+                       M.singleton k (strip $ HS.singleton config v)
 
 insertMany :: (Show k, Show v, Ord k, Ord v)
            => [(k, v)] -> HitchhikerSetMap k v -> HitchhikerSetMap k v
@@ -114,14 +137,14 @@ delete !k !v !(HITCHHIKERSETMAP config (Just root)) =
     newRootNode -> HITCHHIKERSETMAP config (Just newRootNode)
 
 listToLeaves :: (Show v, Show k, Ord k, Ord v)
-             => TreeConfig -> [(k, v)] -> Map k (HitchhikerSet v)
+             => TreeConfig -> [(k, v)] -> Map k (NakedHitchhikerSet v)
 listToLeaves config = go M.empty
   where
     go m []         = m
     go m ((k,v):xs) = go (M.alter (alt v) k m) xs
 
-    alt v Nothing  = Just (HS.singleton config v)
-    alt v (Just s) = Just (HS.insert v s)
+    alt v Nothing  = Just (strip $ HS.singleton config v)
+    alt v (Just s) = Just (strip $ HS.insert v (weave config s))
 
 listToHitchhikers :: (Show v, Show k, Ord k, Ord v) => [(k, v)] -> Map k (Set v)
 listToHitchhikers = go M.empty
@@ -162,4 +185,4 @@ lookup key (HITCHHIKERSETMAP config (Just top)) = lookInNode S.empty top
     -- final list.
     buildSetFrom leaves hh = case M.lookup key leaves of
       Nothing  -> HS.fromSet config hh
-      Just ret -> HS.insertMany hh ret
+      Just ret -> HS.insertMany hh (weave config ret)

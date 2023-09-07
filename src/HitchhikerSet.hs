@@ -1,5 +1,6 @@
 module HitchhikerSet ( empty
                      , null
+                     , rawNode
                      , singleton
                      , fromSet
                      , toSet
@@ -9,6 +10,8 @@ module HitchhikerSet ( empty
                      , member
                      , union
                      , intersection
+                     , getLeftmostValue
+                     , hhSetTF
                      ) where
 
 import           ClassyPrelude hiding (delete, empty, intersection, member,
@@ -35,6 +38,9 @@ empty config = HITCHHIKERSET config Nothing
 
 null :: HitchhikerSet k -> Bool
 null (HITCHHIKERSET config tree) = not $ isJust tree
+
+rawNode :: HitchhikerSet k -> Maybe (HitchhikerSetNode k)
+rawNode (HITCHHIKERSET _ tree) = tree
 
 singleton :: TreeConfig -> k -> HitchhikerSet k
 singleton config k

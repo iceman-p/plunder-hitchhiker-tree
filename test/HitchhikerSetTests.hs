@@ -10,8 +10,12 @@ import           Test.Tasty.HUnit
 import           Test.Tasty.QuickCheck
 import           Types
 
+import           Data.List             (foldl1)
+
 import qualified Data.Set              as S
 import qualified HitchhikerSet         as H
+
+import qualified Blah                  as B
 
 doShuffle :: [a] -> [a]
 doShuffle [] = []
@@ -63,6 +67,28 @@ prop_set_intersection_eq raw1 raw2 =
         go h []     = h
         go h (k:ks) = go (H.insert k h) ks
 
+
+prop_set_multiintersection_eq :: [Int] -> [Int] -> [Int] -> [Int] -> Bool
+prop_set_multiintersection_eq raw1 raw2 raw3 raw4 =
+  eq (mkHHSet raw1) (mkHHSet raw2) (mkHHSet raw3) (mkHHSet raw4)
+     (S.fromList raw1) (S.fromList raw2) (S.fromList raw3) (S.fromList raw4)
+  where
+    eq hh1 hh2 hh3 hh4 s1 s2 s3 s4 =
+      let nu = unionall $ (B.nuIntersect [hh1, hh2, hh3, hh4])
+          si = S.intersection s4 $ S.intersection s3 $ S.intersection s2 s1
+      in nu == si
+
+    -- The output of nuIntersect is a list of non-overlapping sets. To compare
+    -- to S.intersection, we must union them together.
+    unionall :: Ord a => [S.Set a] -> S.Set a
+    unionall [] = S.empty
+    unionall xs = foldl1 S.union xs
+
+    mkHHSet = go (H.empty twoThreeConfig)
+      where
+        go h []     = h
+        go h (k:ks) = go (H.insert k h) ks
+
 tests :: TestTree
 tests =
   testGroup "HitchhikerSet" [
@@ -70,5 +96,7 @@ tests =
     testProperty "InsertMany same as set" prop_set_insertMany_eq,
     testProperty "Delete same as set" prop_set_delete_eq,
     localOption (QuickCheckTests 5000) $
-      testProperty "Same intersection" prop_set_intersection_eq
+      testProperty "Same intersection" prop_set_intersection_eq,
+    localOption (QuickCheckTests 5000) $
+      testProperty "New multi intersection" prop_set_multiintersection_eq
     ]
