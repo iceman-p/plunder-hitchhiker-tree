@@ -41,14 +41,7 @@ listAdjust f i = uncurry (++) . second doit . splitAt i
 
 -- Given an optional (min, max) to constrain everything to,
 
-data Range k
-  -- inclusive greater than k
-  = END_GT k
-  -- inclusive begin, exclusive end
-  | RANGE k k
-  deriving (Show, Eq)
-
-checkOverlap :: Ord k => Maybe (k, k) -> [Range k] -> (Bool, [Int])
+checkOverlap :: Ord k => Maybe (k, k) -> [[k]] -> (Bool, [Int])
 checkOverlap concreteSet ranges
   | Prelude.null ranges = (False, [])
   | Prelude.null smallestList = (True, [])
@@ -66,16 +59,16 @@ checkOverlap concreteSet ranges
         (largestMin <= boundingMax)
 
     toAdvance = findIndices isEqSmallest ranges
-    isEqSmallest (END_GT _)  = False
-    isEqSmallest (RANGE _ x) = x == smallestMax
+    isEqSmallest [_]     = False
+    isEqSmallest (_:x:_) = x == smallestMax
 
-    getMin :: Range k -> k
-    getMin (END_GT k)    = k
-    getMin (RANGE min _) = min
+    getMin :: [k] -> k
+    getMin [k]       = k
+    getMin (min:_:_) = min
 
-    getMax :: Range k -> Maybe k
-    getMax (END_GT _)    = Nothing
-    getMax (RANGE _ max) = Just max
+    getMax :: [k] -> Maybe k
+    getMax [_]       = Nothing
+    getMax (_:max:_) = Just max
 
 findIndexOverlap :: forall k. (Show k, Ord k)
                  => Maybe (k, k)
@@ -84,31 +77,26 @@ findIndexOverlap :: forall k. (Show k, Ord k)
 findIndexOverlap constraint indexVals =
   -- trace ("findIndexOverlap: " ++ show constraint ++ ", indexVals: "
   --      ++ show indexVals) $
-  loop (map asPairs indexVals) (replicate (length indexVals) 0)
+  loop indexVals (replicate (length indexVals) 0)
   where
-    asPairs :: [k] -> [Range k]
-    asPairs (x:y:xs) = (RANGE x y):(asPairs (y:xs))
-    asPairs (x:[])   = []
-    asPairs []       = []
-
-    loop :: [[Range k]] -> [Int] -> [[Int]]
+    loop :: [[k]] -> [Int] -> [[Int]]
     loop ranges offsets =
-      case checkOverlap constraint $ map head ranges of
+      case checkOverlap constraint ranges of
         (True, [])         -> offsets:[]
         (True, toAdvance)  -> offsets:(advance ranges offsets toAdvance)
         (False, toAdvance) -> advance ranges offsets toAdvance
 
-    advance :: [[Range k]] -> [Int] -> [Int] -> [[Int]]
+    advance :: [[k]] -> [Int] -> [Int] -> [[Int]]
     advance ranges offsets [] = loop ranges offsets
     advance ranges offsets (a:as) =
       advance (advanceRange a ranges) (advanceOffset a offsets) as
 
-    advanceRange :: Int -> [[Range k]] -> [[Range k]]
+    advanceRange :: Int -> [[k]] -> [[k]]
     advanceRange = listAdjust nextRange
       where
-        nextRange ((RANGE min max):[]) = (END_GT max):[]
-        nextRange x@((END_GT _):[])    = x
-        nextRange (_:xs)               = xs
+        nextRange (min:max:[]) = (max:[])
+        nextRange x@(_:[])     = x
+        nextRange (_:xs)       = xs
 
     advanceOffset :: Int -> [Int] -> [Int]
     advanceOffset = listAdjust (+1)
