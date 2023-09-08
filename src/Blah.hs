@@ -41,11 +41,11 @@ listAdjust f i = uncurry (++) . second doit . splitAt i
 
 -- Given an optional (min, max) to constrain everything to,
 
-checkOverlap :: Ord k => Maybe (k, k) -> [[k]] -> (Bool, [Int])
+checkOverlap :: Ord k => Maybe (k, k) -> [[k]] -> (Bool, Maybe k)
 checkOverlap concreteSet ranges
-  | Prelude.null ranges = (False, [])
-  | Prelude.null smallestList = (True, [])
-  | otherwise = (matches, toAdvance)
+  | Prelude.null ranges = (False, Nothing)
+  | Prelude.null smallestList = (True, Nothing)
+  | otherwise = (matches, Just smallestMax)
   where
     largestMin  = maximum $ map getMin ranges
     smallestList = catMaybes $ map getMax ranges
@@ -57,10 +57,6 @@ checkOverlap concreteSet ranges
         (smallestMax > largestMin) &&
         (smallestMax > boundingMin) &&
         (largestMin <= boundingMax)
-
-    toAdvance = findIndices isEqSmallest ranges
-    isEqSmallest [_]     = False
-    isEqSmallest (_:x:_) = x == smallestMax
 
     getMin :: [k] -> k
     getMin [k]       = k
@@ -82,9 +78,18 @@ findIndexOverlap constraint indexVals =
     loop :: [[k]] -> [Int] -> [[Int]]
     loop ranges offsets =
       case checkOverlap constraint ranges of
-        (True, [])         -> offsets:[]
-        (True, toAdvance)  -> offsets:(advance ranges offsets toAdvance)
-        (False, toAdvance) -> advance ranges offsets toAdvance
+        (True, Nothing)         -> offsets:[]
+        (True, Just smallestMax)  ->
+          let toAdvance = findToAdvance smallestMax ranges
+          in offsets:(advance ranges offsets toAdvance)
+        (False, Just smallestMax) ->
+          let toAdvance = findToAdvance smallestMax ranges
+          in advance ranges offsets toAdvance
+
+    findToAdvance smallestMax = findIndices isEqSmallest
+      where
+        isEqSmallest [_]     = False
+        isEqSmallest (_:x:_) = x == smallestMax
 
     advance :: [[k]] -> [Int] -> [Int] -> [[Int]]
     advance ranges offsets [] = loop ranges offsets
