@@ -2,9 +2,6 @@ module Blah where
 
 import           Prelude
 
--- for listAdjust
-import           Control.Arrow (second)
-
 import           Data.List     (findIndices)
 import           Data.Maybe    (catMaybes, fromMaybe, isNothing)
 import           Data.Vector   ((!))
@@ -27,15 +24,6 @@ partitionWith f (x:xs) = case f x of
                          Left  b -> (b:bs, cs)
                          Right c -> (bs, c:cs)
     where (bs,cs) = partitionWith f xs
-
--- Copied from Math.FFT.Base, modified to have the [] check.
---
--- | A generally useful list utility
-listAdjust :: (a -> a) -> Int -> [a] -> [a]
-listAdjust f i = uncurry (++) . second doit . splitAt i
-  where
-    doit []     = error "empty in listAdjust"
-    doit (x:xs) = f x : xs
 
 -- ---------------------------------------------------------------------------
 
@@ -80,32 +68,25 @@ findIndexOverlap constraint indexVals =
       case checkOverlap constraint ranges of
         (True, Nothing)         -> offsets:[]
         (True, Just smallestMax)  ->
-          let toAdvance = findToAdvance smallestMax ranges
-          in offsets:(advance ranges offsets toAdvance)
+          offsets:(advanceBySmallestMax smallestMax ranges offsets)
         (False, Just smallestMax) ->
-          let toAdvance = findToAdvance smallestMax ranges
-          in advance ranges offsets toAdvance
+          advanceBySmallestMax smallestMax ranges offsets
 
-    findToAdvance smallestMax = findIndices isEqSmallest
+    advanceBySmallestMax smallestMax ranges offsets =
+      loop nuRanges nuOffsets
       where
-        isEqSmallest [_]     = False
-        isEqSmallest (_:x:_) = x == smallestMax
+        (nuRanges, nuOffsets) = mapRanges ranges offsets
+        mapRanges [] _ = ([], [])
+        mapRanges _ [] = ([], [])
+        mapRanges (r:rs) (i:is) =
+          let (rx, ix) = mapRanges rs is
+          in case r of
+            (_:x:_) | x == smallestMax -> ((nextRange r):rx, (i + 1):ix)
+            _                          -> (r:rx, i:ix)
 
-    advance :: [[k]] -> [Int] -> [Int] -> [[Int]]
-    advance ranges offsets [] = loop ranges offsets
-    advance ranges offsets (a:as) =
-      advance (advanceRange a ranges) (advanceOffset a offsets) as
-
-    advanceRange :: Int -> [[k]] -> [[k]]
-    advanceRange = listAdjust nextRange
-      where
         nextRange (min:max:[]) = (max:[])
         nextRange x@(_:[])     = x
         nextRange (_:xs)       = xs
-
-    advanceOffset :: Int -> [Int] -> [Int]
-    advanceOffset = listAdjust (+1)
-
 
 partitionSetNodes :: [HitchhikerSetNode k]
                   -> ( [TreeIndex k (HitchhikerSetNode k)]
@@ -155,6 +136,8 @@ nuFindImpl inputConstraint inputNodes = output
       (Just s, _) | S.null s -> []
       (_, [])                -> []
       (const, ranges)        -> findIndexOverlap (fmap findMinMax const) ranges
+        -- let x =
+        -- in trace ("Result: " ++ show x) x
 
     recurIndexes :: Maybe (S.Set k) -> [Int] -> [S.Set k]
     recurIndexes constraint idxes =
