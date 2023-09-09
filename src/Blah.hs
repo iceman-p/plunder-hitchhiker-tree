@@ -4,7 +4,7 @@ import           Prelude
 
 import           Data.List     (findIndices)
 import           Data.Maybe    (catMaybes, fromMaybe, isNothing)
-import           Data.Vector   ((!))
+import           Data.Vector   (Vector (..), (!))
 import           Debug.Trace
 
 import           HitchhikerSet
@@ -29,15 +29,15 @@ partitionWith f (x:xs) = case f x of
 
 -- Given an optional (min, max) to constrain everything to,
 
-checkOverlap :: Ord k => Maybe (k, k) -> [[k]] -> (Bool, Maybe k)
+checkOverlap :: Ord k => Maybe (k, k) -> Vector [k] -> (Bool, Maybe k)
 checkOverlap concreteSet ranges
-  | Prelude.null ranges = (False, Nothing)
-  | Prelude.null smallestList = (True, Nothing)
+  | V.null ranges = (False, Nothing)
+  | V.null smallestList = (True, Nothing)
   | otherwise = (matches, Just smallestMax)
   where
-    largestMin  = maximum $ map getMin ranges
-    smallestList = catMaybes $ map getMax ranges
-    smallestMax = minimum $ smallestList
+    largestMin  = V.maximum $ V.map getMin ranges
+    smallestList = V.catMaybes $ V.map getMax ranges
+    smallestMax = V.minimum $ smallestList
 
     matches = case concreteSet of
       Nothing -> smallestMax > largestMin
@@ -56,43 +56,46 @@ checkOverlap concreteSet ranges
 
 findIndexOverlap :: forall k v. (Show k, Ord k)
                  => Maybe (k, k)
-                 -> [[k]]
-                 -> [[v]]
-                 -> [[v]]
-findIndexOverlap constraint =
+                 -> Vector [k]
+                 -> Vector [v]
+                 -> Vector [v]
+findIndexOverlap constraint ranges vals =
   -- trace ("findIndexOverlap: " ++ show constraint ++ ", indexVals: "
   --      ++ show indexVals) $
-  loop
+  V.unfoldr step (ranges, vals)
   where
-    loop :: [[k]] -> [[v]] -> [[v]]
-    loop ranges vals =
-      case checkOverlap constraint ranges of
-        (True, Nothing)         -> (map head vals):[]
-        (True, Just smallestMax)  ->
-          (map head vals):(advanceBySmallestMax smallestMax ranges vals)
-        (False, Just smallestMax) ->
-          advanceBySmallestMax smallestMax ranges vals
+    step :: (Vector [k], Vector [v])
+         -> Maybe ([v], (Vector [k], Vector [v]))
+    step (ranges, vals)
+      | V.null ranges = Nothing
+      | V.null vals = Nothing
+      | otherwise = case checkOverlap constraint ranges of
+          (True, Nothing)          ->
+              Just (V.toList $ V.map head vals,
+                    (mempty, mempty))
+          (True, Just smallestMax) ->
+              Just (V.toList $ V.map head vals,
+                    advanceBySmallestMax smallestMax ranges vals)
+          (False, Just smallestMax) ->
+              step $ advanceBySmallestMax smallestMax ranges vals
 
+    advanceBySmallestMax :: k -> Vector [k] -> Vector [v]
+                         -> (Vector [k], Vector [v])
     advanceBySmallestMax smallestMax ranges vals =
-      loop nuRanges nuVals
+      V.unzip $ V.map check $ V.zip ranges vals
       where
-        (nuRanges, nuVals) = mapRanges ranges vals
-        mapRanges [] _ = ([], [])
-        mapRanges _ [] = ([], [])
-        mapRanges (r:rs) (i:is) =
-          let (rx, ix) = mapRanges rs is
-          in case r of
-            (_:x:_) | x == smallestMax -> ((nextRange r):rx, (tail i):ix)
-            _                          -> (r:rx, i:ix)
+        check (r, i) = case r of
+            (_:x:_) | x == smallestMax -> ((nextRange r), (tail i))
+            _                          -> (r, i)
 
         nextRange (min:max:[]) = (max:[])
         nextRange x@(_:[])     = x
         nextRange (_:xs)       = xs
 
-partitionSetNodes :: [HitchhikerSetNode k]
-                  -> ( [TreeIndex k (HitchhikerSetNode k)]
-                     , [S.Set k])
-partitionSetNodes = partitionWith match
+partitionSetNodes :: Vector (HitchhikerSetNode k)
+                  -> ( Vector (TreeIndex k (HitchhikerSetNode k))
+                     , Vector (S.Set k))
+partitionSetNodes = V.partitionWith match
   where
     match (HitchhikerSetNodeIndex ti hh)
       | S.null hh = Left ti
@@ -104,7 +107,7 @@ findMinMax s = (S.findMin s, S.findMax s)
 
 nuFindImpl :: forall k. (Show k, Ord k)
            => Maybe (S.Set k)
-           -> [HitchhikerSetNode k]
+           -> Vector (HitchhikerSetNode k)
            -> [S.Set k]
 nuFindImpl inputConstraint inputNodes = output
   where
@@ -116,17 +119,20 @@ nuFindImpl inputConstraint inputNodes = output
     -- compared to the remaining trees we keep descending.
     constraint :: Maybe (S.Set k)
     constraint = case (leaves, inputConstraint) of
-      ([], Nothing)  -> Nothing
-      (xs, Nothing)  -> Just $ foldl1 S.intersection xs
-      ([], Just set) -> Just set
-      (xs, Just set) -> Just $ foldl S.intersection set xs
+      (xs, Nothing)
+        | V.null xs -> Nothing
+        | otherwise -> Just $ V.foldl1 S.intersection xs
+      (xs, Just set)
+        | V.null xs -> Just set
+        | otherwise -> Just $ V.foldl S.intersection set xs
 
     -- For every item in idxes, we want to turn that index into a list of lists
     -- which we can traverse in parallel.
     mkRangeAndVals (TreeIndex ks vals) =
+--      V.cons (getLeftmostValue $ vals ! 0) ks
       ( [getLeftmostValue $ vals ! 0] ++ V.toList ks
       , V.toList vals)
-    (idxRanges, idxVals) = unzip $ map mkRangeAndVals idxNodes
+    (idxRanges, idxVals) = V.unzip $ V.map mkRangeAndVals idxNodes
 
     -- Each list in this list are indexes into idxVals as parallel arrays for
     -- the next step.
@@ -135,9 +141,10 @@ nuFindImpl inputConstraint inputNodes = output
       -- If we had leaves and/or an input constraint which are impossible to
       -- satisfy, just bail.
       (Just s, _) | S.null s -> []
-      (_, [])                -> []
-      (const, ranges)        ->
-        findIndexOverlap (fmap findMinMax const) ranges idxVals
+      (const, ranges)
+        | V.null ranges      -> []
+        | otherwise ->
+            V.toList $ findIndexOverlap (fmap findMinMax const) ranges idxVals
         -- let x =
         -- in trace ("Result: " ++ show x) x
 
@@ -146,7 +153,7 @@ nuFindImpl inputConstraint inputNodes = output
       (_, Just set) | S.null set -> []
       ([], Just set)             -> [set]
       (xs, constraint)           ->
-        concat $ map (nuFindImpl constraint) xs
+        concat $ map (nuFindImpl constraint . V.fromList) xs
 
 -- Toplevel which flushes things downward.
 nuIntersect :: forall k. (Show k, Ord k)
@@ -160,4 +167,4 @@ nuIntersect sets = output
 
     output = case (or $ map isNothing mybNodes) of
       True -> []
-      False -> nuFindImpl Nothing $ map (flushDownwards hhSetTF) $ catMaybes mybNodes
+      False -> nuFindImpl Nothing $ V.fromList $ map (flushDownwards hhSetTF) $ catMaybes mybNodes
