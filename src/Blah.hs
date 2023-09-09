@@ -54,34 +54,35 @@ checkOverlap concreteSet ranges
     getMax [_]       = Nothing
     getMax (_:max:_) = Just max
 
-findIndexOverlap :: forall k. (Show k, Ord k)
+findIndexOverlap :: forall k v. (Show k, Ord k)
                  => Maybe (k, k)
                  -> [[k]]
-                 -> [[Int]]
-findIndexOverlap constraint indexVals =
+                 -> [[v]]
+                 -> [[v]]
+findIndexOverlap constraint =
   -- trace ("findIndexOverlap: " ++ show constraint ++ ", indexVals: "
   --      ++ show indexVals) $
-  loop indexVals (replicate (length indexVals) 0)
+  loop
   where
-    loop :: [[k]] -> [Int] -> [[Int]]
-    loop ranges offsets =
+    loop :: [[k]] -> [[v]] -> [[v]]
+    loop ranges vals =
       case checkOverlap constraint ranges of
-        (True, Nothing)         -> offsets:[]
+        (True, Nothing)         -> (map head vals):[]
         (True, Just smallestMax)  ->
-          offsets:(advanceBySmallestMax smallestMax ranges offsets)
+          (map head vals):(advanceBySmallestMax smallestMax ranges vals)
         (False, Just smallestMax) ->
-          advanceBySmallestMax smallestMax ranges offsets
+          advanceBySmallestMax smallestMax ranges vals
 
-    advanceBySmallestMax smallestMax ranges offsets =
-      loop nuRanges nuOffsets
+    advanceBySmallestMax smallestMax ranges vals =
+      loop nuRanges nuVals
       where
-        (nuRanges, nuOffsets) = mapRanges ranges offsets
+        (nuRanges, nuVals) = mapRanges ranges vals
         mapRanges [] _ = ([], [])
         mapRanges _ [] = ([], [])
         mapRanges (r:rs) (i:is) =
           let (rx, ix) = mapRanges rs is
           in case r of
-            (_:x:_) | x == smallestMax -> ((nextRange r):rx, (i + 1):ix)
+            (_:x:_) | x == smallestMax -> ((nextRange r):rx, (tail i):ix)
             _                          -> (r:rx, i:ix)
 
         nextRange (min:max:[]) = (max:[])
@@ -129,26 +130,23 @@ nuFindImpl inputConstraint inputNodes = output
 
     -- Each list in this list are indexes into idxVals as parallel arrays for
     -- the next step.
-    idxCandidates :: [[Int]]
+    idxCandidates :: [[HitchhikerSetNode k]]
     idxCandidates = case (constraint, idxRanges) of
       -- If we had leaves and/or an input constraint which are impossible to
       -- satisfy, just bail.
       (Just s, _) | S.null s -> []
       (_, [])                -> []
-      (const, ranges)        -> findIndexOverlap (fmap findMinMax const) ranges
+      (const, ranges)        ->
+        findIndexOverlap (fmap findMinMax const) ranges idxVals
         -- let x =
         -- in trace ("Result: " ++ show x) x
-
-    recurIndexes :: Maybe (S.Set k) -> [Int] -> [S.Set k]
-    recurIndexes constraint idxes =
-      nuFindImpl constraint $ zipWith (!!) idxVals idxes
 
     output = case (idxCandidates, constraint) of
       ([], Nothing)              -> []
       (_, Just set) | S.null set -> []
       ([], Just set)             -> [set]
       (xs, constraint)           ->
-        concat $ map (recurIndexes constraint) xs
+        concat $ map (nuFindImpl constraint) xs
 
 -- Toplevel which flushes things downward.
 nuIntersect :: forall k. (Show k, Ord k)
