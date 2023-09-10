@@ -16,6 +16,8 @@ import           System.FilePath
 import           Text.Parsec
 
 import           Data.BTree.Primitives.Key
+
+import           Impl.Tree
 import           Types
 
 import qualified Data.ByteString.Lazy      as BS
@@ -30,6 +32,7 @@ import qualified HitchhikerSetMap          as SM
 
 import qualified MultiIntersectV1List
 import qualified MultiIntersectV2Vector
+import qualified MultiIntersectV3Naive
 
 import           ImgJSON
 
@@ -91,6 +94,9 @@ benchmark model = runMode defaultMode [
       ],
   bgroup "Multi Intersection V2 Vector" [
       bench "(mane 6)" $ (whnf (multiIntersectV2Vector model) mane6)
+      ],
+  bgroup "Single Intersection V3 Naive" [
+      bench "(mane 6)" $ (whnf (singleIntersectV3Naive model) mane6)
       ]
   ]
 
@@ -127,3 +133,19 @@ multiIntersectV2Vector model tags = evalState run model
     comb [] = []
     comb xs = MultiIntersectV2Vector.nuIntersect xs
 
+singleIntersectV3Naive :: Model -> [String] -> [Int]
+singleIntersectV3Naive model tags = evalState run model
+  where
+    run = do
+      s <- searchWithCombiner (comb . (map toSet)) tags
+      case s of
+        Left tags -> error ("INVALID TAGS: " ++ show tags)
+        Right s   -> pure $ force $ join $ map S.toList s
+
+    toSet :: HitchhikerSet Int -> [Set Int]
+    toSet (HITCHHIKERSET _ Nothing)  = []
+    toSet (HITCHHIKERSET _ (Just a)) = getLeafList HS.hhSetTF a
+
+    comb :: [[Set Int]] -> [Set Int]
+    comb []     = []
+    comb (x:xs) = foldl' MultiIntersectV3Naive.setlistIntersect x xs

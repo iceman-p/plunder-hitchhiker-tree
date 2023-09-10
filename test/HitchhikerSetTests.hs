@@ -16,6 +16,7 @@ import qualified Data.Set               as S
 import qualified HitchhikerSet          as H
 
 import qualified MultiIntersectV2Vector as MIV
+import qualified MultiIntersectV3Naive  as MIN
 
 doShuffle :: [a] -> [a]
 doShuffle [] = []
@@ -67,6 +68,19 @@ prop_set_intersection_eq raw1 raw2 =
         go h []     = h
         go h (k:ks) = go (H.insert k h) ks
 
+prop_naive_set_intersection_eq :: [Int] -> [Int] -> Bool
+prop_naive_set_intersection_eq raw1 raw2 =
+  eq (mkHHSet raw1) (mkHHSet raw2) (S.fromList raw1) (S.fromList raw2)
+  where
+    eq hh1 hh2 s1 s2 = (unionsets (MIN.naiveIntersection hh1 hh2)) ==
+                       (S.intersection s1 s2)
+
+    unionsets = foldr S.union S.empty
+
+    mkHHSet = go (H.empty twoThreeConfig)
+      where
+        go h []     = h
+        go h (k:ks) = go (H.insert k h) ks
 
 prop_set_multiintersection_eq :: [Int] -> [Int] -> [Int] -> [Int] -> Bool
 prop_set_multiintersection_eq raw1 raw2 raw3 raw4 =
@@ -98,5 +112,6 @@ tests =
     localOption (QuickCheckTests 5000) $
       testProperty "Same intersection" prop_set_intersection_eq,
     localOption (QuickCheckTests 5000) $
-      testProperty "New multi intersection v2" prop_set_multiintersection_eq
+      testProperty "New multi intersection v2" prop_set_multiintersection_eq,
+    testProperty "Naive intersection v3" prop_naive_set_intersection_eq
     ]
