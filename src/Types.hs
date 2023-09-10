@@ -3,7 +3,9 @@ module Types where
 import           ClassyPrelude
 
 import           Data.Map      (Map)
-import           Data.Set      (Set)
+
+-- For ArraySet
+import           Data.Sorted
 
 import           Impl.Types
 
@@ -83,8 +85,8 @@ data HitchhikerMap k v = HITCHHIKERMAP {
 -- -----------------------------------------------------------------------
 
 data HitchhikerSetNode k
-  = HitchhikerSetNodeIndex (TreeIndex k (HitchhikerSetNode k)) (Set k)
-  | HitchhikerSetNodeLeaf (Set k)
+  = HitchhikerSetNodeIndex (TreeIndex k (HitchhikerSetNode k)) (ArraySet k)
+  | HitchhikerSetNodeLeaf (ArraySet k)
   deriving (Show, Generic, NFData)
 
 data HitchhikerSet k = HITCHHIKERSET {
@@ -100,7 +102,7 @@ data NakedHitchhikerSet k = NAKEDSET (Maybe (HitchhikerSetNode k))
 
 data HitchhikerSetMapNode k v
   = HitchhikerSetMapNodeIndex (TreeIndex k (HitchhikerSetMapNode k v))
-                              (Map k (Set v))
+                              (Map k (ArraySet v))
   | HitchhikerSetMapNodeLeaf (Map k (NakedHitchhikerSet v))
   deriving (Show, Generic, NFData)
 

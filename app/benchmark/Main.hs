@@ -15,6 +15,9 @@ import           System.Directory
 import           System.FilePath
 import           Text.Parsec
 
+import           Data.Sorted
+import           Data.Sorted.Set
+
 import           Impl.Tree
 import           Types
 
@@ -112,7 +115,7 @@ multiIntersectV1List model tags = evalState run model
       s <- searchWithCombiner comb tags
       case s of
         Left tags -> error ("INVALID TAGS: " ++ show tags)
-        Right s   -> pure $ force $ join $ map S.toList s
+        Right s   -> pure $ force $ join $ map ssetToAscList s
 
     comb [] = []
     comb xs = MultiIntersectV1List.nuIntersect xs
@@ -124,7 +127,7 @@ multiIntersectV2Vector model tags = evalState run model
       s <- searchWithCombiner comb tags
       case s of
         Left tags -> error ("INVALID TAGS: " ++ show tags)
-        Right s   -> pure $ force $ join $ map S.toList s
+        Right s   -> pure $ force $ join $ map ssetToAscList s
 
     comb [] = []
     comb xs = MultiIntersectV2Vector.nuIntersect xs
@@ -136,12 +139,12 @@ singleIntersectV3Naive model tags = evalState run model
       s <- searchWithCombiner (comb . (map toSet)) tags
       case s of
         Left tags -> error ("INVALID TAGS: " ++ show tags)
-        Right s   -> pure $ force $ join $ map S.toList s
+        Right s   -> pure $ force $ join $ map ssetToAscList s
 
-    toSet :: HitchhikerSet Int -> [Set Int]
+    toSet :: HitchhikerSet Int -> [ArraySet Int]
     toSet (HITCHHIKERSET _ Nothing)  = []
     toSet (HITCHHIKERSET _ (Just a)) = getLeafList HS.hhSetTF a
 
-    comb :: [[Set Int]] -> [Set Int]
+    comb :: [[ArraySet Int]] -> [ArraySet Int]
     comb []     = []
     comb (x:xs) = foldl' MultiIntersectV3Naive.setlistIntersect x xs

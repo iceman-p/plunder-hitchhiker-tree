@@ -2,16 +2,19 @@ module Utils where
 
 import           ClassyPrelude
 
-import           Data.Bits     (shiftR)
-import           Data.Vector   (Vector)
+import           Data.Bits       (shiftR)
+import           Data.Vector     (Vector)
 
 import           Impl.Types
 import           Types
 
-import qualified Control.Arrow as Arrow
-import qualified Data.Map      as M
-import qualified Data.Set      as S
-import qualified Data.Vector   as V
+import           Data.Sorted
+import           Data.Sorted.Set
+
+import qualified Control.Arrow   as Arrow
+import qualified Data.Map        as M
+import qualified Data.Set        as S
+import qualified Data.Vector     as V
 
 -- Vector search -------------------------------------------------------------
 
@@ -103,8 +106,8 @@ removeLessThan key (TreeIndex keys vals) =
 concatUnzip :: [(Vector a, Vector b)] -> (Vector a, Vector b)
 concatUnzip = (V.concat Arrow.*** V.concat) . unzip
 
-mapSetToList :: Map k (Set v) -> [(k, v)]
+mapSetToList :: Map k (ArraySet v) -> [(k, v)]
 mapSetToList = fixup . M.toList
   where
     fixup = join . map setToPair
-    setToPair (k, s) = map (\v -> (k, v)) $ S.toList s
+    setToPair (k, s) = map (\v -> (k, v)) $ ssetToAscList s

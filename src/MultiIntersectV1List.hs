@@ -12,6 +12,8 @@ import           Impl.Tree
 import           Impl.Types
 import           Types
 
+import           Data.Sorted
+
 import qualified Data.Set      as S
 import qualified Data.Vector   as V
 
@@ -91,21 +93,21 @@ findIndexOverlap constraint =
 
 partitionSetNodes :: [HitchhikerSetNode k]
                   -> ( [TreeIndex k (HitchhikerSetNode k)]
-                     , [S.Set k])
+                     , [ArraySet k])
 partitionSetNodes = partitionWith match
   where
     match (HitchhikerSetNodeIndex ti hh)
-      | S.null hh = Left ti
+      | ssetIsEmpty hh = Left ti
       | otherwise = error "Can't work with hitchhikers"
     match (HitchhikerSetNodeLeaf s)     = Right s
 
-findMinMax :: Ord k => S.Set k -> (k, k)
-findMinMax s = (S.findMin s, S.findMax s)
+findMinMax :: Ord k => ArraySet k -> (k, k)
+findMinMax s = (ssetFindMin s, ssetFindMax s)
 
 nuFindImpl :: forall k. (Show k, Ord k)
-           => Maybe (S.Set k)
+           => Maybe (ArraySet k)
            -> [HitchhikerSetNode k]
-           -> [S.Set k]
+           -> [ArraySet k]
 nuFindImpl inputConstraint inputNodes = output
   where
     (idxNodes, leaves) = partitionSetNodes inputNodes
@@ -114,12 +116,12 @@ nuFindImpl inputConstraint inputNodes = output
     -- nodes we've seen so far. This happens when the tree depth of the
     -- different `HitchhikerSet`s differ: a short tree's leaves keep getting
     -- compared to the remaining trees we keep descending.
-    constraint :: Maybe (S.Set k)
+    constraint :: Maybe (ArraySet k)
     constraint = case (leaves, inputConstraint) of
       ([], Nothing)  -> Nothing
-      (xs, Nothing)  -> Just $ foldl1 S.intersection xs
+      (xs, Nothing)  -> Just $ foldl1 ssetIntersection xs
       ([], Just set) -> Just set
-      (xs, Just set) -> Just $ foldl S.intersection set xs
+      (xs, Just set) -> Just $ foldl ssetIntersection set xs
 
     -- For every item in idxes, we want to turn that index into a list of lists
     -- which we can traverse in parallel.
@@ -134,7 +136,7 @@ nuFindImpl inputConstraint inputNodes = output
     idxCandidates = case (constraint, idxRanges) of
       -- If we had leaves and/or an input constraint which are impossible to
       -- satisfy, just bail.
-      (Just s, _) | S.null s -> []
+      (Just s, _) | ssetIsEmpty s -> []
       (_, [])                -> []
       (const, ranges)        ->
         findIndexOverlap (fmap findMinMax const) ranges idxVals
@@ -143,14 +145,14 @@ nuFindImpl inputConstraint inputNodes = output
 
     output = case (idxCandidates, constraint) of
       ([], Nothing)              -> []
-      (_, Just set) | S.null set -> []
+      (_, Just set) | ssetIsEmpty set -> []
       ([], Just set)             -> [set]
       (xs, constraint)           ->
         concat $ map (nuFindImpl constraint) xs
 
 -- Toplevel which flushes things downward.
 nuIntersect :: forall k. (Show k, Ord k)
-            => [HitchhikerSet k] -> [S.Set k]
+            => [HitchhikerSet k] -> [ArraySet k]
 nuIntersect [] = []
 --nuIntersect [a] = [a]  -- TODO: Handle this.
 nuIntersect sets = output

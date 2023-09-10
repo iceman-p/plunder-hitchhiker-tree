@@ -3,6 +3,7 @@ module HitchhikerSet ( empty
                      , rawNode
                      , singleton
                      , fromSet
+                     , fromArraySet
                      , toSet
                      , insert
                      , insertMany
@@ -14,12 +15,12 @@ module HitchhikerSet ( empty
                      , hhSetTF
                      ) where
 
-import           ClassyPrelude hiding (delete, empty, intersection, member,
-                                null, singleton, union)
+import           ClassyPrelude   hiding (delete, empty, intersection, member,
+                                  null, singleton, union)
 
-import           Data.Set      (Set)
+import           Data.Set        (Set)
 
-import           Data.Vector   ((!))
+import           Data.Vector     ((!))
 import           Impl.Index
 import           Impl.Leaf
 import           Impl.Tree
@@ -27,11 +28,14 @@ import           Impl.Types
 import           Types
 import           Utils
 
-import qualified Data.Foldable as F
-import qualified Data.List     as L
-import qualified Data.Map      as M
-import qualified Data.Set      as S
-import qualified Data.Vector   as V
+import           Data.Sorted
+import           Data.Sorted.Set
+
+import qualified Data.Foldable   as F
+import qualified Data.List       as L
+import qualified Data.Map        as M
+import qualified Data.Set        as S
+import qualified Data.Vector     as V
 
 empty :: TreeConfig -> HitchhikerSet k
 empty config = HITCHHIKERSET config Nothing
@@ -44,14 +48,19 @@ rawNode (HITCHHIKERSET _ tree) = tree
 
 singleton :: TreeConfig -> k -> HitchhikerSet k
 singleton config k
-  = HITCHHIKERSET config (Just $ HitchhikerSetNodeLeaf $ S.singleton k)
+  = HITCHHIKERSET config (Just $ HitchhikerSetNodeLeaf $ ssetSingleton k)
 
 fromSet :: (Show k, Ord k) => TreeConfig -> Set k -> HitchhikerSet k
 fromSet config ks
   | S.null ks = empty config
+  | otherwise = insertMany (ssetFromList $ S.toList ks) $ empty config
+
+fromArraySet :: (Show k, Ord k) => TreeConfig -> ArraySet k -> HitchhikerSet k
+fromArraySet config ks
+  | ssetIsEmpty ks = empty config
   | otherwise = insertMany ks $ empty config
 
-toSet :: (Show k, Ord k) => HitchhikerSet k -> S.Set k
+toSet :: (Show k, Ord k) => HitchhikerSet k -> Set k
 toSet (HITCHHIKERSET config Nothing) = S.empty
 toSet (HITCHHIKERSET config (Just root)) = collect root
   where
@@ -64,13 +73,13 @@ toSet (HITCHHIKERSET config (Just root)) = collect root
 
 insert :: (Show k, Ord k) => k -> HitchhikerSet k -> HitchhikerSet k
 insert !k !(HITCHHIKERSET config (Just root)) = HITCHHIKERSET config $ Just $
-  fixUp config hhSetTF $ insertRec config hhSetTF (S.singleton k) root
+  fixUp config hhSetTF $ insertRec config hhSetTF (ssetSingleton k) root
 
 insert !k (HITCHHIKERSET config Nothing)
-  = HITCHHIKERSET config (Just $ HitchhikerSetNodeLeaf $ S.singleton k)
+  = HITCHHIKERSET config (Just $ HitchhikerSetNodeLeaf $ ssetSingleton k)
 
 
-insertMany :: (Show k, Ord k) => Set k -> HitchhikerSet k -> HitchhikerSet k
+insertMany :: (Show k, Ord k) => ArraySet k -> HitchhikerSet k -> HitchhikerSet k
 insertMany !items !(HITCHHIKERSET config Nothing) =
   HITCHHIKERSET config $ Just $
   fixUp config hhSetTF $
@@ -89,15 +98,15 @@ delete !k !(HITCHHIKERSET config (Just root)) =
   case deleteRec config hhSetTF k Nothing root of
     HitchhikerSetNodeIndex index hitchhikers
       | Just childNode <- fromSingletonIndex index ->
-          if S.null hitchhikers then HITCHHIKERSET config (Just childNode)
+          if ssetIsEmpty hitchhikers then HITCHHIKERSET config (Just childNode)
           else insertMany hitchhikers $ HITCHHIKERSET config (Just childNode)
     HitchhikerSetNodeLeaf items
-      | S.null items -> HITCHHIKERSET config Nothing
+      | ssetIsEmpty items -> HITCHHIKERSET config Nothing
     newRootNode -> HITCHHIKERSET config (Just newRootNode)
 
 -- -----------------------------------------------------------------------
 
-hhSetTF :: Ord k => TreeFun k v (HitchhikerSetNode k) (Set k) (Set k)
+hhSetTF :: Ord k => TreeFun k v (HitchhikerSetNode k) (ArraySet k) (ArraySet k)
 hhSetTF = TreeFun {
   mkNode = HitchhikerSetNodeIndex,
   mkLeaf = HitchhikerSetNodeLeaf,
@@ -105,27 +114,27 @@ hhSetTF = TreeFun {
       HitchhikerSetNodeIndex a b -> Left (a, b)
       HitchhikerSetNodeLeaf l    -> Right l,
 
-  leafInsert = S.union,
+  leafInsert = ssetUnion,
   leafMerge = (<>),
-  leafLength = S.size,
-  leafSplitAt = S.splitAt,
-  leafFirstKey = S.findMin,
-  leafEmpty = S.empty,
+  leafLength = ssetSize,
+  leafSplitAt = ssetSplitAt,
+  leafFirstKey = ssetFindMin,
+  leafEmpty = mempty,
   leafDelete = \k mybV s -> case mybV of
-      Nothing -> S.delete k s
+      Nothing -> ssetDelete k s
       Just _  -> error "Can't delete specific values in set",
 
-  hhMerge = S.union,
-  hhLength = S.size,
+  hhMerge = ssetUnion,
+  hhLength = ssetSize,
   hhSplit = splitImpl,
-  hhEmpty = S.empty,
+  hhEmpty = mempty,
   hhDelete = \k mybV s -> case mybV of
-      Nothing -> S.delete k s
+      Nothing -> ssetDelete k s
       Just _  -> error "Can't delete specific values in set"
   }
 
-splitImpl :: Ord k => k -> Set k -> (Set k, Set k)
-splitImpl k s = S.spanAntitone (< k) s
+splitImpl :: Ord k => k -> ArraySet k -> (ArraySet k, ArraySet k)
+splitImpl k s = ssetSpanAntitone (< k) s
 
 -- -----------------------------------------------------------------------
 
@@ -135,10 +144,10 @@ member key (HITCHHIKERSET _ (Just top)) = lookInNode top
   where
     lookInNode = \case
       HitchhikerSetNodeIndex index hitchhikers ->
-        case S.member key hitchhikers of
+        case ssetMember key hitchhikers of
           True  -> True
           False -> lookInNode $ findSubnodeByKey key index
-      HitchhikerSetNodeLeaf items -> S.member key items
+      HitchhikerSetNodeLeaf items -> ssetMember key items
 
 -- -----------------------------------------------------------------------
 
@@ -151,10 +160,10 @@ union :: (Show k, Ord k)
 union n@(HITCHHIKERSET _ Nothing) _ = n
 union _ n@(HITCHHIKERSET _ Nothing) = n
 union (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
-  fromSet conf $ S.union as bs
+  fromArraySet conf $ ssetUnion as bs
   where
-    as = S.unions $ getLeafList hhSetTF a
-    bs = S.unions $ getLeafList hhSetTF b
+    as = foldl' ssetUnion mempty $ getLeafList hhSetTF a
+    bs = foldl' ssetUnion mempty $ getLeafList hhSetTF b
 
 -- -----------------------------------------------------------------------
 
@@ -165,9 +174,9 @@ data AdvanceOp
 
 -- This is also wrong. Those hitchhiker values? Actually need to be checked.
 getLeftmostValue :: HitchhikerSetNode k -> k
-getLeftmostValue (HitchhikerSetNodeLeaf s)       = S.findMin s
+getLeftmostValue (HitchhikerSetNodeLeaf s)       = ssetFindMin s
 getLeftmostValue (HitchhikerSetNodeIndex (TreeIndex _ vals) hh)
-  | not $ S.null hh = error "Hitchhikers in set intersection"
+  | not $ ssetIsEmpty hh = error "Hitchhikers in set intersection"
   | otherwise = getLeftmostValue $ V.head vals
 
 intersection :: forall k
@@ -181,30 +190,30 @@ intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
                      $ find (flushDownwards hhSetTF a)
                             (flushDownwards hhSetTF b)
   where
-    build :: [Set k] -> Maybe (HitchhikerSetNode k)
+    build :: [ArraySet k] -> Maybe (HitchhikerSetNode k)
     build [] = Nothing
     build s = let vals = V.fromList $ map HitchhikerSetNodeLeaf s
-                  keys = V.fromList $ map S.findMin (L.tail s)
+                  keys = V.fromList $ map ssetFindMin (L.tail s)
               in Just $ fixUp conf hhSetTF $ TreeIndex keys vals
 
-    consolidate :: Int -> [Set k] -> [Set k]
+    consolidate :: Int -> [ArraySet k] -> [ArraySet k]
     consolidate _ [] = []
     consolidate _ [x]
-      | S.null x = []
+      | ssetIsEmpty x = []
       -- TODO: Check size of x is maxSize or smaller.
       | otherwise = [x]
     consolidate maxSize (x:y:xs) =
-      case compare (S.size x) maxSize of
+      case compare (ssetSize x) maxSize of
         LT -> consolidate maxSize ((x <> y):xs)
         EQ -> x:(consolidate maxSize (y:xs))
-        GT -> let (head, tail) = (S.splitAt maxSize x)
+        GT -> let (head, tail) = (ssetSplitAt maxSize x)
               in head:(consolidate maxSize (tail:y:xs))
 
     find :: HitchhikerSetNode k
          -> HitchhikerSetNode k
-         -> [Set k]
+         -> [ArraySet k]
     find (HitchhikerSetNodeLeaf a) (HitchhikerSetNodeLeaf b) =
-      [S.intersection a b]
+      [ssetIntersection a b]
 
     find (HitchhikerSetNodeLeaf leaves) sn@(HitchhikerSetNodeIndex _ _) =
       checkSetAgainst leaves sn
@@ -221,7 +230,7 @@ intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
                                 bKeys, V.toList bVals)
       where
         step :: ([k], [HitchhikerSetNode k], [k], [HitchhikerSetNode k])
-             -> Maybe ( [Set k]
+             -> Maybe ( [ArraySet k]
                       , ([k], [HitchhikerSetNode k],
                          [k], [HitchhikerSetNode k]))
         step ([], [],  _,  _)           = Nothing
@@ -260,20 +269,20 @@ intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
 
     -- One side of the operation is a set, no need to keep track of ranges
     -- anymore.
-    checkSetAgainst :: Set k -> HitchhikerSetNode k -> [Set k]
-    checkSetAgainst a (HitchhikerSetNodeLeaf b) = [S.intersection a b]
+    checkSetAgainst :: ArraySet k -> HitchhikerSetNode k -> [ArraySet k]
+    checkSetAgainst a (HitchhikerSetNodeLeaf b) = [ssetIntersection a b]
     checkSetAgainst leaves (HitchhikerSetNodeIndex treeIdx _) =
       scanSet leaves treeIdx
       where
         scanSet set idx = join $ flip L.unfoldr (set, Just idx) $ \case
           (_, Nothing)      -> Nothing
           (leaves, Just remainingIdx@(TreeIndex keys vals))
-            | S.null leaves -> Nothing
+            | ssetIsEmpty leaves -> Nothing
             | otherwise     ->
                 let ((tryLeaves, restLeaves), subNode, restIndex) =
                       case length vals of
                         0 -> error "Invalid"
-                        1 -> ((leaves, S.empty), vals ! 0, Nothing)
+                        1 -> ((leaves, mempty), vals ! 0, Nothing)
                         _ -> (splitImpl (keys ! 0) leaves,
                               vals ! 0,
                               Just $ TreeIndex (V.tail keys) (V.tail vals))

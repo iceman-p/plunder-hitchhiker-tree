@@ -12,6 +12,8 @@ import           Impl.Types
 import           Types
 import           Utils
 
+import           Data.Sorted
+
 import qualified HitchhikerSet as HS
 
 import qualified Data.Map      as M
@@ -30,7 +32,7 @@ hhSetMapTF
   -> TreeFun k
              v
              (HitchhikerSetMapNode k v)
-             (Map k (Set v))
+             (Map k (ArraySet v))
              (Map k (NakedHitchhikerSet v))
 hhSetMapTF setConfig = TreeFun {
   mkNode = HitchhikerSetMapNodeIndex,
@@ -49,14 +51,14 @@ hhSetMapTF setConfig = TreeFun {
       Just v  -> M.update (\s -> Just $ strip $ HS.delete v (weave setConfig s)) k sm
       Nothing -> error "Impossible leaf delete in setmap",
 
-  hhMerge = M.unionWith S.union,
+  hhMerge = M.unionWith ssetUnion,
   -- For the hitchhikers, we count the number of all items in a set instead of
   -- the number of keys.
-  hhLength = sum . map S.size . M.elems,
+  hhLength = sum . map ssetSize . M.elems,
   hhSplit = splitImpl,
   hhEmpty = M.empty,
   hhDelete = \k mybV sm -> case mybV of
-      Just v  -> M.update (Just . S.delete v) k sm
+      Just v  -> M.update (Just . ssetDelete v) k sm
       Nothing -> error "Impossible leaf delete in setmap"
   }
 
@@ -70,16 +72,16 @@ leafInsertImpl :: forall k v
                 . (Show k, Show v, Ord k, Ord v)
                => TreeConfig
                -> Map k (NakedHitchhikerSet v)
-               -> Map k (Set v)
+               -> Map k (ArraySet v)
                -> Map k (NakedHitchhikerSet v)
 leafInsertImpl config leaf hh = foldl' merge leaf (M.toList hh)
   where
     merge items (k, vSet) = M.alter (alt vSet) k items
 
-    alt :: Set v
+    alt :: ArraySet v
         -> Maybe (NakedHitchhikerSet v)
         -> Maybe (NakedHitchhikerSet v)
-    alt new Nothing    = Just (strip $ HS.fromSet config new)
+    alt new Nothing    = Just (strip $ HS.fromArraySet config new)
     alt new (Just old) = Just (strip $ HS.insertMany new (weave config old))
 
 leafMergeImpl :: forall k v
@@ -103,7 +105,7 @@ insert :: (Show k, Show v, Ord k, Ord v)
 insert !k !v !(HITCHHIKERSETMAP config (Just root)) =
     HITCHHIKERSETMAP config $ Just $
     fixUp config (hhSetMapTF config) $
-    insertRec config (hhSetMapTF config) (M.singleton k (S.singleton v)) root
+    insertRec config (hhSetMapTF config) (M.singleton k (ssetSingleton v)) root
 
 insert !k !v (HITCHHIKERSETMAP config Nothing)
   = HITCHHIKERSETMAP config $ Just $ HitchhikerSetMapNodeLeaf $
@@ -146,14 +148,15 @@ listToLeaves config = go M.empty
     alt v Nothing  = Just (strip $ HS.singleton config v)
     alt v (Just s) = Just (strip $ HS.insert v (weave config s))
 
-listToHitchhikers :: (Show v, Show k, Ord k, Ord v) => [(k, v)] -> Map k (Set v)
+listToHitchhikers :: (Show v, Show k, Ord k, Ord v)
+                  => [(k, v)] -> Map k (ArraySet v)
 listToHitchhikers = go M.empty
   where
     go m []         = m
     go m ((k,v):xs) = go (M.alter (alt v) k m) xs
 
-    alt v Nothing  = Just (S.singleton v)
-    alt v (Just s) = Just (S.insert v s)
+    alt v Nothing  = Just (ssetSingleton v)
+    alt v (Just s) = Just (ssetInsert v s)
 
 -- For SetMap lookup, we must always resolve our hitchhikers downwards to a
 -- leaf for combination into a set. We can't just stop halfway.
@@ -167,9 +170,9 @@ lookup :: forall k v
        -> HitchhikerSetMap k v
        -> HitchhikerSet v
 lookup key (HITCHHIKERSETMAP config Nothing)    = HS.empty config
-lookup key (HITCHHIKERSETMAP config (Just top)) = lookInNode S.empty top
+lookup key (HITCHHIKERSETMAP config (Just top)) = lookInNode mempty top
   where
-    lookInNode :: Set v -> HitchhikerSetMapNode k v -> HitchhikerSet v
+    lookInNode :: ArraySet v -> HitchhikerSetMapNode k v -> HitchhikerSet v
     lookInNode hh b =
       case b of
         HitchhikerSetMapNodeIndex index hitchhikers ->
@@ -178,11 +181,11 @@ lookup key (HITCHHIKERSETMAP config (Just top)) = lookInNode S.empty top
         HitchhikerSetMapNodeLeaf items ->
           buildSetFrom items hh
 
-    matchHitchhikers :: Map k (Set v) -> Set v
-    matchHitchhikers hh = fromMaybe (S.empty) (M.lookup key hh)
+    matchHitchhikers :: Map k (ArraySet v) -> ArraySet v
+    matchHitchhikers hh = fromMaybe mempty (M.lookup key hh)
 
     -- We have a list of hitchhikers and the leaf values. Turn that into a
     -- final list.
     buildSetFrom leaves hh = case M.lookup key leaves of
-      Nothing  -> HS.fromSet config hh
+      Nothing  -> HS.fromArraySet config hh
       Just ret -> HS.insertMany hh (weave config ret)
