@@ -2,10 +2,13 @@ module Main (main) where
 
 import           ClassyPrelude             hiding (many)
 
-import           Control.Monad.State       (MonadState, StateT, evalStateT,
-                                            execState, get, gets, liftIO,
+import           Control.Monad.State       (MonadState, StateT, evalState,
+                                            execStateT, get, gets, liftIO,
                                             modify', put, runStateT)
 import           Data.Aeson                hiding (parse)
+
+import           Criterion.Main
+import           Criterion.Main.Options
 
 import           Optics                    hiding (noneOf, (%%))
 import           System.Directory
@@ -40,11 +43,12 @@ main = do
   files :: [FilePath] <- take 10000 <$> listDirectory jsondir
 
   let z = zip [1..] files
-      l = show $ length files
+      l = tshow $ length files
 
-  flip evalStateT emptyModel $ do
+  model <- flip execStateT emptyModel $ do
     forM z $ \(i, file) -> do
-      traceM $ "Loading " ++ show i ++ " of " ++ l
+      when (i `mod` 200 == 0) $
+        putStrLn ("Loading " ++ tshow i ++ " of " ++ l)
       let path = jsondir </> file
       bs <- liftIO $ BS.readFile path
       case eitherDecode bs of
@@ -55,48 +59,37 @@ main = do
 
     modifying' #tags force
 
-    repl
+  putStrLn "Loading complete."
+  putStrLn "-----------------"
 
-delim = do
-  many (char ' ')
-  char ','
-  many (char ' ')
-  pure ()
+  benchmark model
 
-read' :: StateT Model IO Text
-read' = liftIO $ do
-  putStr "SEARCH> "
-  hFlush stdout
-  getLine
+defaultMode :: Mode
+defaultMode = Run defaultConfig Prefix []
 
-repl :: StateT Model IO ()
-repl = do
-  raw <- read'
+mane6 :: [String]
+mane6 = [
+  "twilight sparkle",
+  "rarity",
+  "applejack",
+  "pinkie pie",
+  "fluttershy",
+  "rainbow dash"
+  ]
 
-  -- Chunk out on comma.
-  let c = parse (sepBy (many (noneOf ",")) delim) "" raw
-  case c of
-    Left err -> do
-      liftIO $ putStrLn $ tshow err
-      repl
-    Right [":showitems"] -> do
-      (Model items _) <- get
-      traceM $ show items
-      repl
-    Right [":showtags"] -> do
-      (Model _ tags) <- get
-      traceM $ show tags
-      repl
-    Right [":quit"] -> do
-      liftIO $ putStrLn "goodbye"
-      pure ()
-    Right tags -> do
-      liftIO $ putStrLn ("TAGS: " ++ tshow tags)
+benchmark :: Model -> IO ()
+benchmark model = runMode defaultMode [
+  bgroup "old intersection" [
+      bench "cute" $ (whnf (doLookup model) ["cute"]),
+      bench "(mane 6)" $ (whnf (doLookup model) mane6)
+      ]
+  ]
+
+doLookup :: Model -> [String] -> [SearchResult]
+doLookup model tags = evalState run model
+  where
+    run = do
       s <- search tags
       case s of
-        Left tags -> liftIO $ putStrLn ("INVALID TAGS: " ++ tshow tags)
-        Right s   -> do
-          longResults <- lookupItems s
-          forM_ longResults $ \(imgid, thumb) -> do
-            putStrLn (" " ++ (tshow imgid) ++ ": " ++ pack thumb)
-      repl
+        Left tags -> error ("INVALID TAGS: " ++ show tags)
+        Right s   -> lookupItems s

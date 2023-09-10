@@ -22,6 +22,7 @@ dependencies:
 - bytestring
 - classy-prelude
 - containers
+- criterion
 - deepseq
 - directory
 - filepath
@@ -62,6 +63,16 @@ library:
   source-dirs: src
 
 executables:
+  benchmark:
+    main:                Main.hs
+    source-dirs:         app/benchmark
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - hitchhiker-haskell
+    
   tag-console:
     main:                Main.hs
     source-dirs:         app/tag-console
