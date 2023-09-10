@@ -1,29 +1,26 @@
 module Main (main) where
 
-import           ClassyPrelude             hiding (many)
+import           ClassyPrelude        hiding (many)
 
-import           Control.Monad.State       (MonadState, StateT, evalStateT,
-                                            execState, get, gets, liftIO,
-                                            modify', put, runStateT)
-import           Data.Aeson                hiding (parse)
+import           Control.Monad.State  (MonadState, StateT, evalStateT,
+                                       execState, get, gets, liftIO, modify',
+                                       put, runStateT)
+import           Data.Aeson           hiding (parse)
 
-import           Optics                    hiding (noneOf, (%%))
+import           Optics               hiding (noneOf, (%%))
 import           System.Directory
 import           System.FilePath
 import           Text.Parsec
 
-import           Data.BTree.Primitives.Key
 import           Types
 
-import qualified Data.ByteString.Lazy      as BS
+import qualified Data.ByteString.Lazy as BS
 
-import qualified Data.BTree.Pure           as HB
-import qualified Data.BTree.Pure.Setup     as HB
-import qualified Data.Set                  as S
+import qualified Data.Set             as S
 
-import qualified HitchhikerMap             as HM
-import qualified HitchhikerSet             as HS
-import qualified HitchhikerSetMap          as SM
+import qualified HitchhikerMap        as HM
+import qualified HitchhikerSet        as HS
+import qualified HitchhikerSetMap     as SM
 
 import           ImgJSON
 

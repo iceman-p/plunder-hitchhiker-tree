@@ -27,11 +27,12 @@ dependencies:
 - directory
 - filepath
 - hashable
-- haskey-btree
+- mono-traversable
 - mtl
 - multimap
 - optics
 - parsec
+- primitive
 - random
 - random-shuffle
 - repline
@@ -42,6 +43,7 @@ dependencies:
 - text
 - unix
 - vector
+- vector-algorithms
 - wai
 - wai-app-static
 - wai-websockets

@@ -2,30 +2,27 @@ module ImgJSON where
 
 import           ClassyPrelude
 
-import           Control.Monad             (fail)
-import           Control.Monad.State       (MonadState, StateT, evalStateT,
-                                            execState, get, gets, liftIO,
-                                            modify', put, runStateT)
-import           Data.Aeson                hiding (parse)
-import           Optics                    hiding (noneOf, (%%))
+import           Control.Monad        (fail)
+import           Control.Monad.State  (MonadState, StateT, evalStateT,
+                                       execState, get, gets, liftIO, modify',
+                                       put, runStateT)
+import           Data.Aeson           hiding (parse)
+import           Optics               hiding (noneOf, (%%))
 import           System.Directory
 import           System.Environment
 import           System.FilePath
 import           System.IO
 import           Text.Parsec
 
-import           Data.BTree.Primitives.Key
 import           Types
 
-import qualified Data.ByteString.Lazy      as BS
+import qualified Data.ByteString.Lazy as BS
 
-import qualified Data.BTree.Pure           as HB
-import qualified Data.BTree.Pure.Setup     as HB
-import qualified Data.Set                  as S
+import qualified Data.Set             as S
 
-import qualified HitchhikerMap             as HM
-import qualified HitchhikerSet             as HS
-import qualified HitchhikerSetMap          as SM
+import qualified HitchhikerMap        as HM
+import qualified HitchhikerSet        as HS
+import qualified HitchhikerSetMap     as SM
 
 
 -- A single row of data.
