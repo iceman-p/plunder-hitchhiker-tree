@@ -28,6 +28,8 @@ import qualified HitchhikerMap             as HM
 import qualified HitchhikerSet             as HS
 import qualified HitchhikerSetMap          as SM
 
+import qualified MultiIntersectV2Vector
+
 import           ImgJSON
 
 -- OK, we're going to parse the
@@ -79,17 +81,35 @@ mane6 = [
 
 benchmark :: Model -> IO ()
 benchmark model = runMode defaultMode [
-  bgroup "old intersection" [
+  bgroup "Original Intersection" [
       bench "cute" $ (whnf (doLookup model) ["cute"]),
       bench "(mane 6)" $ (whnf (doLookup model) mane6)
+      ],
+  bgroup "Multi Intersection V2 Vector" [
+      bench "(mane 6)" $ (whnf (multiIntersectV2Vector model) mane6)
       ]
   ]
 
-doLookup :: Model -> [String] -> [SearchResult]
+doLookup :: Model -> [String] -> [Int]
 doLookup model tags = evalState run model
   where
     run = do
       s <- search tags
       case s of
         Left tags -> error ("INVALID TAGS: " ++ show tags)
-        Right s   -> lookupItems s
+        Right s   -> pure $ force $ S.toList $ HS.toSet s
+
+-- Uses multiintersectv2 on the data
+multiIntersectV2Vector :: Model -> [String] -> [Int]
+multiIntersectV2Vector model tags = evalState run model
+  where
+    run = do
+      s <- searchWithCombiner comb tags
+      case s of
+        Left tags -> error ("INVALID TAGS: " ++ show tags)
+        Right s   -> pure $ force $ join $ map S.toList s
+
+    comb [] = []
+    comb xs = let x = MultiIntersectV2Vector.nuIntersect xs
+              in x --trace ("Show x: " ++ show x) x
+

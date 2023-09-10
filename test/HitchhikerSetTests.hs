@@ -4,18 +4,18 @@ import           ClassyPrelude
 
 import           Control.DeepSeq
 import           System.Random
-import           System.Random.Shuffle (shuffle')
+import           System.Random.Shuffle  (shuffle')
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Test.Tasty.QuickCheck
 import           Types
 
-import           Data.List             (foldl1)
+import           Data.List              (foldl1)
 
-import qualified Data.Set              as S
-import qualified HitchhikerSet         as H
+import qualified Data.Set               as S
+import qualified HitchhikerSet          as H
 
-import qualified Blah                  as B
+import qualified MultiIntersectV2Vector as MIV
 
 doShuffle :: [a] -> [a]
 doShuffle [] = []
@@ -74,7 +74,7 @@ prop_set_multiintersection_eq raw1 raw2 raw3 raw4 =
      (S.fromList raw1) (S.fromList raw2) (S.fromList raw3) (S.fromList raw4)
   where
     eq hh1 hh2 hh3 hh4 s1 s2 s3 s4 =
-      let nu = unionall $ (B.nuIntersect [hh1, hh2, hh3, hh4])
+      let nu = unionall $ (MIV.nuIntersect [hh1, hh2, hh3, hh4])
           si = S.intersection s4 $ S.intersection s3 $ S.intersection s2 s1
       in nu == si
 
@@ -98,5 +98,5 @@ tests =
     localOption (QuickCheckTests 5000) $
       testProperty "Same intersection" prop_set_intersection_eq,
     localOption (QuickCheckTests 5000) $
-      testProperty "New multi intersection" prop_set_multiintersection_eq
+      testProperty "New multi intersection v2" prop_set_multiintersection_eq
     ]

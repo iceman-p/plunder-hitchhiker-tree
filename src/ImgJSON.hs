@@ -78,12 +78,20 @@ addEntry !item@(Item idNum tags _ _) = do
 search :: Monad m
        => [String]
        -> StateT Model m (Either [String] (HitchhikerSet Int))
-search tags = do
+search = searchWithCombiner comb
+  where
+    comb []     = HS.empty largeConfig
+    comb (x:xs) = foldl' HS.intersection x xs
+
+searchWithCombiner :: Monad m
+                   => ([HitchhikerSet Int] -> b)
+                   -> [String]
+                   -> StateT Model m (Either [String] b)
+searchWithCombiner combiner tags = do
   tagMap <- use #tags
   let sets = map (lookupTag tagMap) tags
   pure $ case (lefts sets, rights sets) of
-    ([], [])   -> Right $ HS.empty largeConfig
-    ([], x:xs) -> Right $ foldl' HS.intersection x xs
+    ([], xs)   -> Right $ combiner xs
     (lefts, _) -> Left lefts
   where
     lookupTag m t = let s = SM.lookup t m

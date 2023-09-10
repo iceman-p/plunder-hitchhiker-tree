@@ -1,4 +1,4 @@
-module Blah where
+module MultiIntersectV2Vector where
 
 import           Prelude
 
