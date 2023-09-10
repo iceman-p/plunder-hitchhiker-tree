@@ -28,6 +28,7 @@ import qualified HitchhikerMap             as HM
 import qualified HitchhikerSet             as HS
 import qualified HitchhikerSetMap          as SM
 
+import qualified MultiIntersectV1List
 import qualified MultiIntersectV2Vector
 
 import           ImgJSON
@@ -85,6 +86,9 @@ benchmark model = runMode defaultMode [
       bench "cute" $ (whnf (doLookup model) ["cute"]),
       bench "(mane 6)" $ (whnf (doLookup model) mane6)
       ],
+  bgroup "Multi Intersection V1 List" [
+      bench "(mane 6)" $ (whnf (multiIntersectV1List model) mane6)
+      ],
   bgroup "Multi Intersection V2 Vector" [
       bench "(mane 6)" $ (whnf (multiIntersectV2Vector model) mane6)
       ]
@@ -99,7 +103,18 @@ doLookup model tags = evalState run model
         Left tags -> error ("INVALID TAGS: " ++ show tags)
         Right s   -> pure $ force $ S.toList $ HS.toSet s
 
--- Uses multiintersectv2 on the data
+multiIntersectV1List :: Model -> [String] -> [Int]
+multiIntersectV1List model tags = evalState run model
+  where
+    run = do
+      s <- searchWithCombiner comb tags
+      case s of
+        Left tags -> error ("INVALID TAGS: " ++ show tags)
+        Right s   -> pure $ force $ join $ map S.toList s
+
+    comb [] = []
+    comb xs = MultiIntersectV1List.nuIntersect xs
+
 multiIntersectV2Vector :: Model -> [String] -> [Int]
 multiIntersectV2Vector model tags = evalState run model
   where
@@ -110,6 +125,5 @@ multiIntersectV2Vector model tags = evalState run model
         Right s   -> pure $ force $ join $ map S.toList s
 
     comb [] = []
-    comb xs = let x = MultiIntersectV2Vector.nuIntersect xs
-              in x --trace ("Show x: " ++ show x) x
+    comb xs = MultiIntersectV2Vector.nuIntersect xs
 
