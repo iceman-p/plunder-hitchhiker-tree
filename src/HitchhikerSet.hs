@@ -5,6 +5,7 @@ module HitchhikerSet ( empty
                      , fromSet
                      , fromArraySet
                      , toSet
+                     , weightEstimate
                      , insert
                      , insertMany
                      , delete
@@ -12,6 +13,7 @@ module HitchhikerSet ( empty
                      , union
                      , intersection
                      , getLeftmostValue
+                     , consolidate
                      , hhSetTF
                      ) where
 
@@ -70,6 +72,15 @@ toSet (HITCHHIKERSET config (Just root)) = collect root
       HitchhikerSetNodeLeaf l -> mkSet l
 
     mkSet = S.fromList . F.toList
+
+weightEstimate :: (Ord k) => HitchhikerSet k -> Int
+weightEstimate (HITCHHIKERSET config Nothing)     = 0
+weightEstimate (HITCHHIKERSET config (Just root)) =
+  treeWeightEstimate hhSetTF root
+
+depth :: (Ord k) => HitchhikerSet k -> Int
+depth (HITCHHIKERSET config Nothing)     = 0
+depth (HITCHHIKERSET config (Just root)) = treeDepth hhSetTF root
 
 insert :: (Show k, Ord k) => k -> HitchhikerSet k -> HitchhikerSet k
 insert !k !(HITCHHIKERSET config (Just root)) = HITCHHIKERSET config $ Just $
@@ -179,6 +190,19 @@ getLeftmostValue (HitchhikerSetNodeIndex (TreeIndex _ vals) hh)
   | not $ ssetIsEmpty hh = error "Hitchhikers in set intersection"
   | otherwise = getLeftmostValue $ V.head vals
 
+consolidate :: Ord k => Int -> [ArraySet k] -> [ArraySet k]
+consolidate _ [] = []
+consolidate _ [x]
+  | ssetIsEmpty x = []
+  -- TODO: Check size of x is maxSize or smaller.
+  | otherwise = [x]
+consolidate maxSize (x:y:xs) =
+  case compare (ssetSize x) maxSize of
+    LT -> consolidate maxSize ((x <> y):xs)
+    EQ -> x:(consolidate maxSize (y:xs))
+    GT -> let (head, tail) = (ssetSplitAt maxSize x)
+          in head:(consolidate maxSize (tail:y:xs))
+
 intersection :: forall k
                 . (Show k, Ord k)
                => HitchhikerSet k -> HitchhikerSet k -> HitchhikerSet k
@@ -195,19 +219,6 @@ intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
     build s = let vals = V.fromList $ map HitchhikerSetNodeLeaf s
                   keys = V.fromList $ map ssetFindMin (L.tail s)
               in Just $ fixUp conf hhSetTF $ TreeIndex keys vals
-
-    consolidate :: Int -> [ArraySet k] -> [ArraySet k]
-    consolidate _ [] = []
-    consolidate _ [x]
-      | ssetIsEmpty x = []
-      -- TODO: Check size of x is maxSize or smaller.
-      | otherwise = [x]
-    consolidate maxSize (x:y:xs) =
-      case compare (ssetSize x) maxSize of
-        LT -> consolidate maxSize ((x <> y):xs)
-        EQ -> x:(consolidate maxSize (y:xs))
-        GT -> let (head, tail) = (ssetSplitAt maxSize x)
-              in head:(consolidate maxSize (tail:y:xs))
 
     find :: HitchhikerSetNode k
          -> HitchhikerSetNode k

@@ -15,6 +15,20 @@ import qualified Data.List     as L
 import qualified Data.Map      as M
 import qualified Data.Vector   as V
 
+treeDepth :: TreeFun k v a hh lt
+          -> a
+          -> Int
+treeDepth tf@TreeFun{..} node = case caseNode node of
+  Left (TreeIndex _ vals, _) -> 1 + (treeDepth tf $ vals V.! 0)
+  Right _                    -> 1
+
+treeWeightEstimate :: TreeFun k v a hh lt
+                   -> a
+                   -> Int
+treeWeightEstimate tf@TreeFun{..} node = case caseNode node of
+  Left (TreeIndex keys vals, _) -> (length keys) * (treeDepth tf $ vals V.! 0)
+  Right l                       -> leafLength l
+
 fixUp :: TreeConfig
       -> TreeFun k v a hh lt
       -> TreeIndex k a

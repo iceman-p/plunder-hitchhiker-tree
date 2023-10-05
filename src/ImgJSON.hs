@@ -25,6 +25,23 @@ import qualified HitchhikerSet        as HS
 import qualified HitchhikerSetMap     as SM
 
 
+idsetConfig :: TreeConfig
+idsetConfig = TREECONFIG {
+    minFanout = minFanout'
+  , maxFanout = maxFanout'
+  , minIdxKeys = minFanout' - 1
+  , maxIdxKeys = maxFanout' - 1
+  , minLeafItems = minItems
+  , maxLeafItems = maxItems
+  , maxHitchhikers = maxItems
+  }
+  where
+    minItems = 1024
+    maxItems = 2 * minItems - 1
+    minFanout' = 128
+    maxFanout' = 2 * minFanout' - 1
+
+
 -- A single row of data.
 data Item = Item { idNum :: Int,
                    tags  :: [String],
@@ -60,7 +77,7 @@ data Model = Model {
 
 makeFieldLabelsNoPrefix ''Model
 
-emptyModel = Model (HM.empty largeConfig) (SM.empty largeConfig)
+emptyModel = Model (HM.empty largeConfig) (SM.empty idsetConfig)
 
 addEntry :: Monad m => Item -> StateT Model m ()
 addEntry !item@(Item idNum tags _ _) = do

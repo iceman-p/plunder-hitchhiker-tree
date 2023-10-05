@@ -1,16 +1,16 @@
 module Main (main) where
 
-import           ClassyPrelude          hiding (many)
+import           ClassyPrelude           hiding (many)
 
-import           Control.Monad.State    (MonadState, StateT, evalState,
-                                         execStateT, get, gets, liftIO, modify',
-                                         put, runStateT)
-import           Data.Aeson             hiding (parse)
+import           Control.Monad.State     (MonadState, StateT, evalState,
+                                          execStateT, get, gets, liftIO,
+                                          modify', put, runStateT)
+import           Data.Aeson              hiding (parse)
 
 import           Criterion.Main
 import           Criterion.Main.Options
 
-import           Optics                 hiding (noneOf, (%%))
+import           Optics                  hiding (noneOf, (%%))
 import           System.Directory
 import           System.FilePath
 import           Text.Parsec
@@ -21,17 +21,20 @@ import           Data.Sorted.Set
 import           Impl.Tree
 import           Types
 
-import qualified Data.ByteString.Lazy   as BS
+import qualified Data.ByteString.Lazy    as BS
 
-import qualified Data.Set               as S
+import qualified Data.Set                as S
 
-import qualified HitchhikerMap          as HM
-import qualified HitchhikerSet          as HS
-import qualified HitchhikerSetMap       as SM
+import qualified HitchhikerMap           as HM
+import qualified HitchhikerSet           as HS
+import qualified HitchhikerSetMap        as SM
 
 import qualified MultiIntersectV1List
 import qualified MultiIntersectV2Vector
 import qualified MultiIntersectV3Naive
+import qualified MultiIntersectV4OnePass
+import qualified MultiIntersectV5RHS
+import qualified MultiIntersectV6Stack
 
 import           ImgJSON
 
@@ -85,17 +88,26 @@ mane6 = [
 benchmark :: Model -> IO ()
 benchmark model = runMode defaultMode [
   bgroup "Original Intersection" [
-      bench "cute" $ (whnf (doLookup model) ["cute"]),
+      -- bench "cute" $ (whnf (doLookup model) ["cute"]),
       bench "(mane 6)" $ (whnf (doLookup model) mane6)
       ],
-  bgroup "Multi Intersection V1 List" [
-      bench "(mane 6)" $ (whnf (multiIntersectV1List model) mane6)
-      ],
-  bgroup "Multi Intersection V2 Vector" [
-      bench "(mane 6)" $ (whnf (multiIntersectV2Vector model) mane6)
-      ],
+  -- bgroup "Multi Intersection V1 List" [
+  --     bench "(mane 6)" $ (whnf (multiIntersectV1List model) mane6)
+  --     ],
+  -- bgroup "Multi Intersection V2 Vector" [
+  --     bench "(mane 6)" $ (whnf (multiIntersectV2Vector model) mane6)
+  --     ],
   bgroup "Single Intersection V3 Naive" [
       bench "(mane 6)" $ (whnf (singleIntersectV3Naive model) mane6)
+      ],
+  -- bgroup "Multi Intersection V4 One Pass" [
+  --     bench "(mane 6)" $ (whnf (multiIntersectV4OnePass model) mane6)
+  --     ],
+  bgroup "Multi Intersection V5 ArrayVsTree" [
+      bench "(mane 6)" $ (whnf (multiIntersectV5RHS model) mane6)
+      ],
+  bgroup "Multi Intersection V6 Stack" [
+      bench "(mane 6)" $ (whnf (multiIntersectV6Stack model) mane6)
       ]
   ]
 
@@ -148,3 +160,40 @@ singleIntersectV3Naive model tags = evalState run model
     comb :: [[ArraySet Int]] -> [ArraySet Int]
     comb []     = []
     comb (x:xs) = foldl' MultiIntersectV3Naive.setlistIntersect x xs
+
+multiIntersectV4OnePass :: Model -> [String] -> [Int]
+multiIntersectV4OnePass model tags = evalState run model
+  where
+    run = do
+      s <- searchWithCombiner comb tags
+      case s of
+        Left tags -> error ("INVALID TAGS: " ++ show tags)
+        Right s   -> pure $ force $ join $ map ssetToAscList s
+
+    comb [] = []
+    comb xs = MultiIntersectV4OnePass.onePassIntersection xs
+
+multiIntersectV5RHS :: Model ->  [String] -> [Int]
+multiIntersectV5RHS model tags = evalState run model
+  where
+    run = do
+      s <- searchWithCombiner comb tags
+      case s of
+        Left tags -> error ("INVALID TAGS: " ++ show tags)
+        Right s   -> pure $ force $ join $ map ssetToAscList s
+
+    comb [] = []
+    comb xs = MultiIntersectV5RHS.rhsIntersection xs
+
+multiIntersectV6Stack :: Model ->  [String] -> [Int]
+multiIntersectV6Stack model tags = evalState run model
+  where
+    run = do
+      s <- searchWithCombiner comb tags
+      case s of
+        Left tags -> error ("INVALID TAGS: " ++ show tags)
+        Right s   -> pure $ force $ join $ map ssetToAscList s
+
+    comb [] = []
+    comb xs = MultiIntersectV6Stack.stackIntersection xs
+
