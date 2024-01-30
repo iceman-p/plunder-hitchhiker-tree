@@ -33,9 +33,10 @@ prop_map_fulltree_eq raw = go raw (H.empty twoThreeConfig) (M.empty)
       ((TestPair k _):_) ->
         case H.lookup k ft == M.lookup k m of
           True  -> True
-          False -> trace ("Raw: " ++ show raw ++ "\nM: " ++ show ft ++
-                          "\na=" ++ (show $ H.lookup k ft) ++ ", b=" ++
-                          (show $ M.lookup k m)) False
+          False -> False
+          -- False -> trace ("Raw: " ++ show raw ++ "\nM: " ++ show ft ++
+          --                 "\na=" ++ (show $ H.lookup k ft) ++ ", b=" ++
+          --                 (show $ M.lookup k m)) False
 
 -- Mass insert results in an equivalent map.
 prop_map_insertmany_eq :: [TestPair] -> Bool
@@ -49,9 +50,10 @@ prop_map_insertmany_eq raw = go raw (M.empty)
         let hm = H.insertMany asItems emp
         in case (H.lookup k hm) == M.lookup k m of
           True  -> True
-          False -> trace ("Raw: " ++ show asItems ++ "\nM: " ++ show hm ++
-                          "\na=" ++ (show $ H.lookup k hm) ++ ", b=" ++
-                          (show $ M.lookup k m)) False
+          False -> False
+          -- False -> trace ("Raw: " ++ show asItems ++ "\nM: " ++ show hm ++
+          --                 "\na=" ++ (show $ H.lookup k hm) ++ ", b=" ++
+          --                 (show $ M.lookup k m)) False
 
     emp = H.empty twoThreeConfig
     asItems = M.fromList $ map toTup raw
@@ -72,10 +74,11 @@ prop_map_delete_eq raw = go raw (H.empty twoThreeConfig) (M.empty)
             isGone = H.lookup k dft == Nothing
         in isGone && case all (exists dft) (M.toList dm) of
           True  -> True
-          False -> trace ("Base: " ++ show ft ++ "\nDelete: " ++ show k ++
-                          "\nRaw: " ++ (show $ M.toList dm) ++ "\nM: " ++
-                          show dft)
-                         False
+          False -> False
+          -- False -> trace ("Base: " ++ show ft ++ "\nDelete: " ++ show k ++
+          --                 "\nRaw: " ++ (show $ M.toList dm) ++ "\nM: " ++
+          --                 show dft)
+          --                False
 
     exists dft (k, v) = H.lookup k dft == Just v
 

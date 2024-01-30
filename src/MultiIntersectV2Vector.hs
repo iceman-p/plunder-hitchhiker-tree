@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -w   #-}
 module MultiIntersectV2Vector where
 
 import           Prelude

@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -w   #-}
 module MultiIntersectV4OnePass where
 
 import           Prelude

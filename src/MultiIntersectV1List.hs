@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -w   #-}
 module MultiIntersectV1List where
 
 import           Prelude
