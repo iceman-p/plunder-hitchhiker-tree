@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -w   #-}
 module HitchhikerSet ( empty
                      , null
                      , rawNode
@@ -8,7 +9,9 @@ module HitchhikerSet ( empty
                      , weightEstimate
                      , insert
                      , insertMany
+                     , insertRaw
                      , delete
+                     , deleteRaw
                      , member
                      , union
                      , intersection
@@ -83,11 +86,17 @@ depth (HITCHHIKERSET config Nothing)     = 0
 depth (HITCHHIKERSET config (Just root)) = treeDepth hhSetTF root
 
 insert :: (Show k, Ord k) => k -> HitchhikerSet k -> HitchhikerSet k
-insert !k !(HITCHHIKERSET config (Just root)) = HITCHHIKERSET config $ Just $
-  fixUp config hhSetTF $ insertRec config hhSetTF (ssetSingleton k) root
+insert !k !(HITCHHIKERSET config (Just root)) =
+  HITCHHIKERSET config $ Just $ insertRaw config k root
 
 insert !k (HITCHHIKERSET config Nothing)
   = HITCHHIKERSET config (Just $ HitchhikerSetNodeLeaf $ ssetSingleton k)
+
+insertRaw :: (Show k, Ord k)
+          => TreeConfig -> k -> HitchhikerSetNode k
+          -> HitchhikerSetNode k
+insertRaw config !k root =
+  fixUp config hhSetTF $ insertRec config hhSetTF (ssetSingleton k) root
 
 
 insertMany :: (Show k, Ord k) => ArraySet k -> HitchhikerSet k -> HitchhikerSet k
@@ -101,19 +110,33 @@ insertMany !items !(HITCHHIKERSET config (Just top)) =
   fixUp config hhSetTF $
   insertRec config hhSetTF items top
 
+insertManyRaw :: (Show k, Ord k)
+              => TreeConfig
+              -> ArraySet k
+              -> HitchhikerSetNode k
+              -> HitchhikerSetNode k
+insertManyRaw config !items top =
+  fixUp config hhSetTF $
+  insertRec config hhSetTF items top
 
 delete :: (Show k, Ord k)
        => k -> HitchhikerSet k -> HitchhikerSet k
 delete _ !(HITCHHIKERSET config Nothing) = HITCHHIKERSET config Nothing
 delete !k !(HITCHHIKERSET config (Just root)) =
+  HITCHHIKERSET config $ deleteRaw config k root
+
+deleteRaw :: (Show k, Ord k)
+          => TreeConfig -> k -> HitchhikerSetNode k
+          -> Maybe (HitchhikerSetNode k)
+deleteRaw config !k root =
   case deleteRec config hhSetTF k Nothing root of
     HitchhikerSetNodeIndex index hitchhikers
       | Just childNode <- fromSingletonIndex index ->
-          if ssetIsEmpty hitchhikers then HITCHHIKERSET config (Just childNode)
-          else insertMany hitchhikers $ HITCHHIKERSET config (Just childNode)
+          if ssetIsEmpty hitchhikers then Just childNode
+          else Just $ insertManyRaw config hitchhikers childNode
     HitchhikerSetNodeLeaf items
-      | ssetIsEmpty items -> HITCHHIKERSET config Nothing
-    newRootNode -> HITCHHIKERSET config (Just newRootNode)
+      | ssetIsEmpty items -> Nothing
+    newRootNode -> Just newRootNode
 
 -- -----------------------------------------------------------------------
 

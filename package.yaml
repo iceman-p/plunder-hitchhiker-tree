@@ -32,6 +32,7 @@ dependencies:
 - multimap
 - optics
 - parsec
+- pretty-simple
 - primitive
 - random
 - random-shuffle

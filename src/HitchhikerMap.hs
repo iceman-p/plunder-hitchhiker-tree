@@ -19,12 +19,17 @@ empty config = HITCHHIKERMAP config Nothing
 insert :: (Show k, Show v, Ord k)
        => k -> v -> HitchhikerMap k v -> HitchhikerMap k v
 insert !k !v !(HITCHHIKERMAP config (Just root)) =
-  HITCHHIKERMAP config $ Just $
-  fixUp config hhMapTF $
-  insertRec config hhMapTF (M.singleton k v) root
+  HITCHHIKERMAP config $ Just $ insertRaw config k v root
 
 insert !k !v (HITCHHIKERMAP config Nothing)
   = HITCHHIKERMAP config (Just $ HitchhikerMapNodeLeaf $ M.singleton k v)
+
+insertRaw :: (Show k, Show v, Ord k)
+          => TreeConfig -> k -> v -> HitchhikerMapNode k v
+          -> HitchhikerMapNode k v
+insertRaw config !k !v root =
+  fixUp config hhMapTF $
+  insertRec config hhMapTF (M.singleton k v) root
 
 insertMany :: (Show k, Show v, Ord k, Ord v)
            => Map k v -> HitchhikerMap k v -> HitchhikerMap k v
