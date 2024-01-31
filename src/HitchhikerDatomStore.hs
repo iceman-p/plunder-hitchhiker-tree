@@ -1,24 +1,23 @@
 {-# OPTIONS_GHC -Wno-partial-fields   #-}
+{-# OPTIONS_GHC -Wincomplete-patterns   #-}
 module HitchhikerDatomStore where
 
 import           ClassyPrelude
 
-import           Data.Map                     (Map)
-import           Data.Set                     (Set)
-
-import           Types
-
+import           Impl.Index
+import           Impl.Leaf
 import           Impl.Tree
 import           Impl.Types
+import           Types
+import           Utils
 
 import           Data.Sorted
 
-import qualified HitchhikerMap                as HM
-import qualified HitchhikerSet                as HS
+import qualified HitchhikerMap as HM
+import qualified HitchhikerSet as HS
 
-import qualified Data.Map                     as M
-import qualified Data.Vector                  as V
-import qualified Data.Vector.Algorithms.Merge as VA
+import qualified Data.Map      as M
+import qualified Data.Set      as S
 
 -- What are we building here? What's the purpose? We're making a hitchhiker
 -- tree variant where for any six tuple, such as [e a v tx o], we have an
@@ -47,7 +46,11 @@ data ADatomRow a v tx
 -- At the end is VStorage: a set copy of the current existing values, and a
 -- separate log of transactions.
 data VStorage v tx
-  = VStorage (Maybe (HitchhikerSetNode v)) (HitchhikerMapNode tx (v, Bool))
+  -- Many values are going to be a single value that doesn't change; don't
+  -- allocate two hitchhiker trees to deal with them, just inline.
+  = VSimple v tx
+  -- We have multiple
+  | VStorage (Maybe (HitchhikerSetNode v)) (HitchhikerMapNode tx (v, Bool))
   deriving (Show, Generic, NFData)
 
 data EAVRows e a v tx = EAVROWS {
@@ -58,15 +61,6 @@ data EAVRows e a v tx = EAVROWS {
 
 empty :: TreeConfig -> EAVRows e a v tx
 empty config = EAVROWS config Nothing
-
-data Cardinality
-  = MANY
-  | ONCE
-  deriving (Show, Eq)
-
-lookup :: Ord k => Cardinality -> k -> k -> EAVRows e a v tx -> ArraySet k
-lookup _ _ _ (EAVROWS _ Nothing) = mempty
-
 
 --
 addDatom :: forall e a v tx
@@ -237,12 +231,12 @@ aLeafInsert config = M.foldlWithKey insertRows
 -- -----------------------------------------------------------------------
 
 vstorageSingleton :: (v, tx, Bool) -> VStorage v tx
-vstorageSingleton (v, tx, op) = VStorage valSet txMap
+vstorageSingleton (v, tx, True) = VSimple v tx
+
+-- Dumb, but the model allows it.
+vstorageSingleton (v, tx, False) = VStorage Nothing txMap
   where
-    txMap = HitchhikerMapNodeLeaf $ M.singleton tx (v, op)
-    valSet = case op of
-      True  -> Just $ HitchhikerSetNodeLeaf $ ssetSingleton v
-      False -> Nothing
+    txMap = HitchhikerMapNodeLeaf $ M.singleton tx (v, False)
 
 vstorageFromArray :: (Show v, Show tx, Ord v, Ord tx)
                   => TreeConfig
@@ -261,6 +255,12 @@ vstorageInsert :: (Show v, Show tx, Ord v, Ord tx)
                -> VStorage v tx
                -> (v, tx, Bool)
                -> VStorage v tx
+vstorageInsert config (VSimple pv ptx) newFact =
+  vstorageInsert config
+                 (VStorage (Just $ HitchhikerSetNodeLeaf $ ssetSingleton pv)
+                           (HitchhikerMapNodeLeaf $ M.singleton ptx (pv, True)))
+                 newFact
+
 vstorageInsert config (VStorage curSet txMap) (v, tx, op) =
   VStorage valSet newTxMap
   where
@@ -282,9 +282,87 @@ vstorageInsertMany config storage as =
 
 -- -----------------------------------------------------------------------
 
+lookup :: forall e a v tx
+        . (Show v, Show tx, Ord e, Ord a, Ord v, Ord tx)
+       => e -> a -> EAVRows e a v tx -> HitchhikerSet v
+lookup _ _ (EAVROWS config Nothing)    = HS.empty config
+
+-- Lookup is more complicated in that we have to push matching transactions
+-- down through multiple levels, to
+lookup e a (EAVROWS config (Just top)) = lookInENode mempty top
+  where
+    lookInENode :: ArraySet (v, tx, Bool) -> EDatomRow e a v tx
+                -> HitchhikerSet v
+    lookInENode txs = \case
+      ERowIndex index hitchhikers ->
+        let newTxs = appendMatchingEHH txs hitchhikers
+        in lookInENode newTxs $ findSubnodeByKey e index
+      ELeaf items -> case M.lookup e items of
+        Nothing     -> HS.fromArraySet config $ applyLog mempty txs
+        Just anodes -> lookInANode txs anodes
+
+    -- When recursing downwards through ERowIndex nodes, we must accumulate
+    -- matching
+    appendMatchingEHH :: ArraySet (v, tx, Bool)
+                      -> Map e (ArraySet (a, v, tx, Bool))
+                      -> ArraySet (v, tx, Bool)
+    appendMatchingEHH vtx hh = case M.lookup e hh of
+      Nothing   -> vtx
+      Just avtx -> ssetUnion vtx $ matchAV avtx
+      where
+        matchAV =
+          ssetMap removeA .
+          ssetTakeWhileAntitone takeFun .
+          ssetDropWhileAntitone dropFun
+          where
+            removeA (a, v, tx, o) = (v, tx, o)
+            dropFun (x, _, _, _) = (x < a)
+            takeFun (x, _, _, _) = (x == a)
+
+    lookInANode :: ArraySet (v, tx, Bool) -> ADatomRow a v tx -> HitchhikerSet v
+    lookInANode txs = \case
+      ARowIndex index hitchhikers ->
+        let newTxs = appendMatchingAHH txs hitchhikers
+        in lookInANode newTxs $ findSubnodeByKey a index
+      ALeaf items -> case M.lookup a items of
+        Nothing       -> HS.fromArraySet config $ applyLog mempty txs
+        Just vstorage -> applyToVStorage txs vstorage
+
+    appendMatchingAHH :: ArraySet (v, tx, Bool)
+                      -> Map a (ArraySet (v, tx, Bool))
+                      -> ArraySet (v, tx, Bool)
+    appendMatchingAHH vtx hh = case M.lookup a hh of
+      Nothing    -> vtx
+      Just hhVtx -> vtx <> hhVtx
+
+    applyLog :: ArraySet v -> ArraySet (v, tx, Bool) -> ArraySet v
+    applyLog = foldl' apply
+      where
+        apply set (v, _, True)  = ssetInsert v set
+        apply set (v, _, False) = ssetDelete v set
+
+    applyToVStorage :: ArraySet (v, tx, Bool)
+                    -> VStorage v tx
+                    -> HitchhikerSet v
+    applyToVStorage as vs =
+      case vstorageInsertMany config vs as of
+        VSimple v _    -> HS.singleton config v
+        VStorage top _ -> HITCHHIKERSET config top
+
+-- Doing a once lookup can be much faster than
+
+
+-- -----------------------------------------------------------------------
+
 data Value
   = VAL_STR String
   | VAL_INT Int
 
 type EAVStore = EAVRows Int Int Value Int
+
+data Database = DATABASE {
+  eav :: EAVRows Int Int Value Int,
+  ave :: EAVRows Int Value Int Int,
+  vae :: EAVRows Value Int Int Int
+  }
 

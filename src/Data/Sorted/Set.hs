@@ -16,10 +16,13 @@ module Data.Sorted.Set
     , ssetToDescList
     , ssetToArray
     , ssetSplitAt
+    , ssetDropWhileAntitone
+    , ssetTakeWhileAntitone
     , ssetSpanAntitone
     , ssetIntersection
     , ssetDifference
     , ssetSingleton
+    , ssetMap
     , ssetInsert
     , ssetLookupMin
     , ssetLookupMax
@@ -36,19 +39,19 @@ module Data.Sorted.Set
     )
 where
 
-import Control.Monad.ST
-import Data.Containers
-import Data.Foldable
-import Data.MonoTraversable
-import Data.Primitive.Array
-import Data.Sorted.Row
-import Data.Sorted.Search
-import Data.Sorted.Types
-import Prelude
+import           Control.Monad.ST
+import           Data.Containers
+import           Data.Foldable
+import           Data.MonoTraversable
+import           Data.Primitive.Array
+import           Data.Sorted.Row
+import           Data.Sorted.Search
+import           Data.Sorted.Types
+import           Prelude
 
-import ClassyPrelude (when)
-import Data.Coerce   (coerce)
-import GHC.Exts      (Int(..))
+import           ClassyPrelude        (when)
+import           Data.Coerce          (coerce)
+import           GHC.Exts             (Int (..))
 
 
 --------------------------------------------------------------------------------
@@ -75,6 +78,10 @@ ssetUnsafeDuo x y = coerce (rowDuo x y)
 ssetFromList :: Ord k => [k] -> Set k
 ssetFromList kList =
     SET $ rowSortUniqBy compare $ arrayFromList kList
+
+{-# INLINE ssetMap #-}
+ssetMap :: Ord b => (a -> b) -> Set a -> Set b
+ssetMap f = SET . rowSortUniqBy compare . fmap f . ssetToArray
 
 {-# INLINE ssetInsert #-}
 ssetInsert :: Ord k => k -> Set k -> Set k
@@ -361,6 +368,13 @@ ssetDifference (SET xs) (SET ys) = runST do
     then SET <$> unsafeFreezeArray buf
     else SET <$> freezeArray buf 0 used
 
+{-# INLINE ssetDropWhileAntitone #-}
+ssetDropWhileAntitone :: (a -> Bool) -> Set a -> Set a
+ssetDropWhileAntitone f (SET ks) = SET $ rowDrop (bfind f ks) ks
+
+{-# INLINE ssetTakeWhileAntitone #-}
+ssetTakeWhileAntitone :: (a -> Bool) -> Set a -> Set a
+ssetTakeWhileAntitone f (SET ks) = SET $ rowTake (bfind f ks) ks
 
 -- Assuming that the predicate is monotone, find the point where the
 -- predicate stops holding, and split the set there.
