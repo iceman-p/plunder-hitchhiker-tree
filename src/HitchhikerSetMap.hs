@@ -103,13 +103,19 @@ splitImpl k m = M.spanAntitone (< k) m
 insert :: (Show k, Show v, Ord k, Ord v)
        => k -> v -> HitchhikerSetMap k v -> HitchhikerSetMap k v
 insert !k !v !(HITCHHIKERSETMAP config (Just root)) =
-    HITCHHIKERSETMAP config $ Just $
-    fixUp config (hhSetMapTF config) $
-    insertRec config (hhSetMapTF config) (M.singleton k (ssetSingleton v)) root
+    HITCHHIKERSETMAP config $ Just $ insertRaw config k v root
 
 insert !k !v (HITCHHIKERSETMAP config Nothing)
   = HITCHHIKERSETMAP config $ Just $ HitchhikerSetMapNodeLeaf $
                        M.singleton k (strip $ HS.singleton config v)
+
+insertRaw :: (Show k, Show v, Ord k, Ord v)
+          => TreeConfig -> k -> v
+          -> HitchhikerSetMapNode k v
+          -> HitchhikerSetMapNode k v
+insertRaw config !k !v root =
+    fixUp config (hhSetMapTF config) $
+    insertRec config (hhSetMapTF config) (M.singleton k (ssetSingleton v)) root
 
 insertMany :: (Show k, Show v, Ord k, Ord v)
            => [(k, v)] -> HitchhikerSetMap k v -> HitchhikerSetMap k v
