@@ -44,6 +44,9 @@ splitIndexAt numLeftKeys (TreeIndex keys vals)
              TreeIndex rightKeys rightVals)
         Nothing -> error "splitIndex: cannot split an empty index"
 
+mapIndex :: (v -> w) -> TreeIndex k v -> TreeIndex k w
+mapIndex fun (TreeIndex keys vals) = TreeIndex keys $ map fun vals
+
 -- Given a pure index with no hitchhikers, create a node.
 extendIndex :: TreeFun k v a hh lt
             -> Int

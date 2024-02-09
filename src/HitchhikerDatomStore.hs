@@ -354,11 +354,61 @@ lookup e a (EAVROWS config (Just top)) = lookInENode mempty top
 -- -----------------------------------------------------------------------
 
 partialLookup :: forall e a v tx
-               . (Show v, Show tx, Ord e, Ord a, Ord v, Ord tx)
+               . (Show a, Show v, Show tx, Ord e, Ord a, Ord v, Ord tx)
               => e -> EAVRows e a v tx -> HitchhikerSetMap a v
 partialLookup _ (EAVROWS config Nothing)    = HSM.empty config
 
-partialLookup e (EAVROWS config (Just top)) = undefined
+partialLookup e (EAVROWS config (Just top)) = lookInENode mempty top
+  where
+    lookInENode :: ArraySet (a, v, tx, Bool) -> EDatomRow e a v tx
+                -> HitchhikerSetMap a v
+    lookInENode txs = \case
+      ERowIndex index hitchhikers ->
+        let newTxs = appendMatchingEHH txs hitchhikers
+        in lookInENode newTxs $ findSubnodeByKey e index
+      ELeaf items -> case M.lookup e items of
+        Nothing     -> undefined --HS.fromArraySet config $ applyLog mempty txs
+        Just anodes -> aNodeTo (atupleToMap txs) anodes
+
+    -- When recursing downwards through ERowIndex nodes, we must accumulate
+    -- matching
+    appendMatchingEHH :: ArraySet (a, v, tx, Bool)
+                      -> Map e (ArraySet (a, v, tx, Bool))
+                      -> ArraySet (a, v, tx, Bool)
+    appendMatchingEHH vtx hh = case M.lookup e hh of
+      Nothing   -> vtx
+      Just avtx -> ssetUnion vtx avtx
+
+    -- What are we doing here?
+    aNodeTo :: Map a (ArraySet (v, tx, Bool))
+            -> ADatomRow a v tx
+            -> HitchhikerSetMap a v
+    aNodeTo txs anodes =
+      let arow = flushDownwards (hhADatomRowTF config)
+               $ arowInsertMany config txs anodes
+
+          translate = \case
+            ARowIndex tree hh ->
+              HitchhikerSetMapNodeIndex (mapIndex translate tree) mempty
+            ALeaf leafMap ->
+              HitchhikerSetMapNodeLeaf $ M.mapMaybe translateLeaf leafMap
+
+          translateLeaf = \case
+            VSimple x _ ->
+              Just $ NAKEDSET (Just (HitchhikerSetNodeLeaf $ ssetSingleton x))
+            VStorage Nothing _ -> Nothing
+            VStorage x _ -> Just $ NAKEDSET x
+
+      in HITCHHIKERSETMAP config $ Just $ translate arow
+
+
+
+    -- applyLog :: ArraySet (a, v) -> ArraySet (a,v, tx, Bool) -> ArraySet v
+    -- applyLog = foldl' apply
+    --   where
+    --     apply set (v, _, True)  = ssetInsert v set
+    --     apply set (v, _, False) = ssetDelete v set
+
 -- TODO: OK, what has to happen here?
 --
 -- First step: we have to flush hitchhikers that match e downwards to the a
@@ -475,9 +525,25 @@ data Relation
   | RTAB [Symbol] TableElem
   deriving (Show)
 
+-- TableElem isn't thought through. In fact, I'd say the entire RTAB design
+-- right now is maybe wrong.
+--
+-- So the design has to work with arbitrary.
+--
+-- How do you represent ?a->?b ?b->?c ?b->?d ?
+--
+-- ?a -> [?b -> ?c, ?b -> ?d]
+--
+-- Node ["?a" "?b" "?c"] ?a (HSM ?a [Leaf "?b" "?c" (HSM ?b ?c),
+--                                   Leaf "?b" "?d" (HSM ?b ?d)])
+--
+-- data X
+--   = Node [Symbol] Symbol -- undefined
+--   | Leaf Symbol Symbol (HitchhikerSetMap Value Value)
+--
 data TableElem
   = TableEnd Symbol Symbol (HitchhikerSetMap Value Value)
-  | TableCont Symbol (HitchhikerSetMap Value TableElem)
+  | TableCont Symbol (HitchhikerMap Value TableElem)
   deriving (Show)
 
 -- A variable reference like ?name
@@ -514,8 +580,8 @@ rjoin (RSET lhs lhv) (RSET rhs rhv)
 
 rjoin l@(RBIDIR _ _ _ _) r@(RSET _ _) = rjoin r l
 rjoin (RSET lhs lhv) (RBIDIR x y xtoy ytox)
-  | lhs == x = RTAB [x, y] (TableEnd x y $ hhSetMapRestrictKeys lhv xtoy)
-  | lhs == y = RTAB [y, x] (TableEnd y x $ hhSetMapRestrictKeys lhv ytox)
+  | lhs == x = RTAB [x, y] (TableEnd x y $ HSM.restrictKeys lhv xtoy)
+  | lhs == y = RTAB [y, x] (TableEnd y x $ HSM.restrictKeys lhv ytox)
   | otherwise = RDISJOINT
 
 rjoin l@(RTAB _ _) r@(RSET _ _) = rjoin r l
@@ -524,11 +590,11 @@ rjoin (RSET lhs lhv) (RTAB rhs rht)
   | otherwise = RTAB rhs (filteredTable rht)
   where
     filteredTable (TableEnd key val hhSetMap)
-      | lhs == key = TableEnd key val $ hhSetMapRestrictKeys lhv hhSetMap
+      | lhs == key = TableEnd key val $ HSM.restrictKeys lhv hhSetMap
       | otherwise = TableEnd key val $ hhSetMapRestrictVals lhv hhSetMap
     filteredTable (TableCont key hhSetMap)
-      | lhs == key = TableCont key $ hhSetMapRestrictKeys lhv hhSetMap
-      | otherwise = TableCont key $ hhSetMapMapVals filteredTable hhSetMap
+      | lhs == key = undefined -- TableCont key $ HSM.restrictKeys lhv hhSetMap
+      | otherwise = undefined --TableCont key $ hhSetMapMapVals filteredTable hhSetMap
 
 rjoin (RTAB lhs lht) (RTAB rhs rht) = undefined
 -- What are the issues on tab to tab joining?
@@ -547,9 +613,6 @@ rjoin (RTAB lhs lht) (RTAB rhs rht) = undefined
 -- [?alias] [?e :aka ?alias] -> [?alias ?e]
 -- [?alias ?e] [?e :nation ?nation] -> [?alias ?e ?nation]
 
-
--- TODO: Implement these
-hhSetMapRestrictKeys keySet setMap = undefined
 hhSetMapRestrictVals valSet setMap = undefined
 
 hhSetMapMapVals :: (v -> v) -> HitchhikerSetMap k v -> HitchhikerSetMap k v
@@ -588,23 +651,6 @@ loadClause (C_XAZ eSymb attr vSymb) DATABASE{..} =
 --       RDIS
 
 
-
-
---   | C_EYZ EntityId Symbol Symbol
-
-
--- Equivalent to `hash-join` in query.clj. This does a single
--- hashJoin :: Relation -> Relation -> Relation
-
--- hashJoin (RAW_TUPLES lNames lVals) (RAW_TUPLES rNames rVals)  =
---   let lKeep = keysSet lNames
---       rKeep = S.difference (keysSet rNames) lKeep
---       oNames =
---   in RAW_TUPLES oNames oVals
-
-
-
-
 -- [{:name "Frege", :db/id -1, :nation "France",
 --   :aka  ["foo" "fred"]}
 --  {:name "Peirce", :db/id -2, :nation "france"}
@@ -639,30 +685,3 @@ out :: Relation
 out = rjoin
     (loadClause (C_XAZ (SYM "?e") (ATTR ":aka") (SYM "?alias")) db)
     (RSET (SYM "?alias") (HS.singleton twoThreeConfig (VAL_STR "fred")))
-
-
-
-
-inAlias :: Relation
-inAlias = RSET (SYM "?alias") (HS.singleton twoThreeConfig (VAL_STR "fred"))
-
--- inAlias :: Relation
--- inAlias = RAW_TUPLES (M.singleton (SYM "?alias") 0) [[VAL_STR "fred"]]
-
--- eAlias :: Relation
--- eAlias = RAW_TUPLES (M.fromList [(SYM "?e", 0), (SYM "?alias", 1)]) [
---   [VAL_INT 100, VAL_STR "foo"],
---   [VAL_INT 100, VAL_STR "fred"]]
-
--- eNation :: Relation
--- eNation = RAW_TUPLES (M.fromList [(SYM "?e", 0), (SYM "?nation", 1)]) [
---   [VAL_INT 100, VAL_STR "France"],
---   [VAL_INT 101, VAL_STR "france"],
---   [VAL_INT 102, VAL_STR "English"]]
-
--- res = hashJoin eNation $ hashJoin inAlias eAlias
-
--- data Relation
---   -- A single
---   = R_ONECONST Symbol Value
---   | R_
