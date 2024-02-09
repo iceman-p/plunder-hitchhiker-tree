@@ -37,6 +37,7 @@ dependencies:
 - random
 - random-shuffle
 - repline
+- safe
 - tasty
 - tasty-hunit
 - tasty-quickcheck
