@@ -19,6 +19,7 @@ import qualified HitchhikerSetMap as HSM
 
 import qualified Data.Map         as M
 import qualified Data.Set         as S
+import qualified Data.Vector      as V
 
 -- What are we building here? What's the purpose? We're making a hitchhiker
 -- tree variant where for any six tuple, such as [e a v tx o], we have an
@@ -520,30 +521,14 @@ data Relation
            Symbol
            (HitchhikerSetMap Value Value)
            (HitchhikerSetMap Value Value)
-  -- A table. A table is a list of the column symbol names, and then a mapping
-  -- from
-  | RTAB [Symbol] TableElem
-  deriving (Show)
 
--- TableElem isn't thought through. In fact, I'd say the entire RTAB design
--- right now is maybe wrong.
---
--- So the design has to work with arbitrary.
---
--- How do you represent ?a->?b ?b->?c ?b->?d ?
---
--- ?a -> [?b -> ?c, ?b -> ?d]
---
--- Node ["?a" "?b" "?c"] ?a (HSM ?a [Leaf "?b" "?c" (HSM ?b ?c),
---                                   Leaf "?b" "?d" (HSM ?b ?d)])
---
--- data X
---   = Node [Symbol] Symbol -- undefined
---   | Leaf Symbol Symbol (HitchhikerSetMap Value Value)
---
-data TableElem
-  = TableEnd Symbol Symbol (HitchhikerSetMap Value Value)
-  | TableCont Symbol (HitchhikerMap Value TableElem)
+  -- A list of rows. Joining with this any other type produces a row. The first
+  -- list of symbols is the order in the order of each row.
+  | RROW [Symbol] [Symbol] (Vector (Vector Value))
+
+  -- A table from one symbol to possibly multiple symbols. ?a -> [?b ?c]
+  | RTAB Symbol [Symbol] (HitchhikerMap Value (Vector (HitchhikerSet Value)))
+
   deriving (Show)
 
 -- A variable reference like ?name
@@ -580,29 +565,15 @@ rjoin (RSET lhs lhv) (RSET rhs rhv)
 
 rjoin l@(RBIDIR _ _ _ _) r@(RSET _ _) = rjoin r l
 rjoin (RSET lhs lhv) (RBIDIR x y xtoy ytox)
-  | lhs == x = RTAB [x, y] (TableEnd x y $ HSM.restrictKeys lhv xtoy)
-  | lhs == y = RTAB [y, x] (TableEnd y x $ HSM.restrictKeys lhv ytox)
+  | lhs == x = RTAB x [y] $
+               HM.mapMaybe (Just . V.singleton) $
+               HSM.toHitchhikerMap $
+               HSM.restrictKeys lhv xtoy
+  | lhs == y = RTAB y [x] $
+               HM.mapMaybe (Just . V.singleton) $
+               HSM.toHitchhikerMap $
+               HSM.restrictKeys lhv ytox
   | otherwise = RDISJOINT
-
-rjoin l@(RTAB _ _) r@(RSET _ _) = rjoin r l
-rjoin (RSET lhs lhv) (RTAB rhs rht)
-  | not $ elem lhs rhs = RDISJOINT
-  | otherwise = RTAB rhs (filteredTable rht)
-  where
-    filteredTable (TableEnd key val hhSetMap)
-      | lhs == key = TableEnd key val $ HSM.restrictKeys lhv hhSetMap
-      | otherwise = TableEnd key val $ hhSetMapRestrictVals lhv hhSetMap
-    filteredTable (TableCont key hhSetMap)
-      | lhs == key = undefined -- TableCont key $ HSM.restrictKeys lhv hhSetMap
-      | otherwise = undefined --TableCont key $ hhSetMapMapVals filteredTable hhSetMap
-
-rjoin (RTAB lhs lht) (RTAB rhs rht) = undefined
--- What are the issues on tab to tab joining?
---
--- We'll need to
---
--- [?one ?two] [?two ?three] -> [?one ?two ?three]  ; easy
--- [?one ?two ?three] [?two ?four] ->
 
 --    (sut/q '[:find ?nation
 --             :in $ ?alias

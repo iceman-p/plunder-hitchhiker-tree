@@ -104,3 +104,22 @@ lookup key (HITCHHIKERMAP _ (Just top)) = lookInNode top
           Just v  -> Just v
           Nothing -> lookInNode $ findSubnodeByKey key index
       HitchhikerMapNodeLeaf items -> M.lookup key items
+
+-- Map ------------------------------------------------------------------------
+
+-- TODO: Balancing? Handling empty leaf maps? This stub is really restricted to
+-- current usages to make forward progress. Come back and fix this later.
+mapMaybe :: (Show k, Ord k, Show a, Show b)
+         => (a -> Maybe b) -> HitchhikerMap k a -> HitchhikerMap k b
+mapMaybe fun (HITCHHIKERMAP config Nothing) = (HITCHHIKERMAP config Nothing)
+mapMaybe fun (HITCHHIKERMAP config (Just top)) =
+  HITCHHIKERMAP config $ Just (go $ flushDownwards hhMapTF top)
+  where
+    go = \case
+      HitchhikerMapNodeIndex index _ ->
+        HitchhikerMapNodeIndex (mapIndex go index) M.empty
+      HitchhikerMapNodeLeaf m ->
+        let nm = M.mapMaybe fun m
+        in if M.null nm
+           then error "TODO: handle empty map in mapMaybe"
+           else HitchhikerMapNodeLeaf nm

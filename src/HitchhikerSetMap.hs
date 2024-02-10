@@ -25,6 +25,28 @@ import qualified Data.Vector   as V
 empty :: TreeConfig -> HitchhikerSetMap k v
 empty config = HITCHHIKERSETMAP config Nothing
 
+-- When doing mappings over hitchhiker map sets, we sometimes want to switch
+-- the representation over to actual sets so that we can map the entire key
+-- value.
+toHitchhikerMap :: (Show k, Show v, Ord k, Ord v)
+                => HitchhikerSetMap k v -> HitchhikerMap k (HitchhikerSet v)
+toHitchhikerMap (HITCHHIKERSETMAP config Nothing) =
+  (HITCHHIKERMAP config Nothing)
+
+toHitchhikerMap (HITCHHIKERSETMAP config (Just top)) =
+  (HITCHHIKERMAP config newTop)
+  where
+    newTop = Just $ translate $ flushDownwards (hhSetMapTF config) top
+
+    translate = \case
+      HitchhikerSetMapNodeIndex idx _ ->
+        HitchhikerMapNodeIndex (mapIndex translate idx) M.empty
+      HitchhikerSetMapNodeLeaf l ->
+        HitchhikerMapNodeLeaf (map toHHSet l)
+
+    toHHSet (NAKEDSET n) = HITCHHIKERSET config n
+
+
 -- Takes a list of leaves and make a valid
 fromLeafMaps :: (Show k, Show v, Ord k, Ord v)
              => TreeConfig
