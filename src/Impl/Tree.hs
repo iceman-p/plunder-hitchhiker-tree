@@ -11,8 +11,11 @@ import           Impl.Types
 import           Types
 import           Utils
 
+import           Data.Sorted
+
 import qualified Data.List     as L
 import qualified Data.Map      as M
+import qualified Data.Set      as S
 import qualified Data.Vector   as V
 
 treeDepth :: TreeFun k v a hh lt
@@ -244,3 +247,81 @@ mergeNodes config tf@TreeFun{..} left middleKey right =
       in extendIndex tf (maxIdxKeys config) (mergeIndex left middleKey right)
     (Right leftLeaf, Right rightLeaf)                  ->
       splitLeafMany tf (maxLeafItems config) (leafMerge leftLeaf rightLeaf)
+
+-- We walk the as and bs list in parallel. When the current a overlaps with
+-- the current b, we put a into a list of partial mapping sets and keep
+-- accumulating those until we don't have a
+setlistMaplistIntersect :: forall k v
+         . (Show k, Ord k, Show v)
+        => [ArraySet k]
+        -> [ArraySet k]
+        -> [Map k v]
+        -> [Map k v]
+setlistMaplistIntersect _ a []                = []
+setlistMaplistIntersect [] [] b                = []
+setlistMaplistIntersect partial ao@(a:as) bo@(b:bs) =
+    let aMin = ssetFindMin a
+        aMax = ssetFindMax a
+        bMin = fst $ M.findMin b
+        bMax = fst $ M.findMax b
+        overlap = aMin <= bMax && bMin <= aMax
+
+        filteredBy s rest = let f = M.restrictKeys b s
+                            in if M.null f then rest
+                                           else f:rest
+
+        toSet :: [ArraySet k] -> Set k
+        toSet = foldl' S.union S.empty . map (S.fromList . ssetToAscList)
+
+    in case (partial, overlap) of
+         ([], False)
+           | aMax > bMax -> setlistMaplistIntersect [] ao bs
+           | otherwise   -> setlistMaplistIntersect [] as bo
+         (partial, False) -> error "Should be impossible"
+         (partial, True)
+           | aMax == bMax ->
+               filteredBy (toSet (a:partial)) $ setlistMaplistIntersect [] as bs
+           | aMax < bMax ->
+               setlistMaplistIntersect (a:partial) as bo
+           | otherwise ->
+               filteredBy (toSet (a:partial)) $ setlistMaplistIntersect [] ao bs
+
+-- With maplist x maplist, we have to also have a mapping function for when
+-- there's an intersection.
+maplistMaplistIntersect
+  :: forall k a b c
+   . (Show k, Ord k, Show a, Show b, Show c)
+  => (a -> b -> c)
+  -> [Map k a]
+  -> [Map k a]
+  -> [Map k b]
+  -> [Map k c]
+maplistMaplistIntersect _ _ a []                        = []
+maplistMaplistIntersect _ [] [] b                       = []
+maplistMaplistIntersect fun partial ao@(a:as) bo@(b:bs) =
+    let aMin = fst $ M.findMin a
+        aMax = fst $ M.findMax a
+        bMin = fst $ M.findMin b
+        bMax = fst $ M.findMax b
+        overlap = aMin <= bMax && bMin <= aMax
+
+        filteredBy ms rest = let f = M.intersectionWith fun ms b
+                             in if M.null f then rest
+                                            else f:rest
+
+        toMap :: [Map k a] -> Map k a
+        toMap = foldl' M.union M.empty
+
+    in case (partial, overlap) of
+         ([], False)
+           | aMax > bMax -> maplistMaplistIntersect fun [] ao bs
+           | otherwise   -> maplistMaplistIntersect fun [] as bo
+         (partial, False) -> error "Should be impossible"
+         (partial, True)
+           | aMax == bMax ->
+               filteredBy (toMap (a:partial)) $ maplistMaplistIntersect fun [] as bs
+           | aMax < bMax ->
+               maplistMaplistIntersect fun (a:partial) as bo
+           | otherwise ->
+               filteredBy (toMap (a:partial)) $ maplistMaplistIntersect fun [] ao bs
+

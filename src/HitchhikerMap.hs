@@ -4,6 +4,8 @@ import           ClassyPrelude hiding (empty)
 
 import           Data.Map      (Map)
 
+import           Safe          (tailSafe)
+
 import           Impl.Index
 import           Impl.Leaf
 import           Impl.Tree
@@ -12,6 +14,9 @@ import           Types
 import           Utils
 
 import qualified Data.Map      as M
+import qualified Data.Vector   as V
+
+import qualified HitchhikerSet as HS
 
 empty :: TreeConfig -> HitchhikerMap k v
 empty config = HITCHHIKERMAP config Nothing
@@ -31,7 +36,7 @@ insertRaw config !k !v root =
   fixUp config hhMapTF $
   insertRec config hhMapTF (M.singleton k v) root
 
-insertMany :: (Show k, Show v, Ord k, Ord v)
+insertMany :: (Show k, Show v, Ord k)
            => Map k v -> HitchhikerMap k v -> HitchhikerMap k v
 
 insertMany !items !(HITCHHIKERMAP config Nothing) =
@@ -43,6 +48,21 @@ insertMany !items !(HITCHHIKERMAP config (Just root)) =
   HITCHHIKERMAP config $ Just $
   fixUp config hhMapTF $
   insertRec config hhMapTF items root
+
+-- Takes a list of leaves and make a valid set
+fromLeafMaps :: (Show k, Show v, Ord k)
+             => TreeConfig
+             -> [Map k v]
+             -> HitchhikerMap k v
+fromLeafMaps config []   = HitchhikerMap.empty config
+fromLeafMaps config [m]  = HITCHHIKERMAP config $ Just
+                         $ HitchhikerMapNodeLeaf m
+fromLeafMaps config rawMaps = HITCHHIKERMAP config $ Just node
+  where
+    node = fixUp config hhMapTF treeIndex
+    treeIndex = indexFromList idxV vals
+    idxV = V.fromList $ tailSafe $ map (fst . M.findMin) rawMaps
+    vals = V.fromList $ map HitchhikerMapNodeLeaf rawMaps
 
 -- -----------------------------------------------------------------------
 
@@ -123,3 +143,49 @@ mapMaybe fun (HITCHHIKERMAP config (Just top)) =
         in if M.null nm
            then error "TODO: handle empty map in mapMaybe"
            else HitchhikerMapNodeLeaf nm
+
+-- TODO: This isn't the best performing implementation, but it's Good Enough
+-- for now. This is an attempt at using something like the
+-- MultiIntesersectV3Naive code in a different context. This should be good
+-- enough at "small" (<100K) items, and will probably be faster on the naive
+-- tree walking interpreter than a proper tree pruning implementation for the
+-- same reason V6Stack was: function frames are super expensive.
+--
+restrictKeys :: forall k v
+              . (Show k, Show v, Ord k)
+             => HitchhikerSet k
+             -> HitchhikerMap k v
+             -> HitchhikerMap k v
+restrictKeys _ orig@(HITCHHIKERMAP _ Nothing) = orig
+
+restrictKeys (HITCHHIKERSET _ Nothing) (HITCHHIKERMAP config _) =
+  HitchhikerMap.empty config
+
+restrictKeys (HITCHHIKERSET sConfig (Just a))
+             (HITCHHIKERMAP mConfig (Just b)) =
+  fromLeafMaps mConfig $ setlistMaplistIntersect [] as bs
+  where
+    as = getLeafList HS.hhSetTF a
+    bs = getLeafList hhMapTF b
+
+intersectionWith :: forall k a b c
+                  . (Show k, Ord k, Show a, Show b, Show c)
+                 => (a -> b -> c)
+                 -> HitchhikerMap k a
+                 -> HitchhikerMap k b
+                 -> HitchhikerMap k c
+intersectionWith _ (HITCHHIKERMAP config Nothing) _ =
+  (HITCHHIKERMAP config Nothing)
+
+intersectionWith _ _ (HITCHHIKERMAP config Nothing) =
+  (HITCHHIKERMAP config Nothing)
+
+intersectionWith fun (HITCHHIKERMAP config (Just a)) (HITCHHIKERMAP _ (Just b))
+  = fromLeafMaps config $ maplistMaplistIntersect fun [] as bs
+  where
+    as = getLeafList hhMapTF a
+    bs = getLeafList hhMapTF b
+
+toList :: (Show k, Ord k, Show v) => HitchhikerMap k v -> [(k, v)]
+toList (HITCHHIKERMAP _ Nothing) = []
+toList (HITCHHIKERMAP _ (Just a)) = concat $ map M.toList $ getLeafList hhMapTF a

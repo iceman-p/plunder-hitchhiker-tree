@@ -18,6 +18,7 @@ module HitchhikerSet ( empty
                      , getLeftmostValue
                      , consolidate
                      , hhSetTF
+                     , HitchhikerSet.toList
                      ) where
 
 import           ClassyPrelude   hiding (delete, empty, intersection, member,
@@ -322,3 +323,8 @@ intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
                               Just $ TreeIndex (V.tail keys) (V.tail vals))
                     result = checkSetAgainst tryLeaves subNode
                 in Just (result, (restLeaves, restIndex))
+
+toList :: (Show k, Ord k) => HitchhikerSet k -> [k]
+toList (HITCHHIKERSET _ Nothing) = []
+toList (HITCHHIKERSET _ (Just a)) = concat $ map ssetToAscList $ getLeafList hhSetTF a
+

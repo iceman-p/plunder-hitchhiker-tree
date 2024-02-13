@@ -17,6 +17,7 @@ import qualified HitchhikerMap    as HM
 import qualified HitchhikerSet    as HS
 import qualified HitchhikerSetMap as HSM
 
+import qualified Data.List        as L
 import qualified Data.Map         as M
 import qualified Data.Set         as S
 import qualified Data.Vector      as V
@@ -402,23 +403,6 @@ partialLookup e (EAVROWS config (Just top)) = lookInENode mempty top
 
       in HITCHHIKERSETMAP config $ Just $ translate arow
 
-
-
-    -- applyLog :: ArraySet (a, v) -> ArraySet (a,v, tx, Bool) -> ArraySet v
-    -- applyLog = foldl' apply
-    --   where
-    --     apply set (v, _, True)  = ssetInsert v set
-    --     apply set (v, _, False) = ssetDelete v set
-
--- TODO: OK, what has to happen here?
---
--- First step: we have to flush hitchhikers that match e downwards to the a
--- row.
---
--- Second step: we have to lazily generate a HitchhikerSetMap from the
--- combination of the ADatomRow and VStorage.
-
-
 -- -----------------------------------------------------------------------
 
 newtype EntityId = ENTID Int
@@ -515,8 +499,10 @@ data Relation
   | RDISJOINT
   -- Simple one set relation.
   | RSET Symbol (HitchhikerSet Value)
-  -- Bidirectional relation. Created in the first clause when we don't know
-  -- what direction we'll be searching.
+  -- Bidirectional relation straight from the database. Created in the first
+  -- clause when we don't know what direction we'll be searching. Always build
+  -- it so the first symbol to the second symbol is the preferred search
+  -- direction.
   | RBIDIR Symbol
            Symbol
            (HitchhikerSetMap Value Value)
@@ -548,6 +534,95 @@ data Clause
 
 -- -----------------------------------------------------------------------
 
+-- We've hit a case where we can't join between two representations without
+-- iterating anyway, so build a full RROW table.
+tableToRows :: Symbol
+            -> [Symbol]
+            -> HitchhikerMap Value (Vector (HitchhikerSet Value))
+            -> Relation
+tableToRows key vals hhmap = RROW symbols sortOrder rowData
+  where
+    symbols = key:vals
+    sortOrder = symbols
+    rowData = V.concat $ map step $ HM.toList hhmap
+
+    step :: (Value, Vector (HitchhikerSet Value)) -> Vector (Vector Value)
+    step (k, tops) = V.sequence $
+      V.cons (V.singleton k) (map (V.fromList . HS.toList) tops)
+
+ensureSortedBy :: [Symbol] -> [Symbol] -> [Symbol] -> Vector (Vector Value)
+               -> ([Symbol], Vector (Vector Value))
+ensureSortedBy request allSymb curSortedBy rows
+  | request `isPrefixOf` curSortedBy = (curSortedBy, rows)
+  | any isNothing mybRequestIdx = error "Invalid request"
+  | otherwise = (request, sortedRows)
+  where
+    mybRequestIdx :: [Maybe Int]
+    mybRequestIdx = map (flip L.elemIndex allSymb) request
+
+    requestIdxes = catMaybes mybRequestIdx
+
+    sortedRows = sortBy (doSort requestIdxes) rows
+
+    doSort :: [Int] -> Vector Value -> Vector Value -> Ordering
+    doSort [] a b = EQ
+    doSort (x:xs) a b = case compare a b of
+      EQ -> doSort xs a b
+      x  -> x
+
+
+-- Map Int [Vector [Int]]
+--
+-- 'e' => {'a' 'b' 'c'} {1 2 3}
+-- 'f' => {'b' 'c' 'd'} {4 5 6}
+
+-- 'e' 'a' 1
+-- 'e' 'a' 2
+-- 'e' 'a' 3
+
+-- -- OK, this here is a good first draft of the Cartesian product, but the types
+-- -- aren't right, we aren't
+
+-- d :: Map Int (Vector (Vector Int)) -> [(Int, Vector (Vector Int))]
+-- d = M.toList
+
+-- doprod :: (Int, Vector (Vector Int)) -> Vector (Vector Int)
+-- doprod (key, vals) = V.sequence (V.cons (V.singleton key) vals)
+
+-- dojoin :: Map Int (Vector (Vector Int)) -> Vector (Vector Int)
+-- dojoin m = concat $ map doprod $ M.toList m
+
+-- dd = dojoin $ M.fromList [
+--   (1, V.fromList [
+--         V.fromList [2, 3, 4],
+--         V.fromList [5, 6, 7] ]),
+--   (8, V.fromList [
+--         V.fromList [9, 10, 11],
+--         V.fromList [12, 13]])]
+
+-- -- TODO: When I come back, my next task is to implement this, and then use it
+-- -- to implement rowData in tableToRows above. That should give me a table which
+-- -- means we can then write tab/bidi join below.
+-- --
+-- dhm :: HitchhikerMap Value (Vector (HitchhikerSet Value))
+--     -> Vector (Vector Value)
+-- dhm = V.concat . map step . HM.toList
+--   where
+--     step :: (Value, Vector (HitchhikerSet Value)) -> Vector (Vector Value)
+--     step (k, tops) = V.sequence (V.cons (V.singleton k) (map (V.fromList . HS.toList) tops))
+
+-- ddhm = dhm $ HM.insertMany x $ HM.empty twoThreeConfig
+--   where
+--     x = M.fromList [
+--       (VAL_INT 1, V.fromList [
+--           HS.fromSet twoThreeConfig $ S.fromList $ map VAL_INT [2, 3, 4],
+--           HS.fromSet twoThreeConfig $ S.fromList $ map VAL_INT[5, 6, 7] ]),
+--       (VAL_INT 8, V.fromList [
+--           HS.fromSet twoThreeConfig $ S.fromList $ map VAL_INT [9, 10, 11],
+--           HS.fromSet twoThreeConfig $ S.fromList $ map VAL_INT [12, 13] ] ) ]
+
+-- -----------------------------------------------------------------------
+
 rjoin :: Relation -> Relation -> Relation
 rjoin RNONE r = r
 rjoin l RNONE = l
@@ -575,20 +650,90 @@ rjoin (RSET lhs lhv) (RBIDIR x y xtoy ytox)
                HSM.restrictKeys lhv ytox
   | otherwise = RDISJOINT
 
---    (sut/q '[:find ?nation
---             :in $ ?alias
---             :where
---             [?e :aka ?alias]
---             [?e :nation ?nation]]
---
--- [?alias] [?e :aka ?alias] -> [?alias ?e]
--- [?alias ?e] [?e :nation ?nation] -> [?alias ?e ?nation]
+rjoin l@(RTAB _ _ _) r@(RSET _ _) = rjoin r l
+rjoin (RSET lhs lhv) (RTAB keyS valS hhm)
+  | lhs == keyS = RTAB keyS valS $ HM.restrictKeys lhv hhm
+  | elem lhs valS = error "Must materialize RTAB to RROW"
+  | otherwise = RDISJOINT
 
-hhSetMapRestrictVals valSet setMap = undefined
+rjoin l@(RTAB _ _ _) r@(RBIDIR _ _ _ _) = rjoin r l
+rjoin bidir@(RBIDIR x y xtoy ytox) (RTAB keyS valS hhm)
+  | keyS == x = RTAB x (y:valS)
+              $ HM.intersectionWith V.cons (HSM.toHitchhikerMap xtoy) hhm
+  | keyS == y = RTAB y (x:valS)
+              $ HM.intersectionWith V.cons (HSM.toHitchhikerMap ytox) hhm
+  | (elem x valS) || (elem y valS) = rjoin bidir $ tableToRows keyS valS hhm
+  | otherwise = error $ "Implement other RBIDIR RTAB cases"
 
-hhSetMapMapVals :: (v -> v) -> HitchhikerSetMap k v -> HitchhikerSetMap k v
-hhSetMapMapVals = undefined
+rjoin bidir@(RBIDIR x y xtoy ytox) inrow@(RROW all inSortedBy inRows)
+  | (elem x all) && (elem y all) = error "full join case"
+  | (elem x all) =
+    addYToAllRows x y (HSM.toHitchhikerMap xtoy) (all, inSortedBy, inRows)
+  | (elem y all) =
+    addYToAllRows y x (HSM.toHitchhikerMap ytox) (all, inSortedBy, inRows)
+  | otherwise = RDISJOINT
 
+rjoin a b = error $ "Unimplemented join between " <> show a <> " and " <> show b
+
+data NextMatchType
+  -- Iterate between the index into the rows and the mapping to find where we
+  -- have to do a merge.
+  = SearchVal Int [(Value, [Value])]
+  -- The row in the
+  | MatchedPrefix Int [Value] [(Value, [Value])]
+
+-- Given a map of x to y and a bunch of rows, where x is an element of the rows
+-- but y is not, join all values of y to all rows that
+addYToAllRows :: Symbol
+              -> Symbol
+              -> HitchhikerMap Value (HitchhikerSet Value)
+              -> ([Symbol], [Symbol], Vector (Vector Value))
+              -> Relation
+addYToAllRows x y maps (all, inSortedBy, inRows) = RROW newAll newSorted newRows
+  where
+    newAll = all ++ [y]
+    (newSorted, sortedRows) = ensureSortedBy [x] all inSortedBy inRows
+    newRows = case toMaplist maps of
+      [] -> V.empty
+      xs -> V.unfoldr nextMatch $ SearchVal 0 xs
+
+    -- Doing this the super naive way under the assumption from the
+    -- intersection experiments that showed that doing any fancy allocation
+    -- kills performance.
+    toMaplist :: HitchhikerMap Value (HitchhikerSet Value)
+              -> [(Value, [Value])]
+    toMaplist (HITCHHIKERMAP _ Nothing) = []
+    toMaplist (HITCHHIKERMAP _ (Just a))
+      = map (mapSnd HS.toList) $
+        join $
+        map M.toList $
+        getLeafList HM.hhMapTF a
+
+    --
+    vecLen = V.length sortedRows
+    -- In this dummy example, we don't worry about the position that x from the
+    -- lhs is in the target vector.
+    xPos = case L.elemIndex x all of
+      Nothing -> error "Invalid symbol name in addYToAllRows"
+      Just i  -> i
+
+    nextMatch :: NextMatchType -> Maybe (Vector Value, NextMatchType)
+    nextMatch = \case
+      SearchVal _ [] -> Nothing
+      SearchVal idx orig@((key, vals):xs)
+        | idx == vecLen -> Nothing
+        | otherwise ->
+            case compare ((sortedRows V.! idx) V.! xPos) key of
+              LT -> nextMatch $ SearchVal (idx + 1) orig
+              EQ -> nextMatch $ MatchedPrefix idx vals orig
+              GT -> nextMatch $ SearchVal idx xs
+
+      MatchedPrefix idx [] mapping -> nextMatch $ SearchVal (idx + 1) mapping
+      MatchedPrefix idx (x:xs) mapping -> Just (V.snoc (sortedRows V.! idx) x,
+                                                MatchedPrefix idx xs mapping)
+
+mapSnd :: (b -> c) -> (a, b) -> (a, c)
+mapSnd fun (a, b) = (a, fun b)
 
 loadClause :: Clause -> Database -> Relation
 
@@ -653,6 +798,9 @@ db = foldl' add emptyDB datoms
       ]
 
 out :: Relation
-out = rjoin
-    (loadClause (C_XAZ (SYM "?e") (ATTR ":aka") (SYM "?alias")) db)
-    (RSET (SYM "?alias") (HS.singleton twoThreeConfig (VAL_STR "fred")))
+out =
+  (rjoin
+    (loadClause (C_XAZ (SYM "?e") (ATTR ":nation") (SYM "?nation")) db)
+    (rjoin
+      (loadClause (C_XAZ (SYM "?e") (ATTR ":aka") (SYM "?alias")) db)
+      (RSET (SYM "?alias") (HS.singleton twoThreeConfig (VAL_STR "fred")))))
