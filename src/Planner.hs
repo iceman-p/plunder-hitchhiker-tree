@@ -142,7 +142,7 @@ planOut = mkPlan
   (S.singleton (SYM "?nation"))
 
 {-
-planOutVal = RH_SET (SYM "?nation")
+planOutVal = PH_SET (SYM "?nation")
   TabSetLookup
     (TabScalarLookup
       (InputScalar SYM "?alias" 0)
@@ -165,24 +165,24 @@ clauseBinds (C_XYV x y _) = S.fromList [x, y]
 -- we might still keep them there for debug dumping purposes).
 
 -- Type to hold the different possible Plans while
-data RelationHolder
-  = RH_SCALAR Symbol (Plan RelScalar)
-  | RH_SET Symbol (Plan RelSet)
-  | RH_TAB Symbol Symbol (Plan RelTab)
+data PlanHolder
+  = PH_SCALAR Symbol (Plan RelScalar)
+  | PH_SET Symbol (Plan RelSet)
+  | PH_TAB Symbol Symbol (Plan RelTab)
   deriving (Show)
 
-relationHolderBinds :: RelationHolder -> Set Symbol
-relationHolderBinds (RH_SCALAR s _) = S.singleton s
-relationHolderBinds (RH_SET s _)    = S.singleton s
+planHolderBinds :: PlanHolder -> Set Symbol
+planHolderBinds (PH_SCALAR s _) = S.singleton s
+planHolderBinds (PH_SET s _)    = S.singleton s
 
 data Direction
   = FORWARDS
   | BACKWARDS
 
-mkPlan :: [Binding] -> [Clause] -> Set Symbol -> RelationHolder
+mkPlan :: [Binding] -> [Clause] -> Set Symbol -> PlanHolder
 mkPlan bindingInputs clauses target = go startingInputs clauses
   where
-    go :: [RelationHolder] -> [Clause] -> RelationHolder
+    go :: [PlanHolder] -> [Clause] -> PlanHolder
     go [r] [] = r
     go inputs [] = error "Plan did not converge to one relation"
     go inputs (c:cs) =
@@ -193,16 +193,16 @@ mkPlan bindingInputs clauses target = go startingInputs clauses
           -- OK, now we need to know a few things: in which direction are we
           -- building? e->v or v->e?
           let load = case direction eSymb vSymb past future of
-                       FORWARDS  -> RH_TAB eSymb vSymb
+                       FORWARDS  -> PH_TAB eSymb vSymb
                                   $ LoadTab USE_AEV (VAL_ATTR attr) eSymb vSymb
-                       BACKWARDS -> RH_TAB vSymb eSymb
+                       BACKWARDS -> PH_TAB vSymb eSymb
                                   $ LoadTab USE_AVE (VAL_ATTR attr) vSymb eSymb
           in go (joinAll (rhJoin future) (load:inputs)) cs
 
     startingInputs = map bindToPlan $ zip [0..] bindingInputs
 
-    bindToPlan (i, B_SCALAR symb)     = RH_SCALAR symb $ InputScalar symb i
-    bindToPlan (i, B_COLLECTION symb) = RH_SET symb $ InputSet symb i
+    bindToPlan (i, B_SCALAR symb)     = PH_SCALAR symb $ InputScalar symb i
+    bindToPlan (i, B_COLLECTION symb) = PH_SET symb $ InputSet symb i
 
     direction :: Symbol -> Symbol -> Set Symbol -> Set Symbol -> Direction
     direction leftS rightS past future
@@ -210,8 +210,8 @@ mkPlan bindingInputs clauses target = go startingInputs clauses
       | S.member leftS future && S.member rightS past = BACKWARDS
       | otherwise = error "TODO: Figure out complicated cases in direction"
 
-    pastProvides :: [RelationHolder] -> Set Symbol
-    pastProvides rs = S.unions (map relationHolderBinds rs)
+    pastProvides :: [PlanHolder] -> Set Symbol
+    pastProvides rs = S.unions (map planHolderBinds rs)
 
     futureNeeds :: [Clause] -> Set Symbol
     futureNeeds cs = S.unions (target:(map clauseBinds cs))
@@ -237,26 +237,26 @@ joinAll f (x:xs) = joinOuter x xs []
       Nothing  -> joinInner x ys (y:prev)
       Just new -> Just (new, reverse prev ++ ys)
 
-rhJoin :: Set Symbol -> RelationHolder -> RelationHolder -> Maybe RelationHolder
+rhJoin :: Set Symbol -> PlanHolder -> PlanHolder -> Maybe PlanHolder
 rhJoin future l r = case (l, r) of
-  (RH_SET lhs lhv, RH_SET rhs rhv)
-    | lhs == rhs -> Just $ RH_SET lhs $ SetJoin lhv rhv
+  (PH_SET lhs lhv, PH_SET rhs rhv)
+    | lhs == rhs -> Just $ PH_SET lhs $ SetJoin lhv rhv
     | otherwise  -> Nothing
 
-  (lhs@(RH_SET _ _), rhs@(RH_TAB _ _ _)) -> rhJoin future rhs lhs
-  (RH_TAB lhFrom lhTo lht, RH_SET rhSymb rhv)
+  (lhs@(PH_SET _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
+  (PH_TAB lhFrom lhTo lht, PH_SET rhSymb rhv)
     | lhFrom == rhSymb && inFuture lhFrom && inFuture lhTo ->
-        Just $ RH_TAB lhFrom lhTo $ TabRestrictKeys lht rhv
+        Just $ PH_TAB lhFrom lhTo $ TabRestrictKeys lht rhv
     | lhFrom == rhSymb && inFuture lhFrom ->
-        Just $ RH_SET lhFrom $ SetJoin (TabKeySet lht) rhv
+        Just $ PH_SET lhFrom $ SetJoin (TabKeySet lht) rhv
     | lhFrom == rhSymb && inFuture lhTo ->
-        Just $ RH_SET lhTo $ TabSetLookup rhv lht
+        Just $ PH_SET lhTo $ TabSetLookup rhv lht
     | lhFrom == rhSymb -> error "wtf is this case"
     | otherwise -> error "Handle all the lhTo cases."
 
-  (lhs@(RH_SCALAR _ _), rhs@(RH_TAB _ _ _)) -> rhJoin future rhs lhs
-  (RH_TAB lhFrom lhTo lhTab, RH_SCALAR rhSymb rhv)
-    | rhSymb == lhFrom -> Just $ RH_SET lhTo $ TabScalarLookup rhv lhTab
+  (lhs@(PH_SCALAR _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
+  (PH_TAB lhFrom lhTo lhTab, PH_SCALAR rhSymb rhv)
+    | rhSymb == lhFrom -> Just $ PH_SET lhTo $ TabScalarLookup rhv lhTab
     | rhSymb == lhTo -> error "Handle backwards scalar table matching."
     | otherwise -> Nothing
 
