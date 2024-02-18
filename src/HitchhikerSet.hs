@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -w   #-}
 module HitchhikerSet ( empty
+                     , getConfig
                      , null
                      , rawNode
                      , singleton
@@ -45,6 +46,9 @@ import qualified Data.Vector     as V
 
 empty :: TreeConfig -> HitchhikerSet k
 empty config = HITCHHIKERSET config Nothing
+
+getConfig :: HitchhikerSet k -> TreeConfig
+getConfig (HITCHHIKERSET config _) = config
 
 null :: HitchhikerSet k -> Bool
 null (HITCHHIKERSET config tree) = not $ isJust tree

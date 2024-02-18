@@ -2,6 +2,7 @@ module Planner where
 
 import           ClassyPrelude
 
+import           Data.List            (foldl1')
 import           Data.Map             (Map)
 import           Data.Set             (Set)
 
@@ -18,7 +19,9 @@ import           HitchhikerDatomStore
 
 import           Data.Sorted
 
+import qualified HitchhikerMap        as HM
 import qualified HitchhikerSet        as HS
+import qualified HitchhikerSetMap     as HSM
 
 import qualified Data.Map             as M
 import qualified Data.Set             as S
@@ -36,15 +39,19 @@ data Binding
   -- | B_RELATION
 
 data RelScalar = RSCALAR { sym :: Symbol, val :: Value }
+  deriving (Show)
 data RelSet = RSET { sym :: Symbol, val :: HitchhikerSet Value}
+  deriving (Show)
 data RelTab = RTAB { from :: Symbol
                    , to   :: Symbol
                    , val  :: HitchhikerSetMap Value Value}
+  deriving (Show)
 
 data Relation
   = REL_SCALAR RelScalar
   | REL_SET RelSet
   | REL_TAB RelTab
+  deriving (Show)
 
 data Type :: Data.Kind.Type -> Data.Kind.Type where
   TScalar :: Type RelScalar
@@ -67,7 +74,7 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
   LoadTab :: RowLookup -> Value -> Symbol -> Symbol -> Plan RelTab
 
   TabScalarLookup :: Plan RelScalar -> Plan RelTab -> Plan RelSet
-  TabSetLookup :: Plan RelSet -> Plan RelTab -> Plan RelSet
+  TabSetUnionVals :: Plan RelSet -> Plan RelTab -> Plan RelSet
   TabRestrictKeys :: Plan RelTab -> Plan RelSet -> Plan RelTab
   TabKeySet :: Plan RelTab -> Plan RelSet
 
@@ -79,7 +86,7 @@ instance Show (Plan a) where
   show (LoadTab rl val from to) = "LoadTab " <> show rl <> " " <> show val <>
                                   " " <> show from <> " " <> show to
   show (TabScalarLookup a b) = "TabScalarLookup (" <> show a <> ") (" <> show b <> ")"
-  show (TabSetLookup a b) = "TabSetLookup (" <> show a <> ") (" <> show b <> ")"
+  show (TabSetUnionVals a b) = "TabSetUnionVals (" <> show a <> ") (" <> show b <> ")"
   show (TabRestrictKeys tab set) = "TabRestrictKeys (" <> show tab <> ") (" <>
                                    show set <> ")"
   show (TabKeySet tab) = "TabKeySet (" <> show tab <> ")"
@@ -92,23 +99,60 @@ printableLookupToFunc USE_AEV = aev
 printableLookupToFunc USE_AVE = ave
 printableLookupToFunc USE_VAE = vae
 
-evalPlan :: [Relation] -> Database -> Plan a -> a
-evalPlan inputs db = go
+evalPlan :: [Relation] -> Database -> PlanHolder -> Relation
+evalPlan inputs db = runFromPlanHolder
   where
+    runFromPlanHolder (PH_SCALAR _ s) = REL_SCALAR $ go s
+    runFromPlanHolder (PH_SET _ s)    = REL_SET $ go s
+    runFromPlanHolder (PH_TAB _ _ t)  = REL_TAB $ go t
+
+    go :: Plan a -> a
+
+    go (InputScalar _ i) = case atMay inputs i of
+      Just (REL_SCALAR rs) -> rs
+      _                    -> error "Input doesn't match plan in InputScalar"
     go (InputSet _ i) = case atMay inputs i of
       Just (REL_SET rs) -> rs
-      _                 -> error "Bad InputSet declaration"
-
-    go (SetJoin a b) =
-      let ea = go a
-          eb = go b
-      in if ea.sym == eb.sym
-         then RSET ea.sym $ HS.intersection ea.val eb.val
-         else error "Bad plan: comparing setjoin-ing two different types"
+      _                 -> error "Input doesn't match plan in InputSet"
 
     go (LoadTab which lookupVal from to) =
       let val = partialLookup lookupVal (printableLookupToFunc which $ db)
       in RTAB {from,to,val}
+
+    go (TabScalarLookup pscalar ptab) =
+      let (RSCALAR sym val) = go pscalar
+          (RTAB from to tab) = go ptab
+      in RSET to $ HSM.lookup val tab
+
+    go (TabSetUnionVals pset ptab) =
+      let (RSET sym set) = go pset
+          (RTAB from to tab) = go ptab
+
+          -- TODO: This implementation isn't optimal and needs to be replaced,
+          -- but is OK for bootstrapping. What we really want is to use the
+          -- flattened set segments to traverse the structure of the setmap/tab.
+          toSetList = map (\v -> HSM.lookup v tab) $ S.toList $ HS.toSet set
+          asSet = case toSetList of
+            []  -> HS.empty $ HS.getConfig set
+            [x] -> x
+            xs  -> foldl1' HS.union xs
+      in RSET to asSet
+
+    go (TabRestrictKeys ptab pset) =
+      let (RTAB from to tab) = go ptab
+          (RSET sym set) = go pset
+      in RTAB from to $ HSM.restrictKeys set tab
+
+    go (TabKeySet ptab) =
+      let (RTAB from _ tab) = go ptab
+      in RSET from $ error "This case is hard, write the HH impl first"
+
+    go (SetJoin pa pb) =
+      let ea = go pa
+          eb = go pb
+      in if ea.sym == eb.sym
+         then RSET ea.sym $ HS.intersection ea.val eb.val
+         else error "Bad plan: comparing setjoin-ing two different types"
 
 {-
     go (TabScalarLookup val tab) = lookup
@@ -135,15 +179,36 @@ evalPlan inputs db = go
 
 -- TabScalarLookup (InputScalar 0) (LoadTab db func
 
+
+db :: Database
+db = foldl' add emptyDB datoms
+  where
+    add db (e, a, v, tx, op) =
+      learn (VAL_ENTID $ ENTID e, VAL_ATTR $ ATTR a, VAL_STR v, tx, op) db
+
+    datoms = [
+      (1, ":name", "Frege", 100, True),
+      (1, ":nation", "France", 100, True),
+      (1, ":aka", "foo", 100, True),
+      (1, ":aka", "fred", 100, True),
+      (2, ":name", "Peirce", 100, True),
+      (2, ":nation", "France", 100, True),
+      (3, ":name", "De Morgan", 100, True),
+      (3, ":nation", "English", 100, True)
+      ]
+
 planOut = mkPlan
   [B_SCALAR (SYM "?alias")]
   [C_XAZ (SYM "?e") (ATTR ":aka") (SYM "?alias"),
    C_XAZ (SYM "?e") (ATTR ":nation") (SYM "?nation")]
   (S.singleton (SYM "?nation"))
 
+relOut = evalPlan [REL_SCALAR $ RSCALAR (SYM "?alias") (VAL_STR "fred")] db planOut
+
+
 {-
 planOutVal = PH_SET (SYM "?nation")
-  TabSetLookup
+  TabSetUnionVals
     (TabScalarLookup
       (InputScalar SYM "?alias" 0)
       (LoadTab USE_AVE VAL_ATTR (ATTR ":aka") SYM "?alias" SYM "?e"))
@@ -250,7 +315,7 @@ rhJoin future l r = case (l, r) of
     | lhFrom == rhSymb && inFuture lhFrom ->
         Just $ PH_SET lhFrom $ SetJoin (TabKeySet lht) rhv
     | lhFrom == rhSymb && inFuture lhTo ->
-        Just $ PH_SET lhTo $ TabSetLookup rhv lht
+        Just $ PH_SET lhTo $ TabSetUnionVals rhv lht
     | lhFrom == rhSymb -> error "wtf is this case"
     | otherwise -> error "Handle all the lhTo cases."
 
