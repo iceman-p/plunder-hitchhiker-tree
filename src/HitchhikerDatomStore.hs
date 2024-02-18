@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Wno-partial-fields   #-}
 {-# OPTIONS_GHC -Wincomplete-patterns   #-}
+{-# LANGUAGE GADTs #-}
 module HitchhikerDatomStore where
 
 import           ClassyPrelude    hiding (lookup)
@@ -369,7 +370,8 @@ partialLookup e (EAVROWS config (Just top)) = lookInENode mempty top
         let newTxs = appendMatchingEHH txs hitchhikers
         in lookInENode newTxs $ findSubnodeByKey e index
       ELeaf items -> case M.lookup e items of
-        Nothing     -> undefined --HS.fromArraySet config $ applyLog mempty txs
+        Nothing     -> error "TODO: shut up ghcid, come back later"
+          -- undefined --HS.fromArraySet config $ applyLog mempty txs
         Just anodes -> aNodeTo (atupleToMap txs) anodes
 
     -- When recursing downwards through ERowIndex nodes, we must accumulate
@@ -485,6 +487,28 @@ learn (e, a, v, tx, op) DATABASE{..} = DATABASE {
 -- [?x ?y v] -> VAE(v) if exists,
 
 
+-- A variable reference like ?name
+data Symbol = SYM Text
+  deriving (Show, Ord, Eq)
+
+-- Type pattern EAV for binding value, XYZ for binding symbol
+data Clause
+  = C_EAZ EntityId Attr Symbol
+  -- TODO: Possible in the model, but requires iteration.
+  -- | C_EYV EntityId Symbol Value
+  | C_XAV Symbol Attr Value
+
+  | C_EYZ EntityId Symbol Symbol
+  | C_XAZ Symbol Attr Symbol
+  | C_XYV Symbol Symbol Value
+
+  -- Predicates for
+  | C_PRED_GT Symbol Symbol
+
+
+
+{-
+
 
 -- -----------------------------------------------------------------------
 
@@ -516,21 +540,6 @@ data Relation
   | RTAB Symbol [Symbol] (HitchhikerMap Value (Vector (HitchhikerSet Value)))
 
   deriving (Show)
-
--- A variable reference like ?name
-data Symbol = SYM Text
-  deriving (Show, Ord, Eq)
-
--- Type pattern EAV for binding value, XYZ for binding symbol
-data Clause
-  = C_EAZ EntityId Attr Symbol
-  -- TODO: Possible in the model, but requires iteration.
-  -- | C_EYV EntityId Symbol Value
-  | C_XAV Symbol Attr Value
-
-  | C_EYZ EntityId Symbol Symbol
-  | C_XAZ Symbol Attr Symbol
-  | C_XYV Symbol Symbol Value
 
 -- -----------------------------------------------------------------------
 
@@ -751,12 +760,11 @@ loadClause (C_EYZ entityId aSymb vSymb) DATABASE{..} =
     av = partialLookup (VAL_ENTID entityId) eav
     va = error "Implement backwards entity value->attribute lookup"
 
-loadClause (C_XAZ eSymb attr vSymb) DATABASE{..} =
+loadClause (C_XAZ eSymb attr vSymb) db =
   RBIDIR eSymb vSymb ev ve
   where
-    ev = partialLookup (VAL_ATTR attr) aev
-    ve = partialLookup (VAL_ATTR attr) ave
-
+    ev = partialLookup (VAL_ATTR attr) (aev db)
+    ve = partialLookup (VAL_ATTR attr) (ave db)
 
 -- loadClause (C_XAZ eSymb attr vSymb) DATABASE{..} rset@(RSET rSymb rSet)
 --   | rSymb == eSymb =
@@ -766,6 +774,7 @@ loadClause (C_XAZ eSymb attr vSymb) DATABASE{..} =
 --   | otherwise =
 --       RDIS
 
+loadClause _ _ = error "shut up ghcid, come back here later"
 
 -- [{:name "Frege", :db/id -1, :nation "France",
 --   :aka  ["foo" "fred"]}
@@ -804,3 +813,169 @@ out =
     (rjoin
       (loadClause (C_XAZ (SYM "?e") (ATTR ":aka") (SYM "?alias")) db)
       (RSET (SYM "?alias") (HS.singleton twoThreeConfig (VAL_STR "fred")))))
+
+--    (sut/q '[:find ?nation
+--             :in $ ?alias
+--             :where
+--             [?e :aka ?alias]
+--             [?e :nation ?nation]]
+--           (sut/db conn1)
+--           "fred")))
+
+{-
+
+(db/q '[:find ?dbid ?thumburl
+        :in $ [?tag ...] ?amount
+        :where
+        [?e :derp/tag ?tag]
+        [?e :derp/upvotes ?upvotes]
+        [(> ?upvotes amount)]
+        [?e :derp/id ?derpid]
+        [?e :derp/thumurl ?thumburl]]
+       db
+       ["twilight sparkle" "cute"] 100)
+
+What does a query planner do with the above? There's three sections to the
+above:
+
+- Union all the ?tag to form an ?e set. Grab AVE, lookup each ?tag for th
+
+
+-}
+
+
+-- -----------------------------------------------------------------------
+
+
+-- A set of
+data Binding
+  = B_SCALAR Symbol
+  -- | B_TUPLE [Symbol]
+  | B_COLLECTION Symbol
+  -- | B_RELATION
+
+-- Query planner:
+--
+-- Working towards a target.
+
+data RangeType
+  = RT_LT
+  | RT_LTE
+  | RT_EQ
+  | RT_GTE
+  | RT_GT
+
+data DType
+  = D_ROW
+  | D_TAB
+  | D_BITAB
+  | D_SET
+
+--
+data Plan a where
+  P_FROM_SET :: Set a -> Plan D_SET
+
+  P_LOAD_TAB :: Clause -> Database -> Plan D_BITAB
+
+  P_SELECT_SET :: Symbol -> Plan a -> Plan D_SET
+
+  P_JOIN_BITAB_BITAB :: Plan D_BITAB -> Plan D_BITAB -> Plan D_TAB
+  P_JOIN_BITAB_TAB :: Plan D_BITAB -> Plan D_TAB -> Plan D_TAB
+  P_JOIN_BITAB_SET :: Plan D_BITAB -> Plan D_SET -> Plan D_TAB
+  P_JOIN_TAB_TAB :: Plan D_TAB -> Plan D_TAB -> Plan D_TAB
+  P_JOIN_TAB_ROW :: Plan D_TAB -> Plan D_ROW -> Plan D_ROW
+  P_JOIN_SET_SET :: Plan D_SET -> Plan D_SET -> Plan D_SET
+
+  P_TO_ROW :: Plan x -> Plan D_ROW
+
+  P_SORT_BY :: [Symbol] -> Plan D_ROW -> Plan D_ROW
+  P_RANGE_FILTER_COL :: RangeType -> Symbol -> a -> Plan D_ROW -> Plan D_ROW
+
+  -- = P_TARGET [Symbol]
+
+-- What's the query plan for
+
+-- (db/q '[:find ?derpid ?thumburl
+--         :in $ [?tag ...] ?amount
+--         :where
+--         [?e :derp/tag ?tag]
+--         [?e :derp/upvotes ?upvotes]
+--         [(> ?upvotes ?amount)]
+--         [?e :derp/id ?derpid]
+--         [?e :derp/thumburl ?thumburl]]
+--        db
+--        ["twilight sparkle" "cute"] 100)
+
+-- We want to
+
+-- available (SET [?tag]) (SCALAR ?amount)
+-- clause [?e :derp/tag ?tag]
+-- future [?e ?upvotes ?amount ?derpid ?thumburl]
+-- outtype (SET [?e]) (SCALAR ?amount)
+-- out ( (LOAD_AV :derp/tag db)
+--
+-- because ?tag isn't used in the future, the plan should
+
+
+-- The entire BITAB framing from the first sketch feels weird here when doing a
+-- query planner: we want to know exactly which way to scan the data to try to
+-- calculate
+
+fullq db tagset amount = P_TO_ROW
+  (P_JOIN_BITAB_TAB
+    -- [?e :derp/thumburl ?thumburl]
+    (P_LOAD_TAB (C_XAZ (SYM "?e") (ATTR ":derp/thumburl") (SYM "?thumburl")) db)
+
+    (P_JOIN_BITAB_SET
+      -- [?e :derp/id ?derpid]
+      (P_LOAD_TAB (C_XAZ (SYM "?e") (ATTR ":derp/id") (SYM "?derpid")) db)
+
+      -- range filter.
+      (P_SELECT_SET (SYM "?e")
+        (P_RANGE_FILTER_COL RT_GT (SYM "?upvotes") amount
+          -- ?e->?upvotes
+          (P_SORT_BY [(SYM "?upvotes")]
+            (P_TO_ROW
+              (P_JOIN_BITAB_SET
+                -- [?e :derp/upvotes ?upvotes]
+                (P_LOAD_TAB
+                  (C_XAZ (SYM "?e") (ATTR ":derp/upvotes") (SYM "?upvotes")) db)
+                -- (select ?e's which have all tags)
+                (P_SELECT_SET (SYM "?e")
+                 (P_JOIN_BITAB_SET
+                   (P_LOAD_TAB
+                     (C_XAZ (SYM "?e") (ATTR ":derp/tag") (SYM "?tag")) db)
+                   (P_FROM_SET tagset))))))))))
+
+
+        -- -- (select restrict the upvotes to a set: type is now `Set ?e`.)
+        -- (P_SELECT_SET (SYM "?e")
+        --   -- [(> ?upvotes ?amount)]
+        --   (P_RANGE_FILTER RT_GT (SYM "?e") amount
+        --    -- [?e :derp/upvotes ?upvotes]
+        --    (P_LOAD_TAB (C_XAZ (SYM "?e") (ATTR ":derp/upvotes") (SYM "?upvotes")) db)))))
+
+  -- (P_SELECT_SET (SYM "?e")
+  --  (P_JOIN_BITAB_SET
+  --    (P_LOAD (C_XAZ (SYM "?e") (ATTR ":derp/tag") (SYM "?tag")) db)
+  --    (P_FROM_SET tagset)))
+
+-- -- bad query, only for testing
+-- xxx db = P_TO_ROW
+--   (P_JOIN_BITAB_BITAB
+--     (P_LOAD (C_XAZ (SYM "?e") (ATTR ":derp/thumburl") (SYM "?thumburl")) db)
+--     (P_LOAD (C_XAZ (SYM "?e") (ATTR ":derp/id") (SYM "?derpid")) db))
+
+
+
+
+-- OK, but how do you build the above plan in the first place?
+
+
+-- mkPlan :: [Binding] -> [Clause] -> [Symbol] -> Plan
+-- mkPlan starting clauses target =
+
+  -- NEXT ACTION: Build a query planner that narrows everything down.
+
+
+-}
