@@ -260,3 +260,18 @@ restrictKeys (HITCHHIKERSET sConfig (Just a))
     as = getLeafList HS.hhSetTF a
     bs = getLeafList (hhSetMapTF mConfig) b
 
+toKeySet :: forall k v
+          . (Show k, Show v, Ord k, Ord v)
+         => HitchhikerSetMap k v
+         -> HitchhikerSet k
+toKeySet (HITCHHIKERSETMAP config Nothing) = (HITCHHIKERSET config Nothing)
+toKeySet (HITCHHIKERSETMAP config (Just top)) =
+    (HITCHHIKERSET config newTop)
+  where
+    newTop = Just $ translate $ flushDownwards (hhSetMapTF config) top
+
+    translate = \case
+      HitchhikerSetMapNodeIndex idx _ ->
+        HitchhikerSetNodeIndex (mapIndex translate idx) mempty
+      HitchhikerSetMapNodeLeaf l ->
+        HitchhikerSetNodeLeaf $ ssetFromList $ M.keys l

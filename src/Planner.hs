@@ -53,11 +53,6 @@ data Relation
   | REL_TAB RelTab
   deriving (Show)
 
-data Type :: Data.Kind.Type -> Data.Kind.Type where
-  TScalar :: Type RelScalar
-  TSet    :: Type RelSet
-  TTab    :: Type RelTab
-
 data RowLookup
   = USE_EAV
   | USE_AEV
@@ -80,6 +75,8 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
 
   SetJoin :: Plan RelSet -> Plan RelSet -> Plan RelSet
 
+  SetScalarJoin :: Plan RelSet -> Plan RelScalar -> Plan RelSet
+
 instance Show (Plan a) where
   show (InputScalar sym int) = "InputScalar " <> show sym <> " " <> show int
   show (InputSet sym int) = "InputSet " <> show sym <> " " <> show int
@@ -91,6 +88,8 @@ instance Show (Plan a) where
                                    show set <> ")"
   show (TabKeySet tab) = "TabKeySet (" <> show tab <> ")"
   show (SetJoin a b) = "SetJoin (" <> show a <> ") (" <> show b <> ")"
+  show (SetScalarJoin a b) = "SetScalarJoin (" <> show a <> ") (" <> show b <>
+                             ")"
 
 printableLookupToFunc :: RowLookup
                       -> (Database -> EAVRows Value Value Value Int)
@@ -145,7 +144,7 @@ evalPlan inputs db = runFromPlanHolder
 
     go (TabKeySet ptab) =
       let (RTAB from _ tab) = go ptab
-      in RSET from $ error "This case is hard, write the HH impl first"
+      in RSET from $ HSM.toKeySet tab
 
     go (SetJoin pa pb) =
       let ea = go pa
@@ -154,66 +153,14 @@ evalPlan inputs db = runFromPlanHolder
          then RSET ea.sym $ HS.intersection ea.val eb.val
          else error "Bad plan: comparing setjoin-ing two different types"
 
-{-
-    go (TabScalarLookup val tab) = lookup
-  TabScalarLookup :: Plan RelScalar -> Plan RelTab -> Plan RelSet
--}
+    go (SetScalarJoin pset pscalar) =
+      let eset = go pset
+          escalar = go pscalar
+          config = HS.getConfig eset.val
+      in RSET eset.sym $ if HS.member escalar.val eset.val
+                         then HS.singleton config escalar.val
+                         else HS.empty config
 
-
--- How do we go about making a plan? Stupid simple query:
---    (sut/q '[:find ?nation
---             :in $ ?alias
---             :where
---             [?e :aka ?alias]
---             [?e :nation ?nation]]
---           (sut/db conn1)
---           "fred")))
---
--- A: [B_SCALAR "?alias"]
--- B: [C_XAZ ?e :aka ?alias,
--- C:  C_XAZ ?e :nation ?nation]
---
--- A: InputScalar 0
--- B: TabScalarLookup <A> (LoadTab db func ...)
--- C:
-
--- TabScalarLookup (InputScalar 0) (LoadTab db func
-
-
-db :: Database
-db = foldl' add emptyDB datoms
-  where
-    add db (e, a, v, tx, op) =
-      learn (VAL_ENTID $ ENTID e, VAL_ATTR $ ATTR a, VAL_STR v, tx, op) db
-
-    datoms = [
-      (1, ":name", "Frege", 100, True),
-      (1, ":nation", "France", 100, True),
-      (1, ":aka", "foo", 100, True),
-      (1, ":aka", "fred", 100, True),
-      (2, ":name", "Peirce", 100, True),
-      (2, ":nation", "France", 100, True),
-      (3, ":name", "De Morgan", 100, True),
-      (3, ":nation", "English", 100, True)
-      ]
-
-planOut = mkPlan
-  [B_SCALAR (SYM "?alias")]
-  [C_XAZ (SYM "?e") (ATTR ":aka") (SYM "?alias"),
-   C_XAZ (SYM "?e") (ATTR ":nation") (SYM "?nation")]
-  (S.singleton (SYM "?nation"))
-
-relOut = evalPlan [REL_SCALAR $ RSCALAR (SYM "?alias") (VAL_STR "fred")] db planOut
-
-
-{-
-planOutVal = PH_SET (SYM "?nation")
-  TabSetUnionVals
-    (TabScalarLookup
-      (InputScalar SYM "?alias" 0)
-      (LoadTab USE_AVE VAL_ATTR (ATTR ":aka") SYM "?alias" SYM "?e"))
-    (LoadTab USE_AEV VAL_ATTR (ATTR ":nation") SYM "?e" SYM "?nation")
--}
 
 -- All symbols bound by a clause
 clauseBinds :: Clause -> Set Symbol
@@ -237,12 +184,16 @@ data PlanHolder
   deriving (Show)
 
 planHolderBinds :: PlanHolder -> Set Symbol
-planHolderBinds (PH_SCALAR s _) = S.singleton s
-planHolderBinds (PH_SET s _)    = S.singleton s
+planHolderBinds (PH_SCALAR s _)    = S.singleton s
+planHolderBinds (PH_SET s _)       = S.singleton s
+planHolderBinds (PH_TAB from to _) = S.fromList [from, to]
 
 data Direction
   = FORWARDS
   | BACKWARDS
+  | LEFT_ONLY
+  | RIGHT_ONLY
+  | IRRELEVANT
 
 mkPlan :: [Binding] -> [Clause] -> Set Symbol -> PlanHolder
 mkPlan bindingInputs clauses target = go startingInputs clauses
@@ -255,14 +206,22 @@ mkPlan bindingInputs clauses target = go startingInputs clauses
           future = futureNeeds cs
       in case c of
         (C_XAZ eSymb attr vSymb) ->
-          -- OK, now we need to know a few things: in which direction are we
-          -- building? e->v or v->e?
-          let load = case direction eSymb vSymb past future of
-                       FORWARDS  -> PH_TAB eSymb vSymb
-                                  $ LoadTab USE_AEV (VAL_ATTR attr) eSymb vSymb
-                       BACKWARDS -> PH_TAB vSymb eSymb
-                                  $ LoadTab USE_AVE (VAL_ATTR attr) vSymb eSymb
-          in go (joinAll (rhJoin future) (load:inputs)) cs
+          case direction eSymb vSymb past future of
+            FORWARDS  ->
+              let load = PH_TAB eSymb vSymb
+                       $ LoadTab USE_AEV (VAL_ATTR attr) eSymb vSymb
+              in go (joinAll (rhJoin future) (load:inputs)) cs
+            BACKWARDS ->
+              let load = PH_TAB vSymb eSymb
+                       $ LoadTab USE_AVE (VAL_ATTR attr) vSymb eSymb
+              in go (joinAll (rhJoin future) (load:inputs)) cs
+            LEFT_ONLY ->
+              let load = PH_SET eSymb
+                       $ TabKeySet
+                       $ LoadTab USE_AEV (VAL_ATTR attr) eSymb vSymb
+              in go (joinAll (rhJoin future) (load:inputs)) cs
+            RIGHT_ONLY -> error "RIGHT_ONLY todo"
+            IRRELEVANT -> go inputs cs
 
     startingInputs = map bindToPlan $ zip [0..] bindingInputs
 
@@ -271,9 +230,25 @@ mkPlan bindingInputs clauses target = go startingInputs clauses
 
     direction :: Symbol -> Symbol -> Set Symbol -> Set Symbol -> Direction
     direction leftS rightS past future
+      | S.member leftS future && S.member rightS future =
+          -- BOTH_FUTURE is a cop out, we need to make a decision about what
+          -- the best direction to go in is now.
+          -- error "Both future"
+          FORWARDS
       | S.member leftS past && S.member rightS future = FORWARDS
       | S.member leftS future && S.member rightS past = BACKWARDS
-      | otherwise = error "TODO: Figure out complicated cases in direction"
+      | S.member leftS future = LEFT_ONLY
+      | S.member rightS future = RIGHT_ONLY
+      | otherwise = IRRELEVANT
+--        error $ "TODO: Figure out complicated cases in direction: " <> show leftS <> " " <> show rightS <> " " <> show past <> " " <> show future
+
+      -- TODO: Before I quit for the day, I was trying to turn the Derpibooru
+      -- query, minus the predicate, into something that could be executed in
+      -- the planner. This showed that `direction` above is incomplete, I
+      -- started trying to reason about the addition of LEFT_ONLY, RIGHT_ONLY
+      -- and IRRELEVANT but ran out of time before I had to prepare for company
+      -- this evening.
+
 
     pastProvides :: [PlanHolder] -> Set Symbol
     pastProvides rs = S.unions (map planHolderBinds rs)
@@ -308,6 +283,11 @@ rhJoin future l r = case (l, r) of
     | lhs == rhs -> Just $ PH_SET lhs $ SetJoin lhv rhv
     | otherwise  -> Nothing
 
+  (lhs@(PH_SCALAR _ _), rhs@(PH_SET _ _)) -> rhJoin future rhs lhs
+  (PH_SET lhs lhv, PH_SCALAR rhs rhv)
+    | lhs == rhs -> Just $ PH_SET lhs $ SetScalarJoin lhv rhv
+    | otherwise -> Nothing
+
   (lhs@(PH_SET _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
   (PH_TAB lhFrom lhTo lht, PH_SET rhSymb rhv)
     | lhFrom == rhSymb && inFuture lhFrom && inFuture lhTo ->
@@ -325,7 +305,8 @@ rhJoin future l r = case (l, r) of
     | rhSymb == lhTo -> error "Handle backwards scalar table matching."
     | otherwise -> Nothing
 
-  (a, b) -> error $ "TODO: Unhandled rhJoin case: " <> show a <> " " <> show b
+  (a, b) -> error $ "TODO: Unhandled rhJoin case: " <> show a <> " <--> "
+                 <> show b
   where
     inFuture = flip S.member future
 
@@ -333,7 +314,7 @@ rhJoin future l r = case (l, r) of
 -- -----------------------------------------------------------------------
 
 
--- (db/q '[:find ?dbid ?thumburl
+-- (db/q '[:find ?derpid ?thumburl
 --         :in $ [?tag ...] ?amount
 --         :where
 --         [?e :derp/tag ?tag]
@@ -343,6 +324,18 @@ rhJoin future l r = case (l, r) of
 --         [?e :derp/thumburl ?thumburl]]
 --        db
 --        ["twilight sparkle" "cute"] 100)
+
+derpTagPlan = mkPlan
+  [B_COLLECTION (SYM "?tag"), B_SCALAR (SYM "?amount")]
+  [C_XAZ (SYM "?e") (ATTR ":derp/tag") (SYM "?tag"),
+   C_XAZ (SYM "?e") (ATTR ":derp/upvotes") (SYM "?upvotes"),
+   -- C_PREDICATE (whole bundle of hurt)
+   C_XAZ (SYM "?e") (ATTR ":derp/id") (SYM "?derpid"),
+   C_XAZ (SYM "?e") (ATTR ":derp/thumbnail") (SYM "?thumburl")]
+  (S.fromList [(SYM "?derpid"), (SYM "?thumburl")])
+
+
+
 
 -- Let's just hand write out each step with a justification.
 
@@ -424,3 +417,57 @@ rhJoin future l r = case (l, r) of
 -- mkPlan starting clauses target =
 
   -- NEXT ACTION: Build a query planner that narrows everything down.
+
+
+-- -----------------------------------------------------------------------
+
+exampleADB :: Database
+exampleADB = foldl' add emptyDB datoms
+  where
+    add db (e, a, v, tx, op) =
+      learn (VAL_ENTID $ ENTID e, VAL_ATTR $ ATTR a, VAL_STR v, tx, op) db
+
+    datoms = [
+      (1, ":name", "Frege", 100, True),
+      (1, ":nation", "France", 100, True),
+      (1, ":aka", "foo", 100, True),
+      (1, ":aka", "fred", 100, True),
+      (2, ":name", "Peirce", 100, True),
+      (2, ":nation", "France", 100, True),
+      (3, ":name", "De Morgan", 100, True),
+      (3, ":nation", "English", 100, True)
+      ]
+
+-- How do we go about making a plan? Stupid simple query:
+--    (sut/q '[:find ?nation
+--             :in $ ?alias
+--             :where
+--             [?e :aka ?alias]
+--             [?e :nation ?nation]]
+--           (sut/db conn1)
+--           "fred")))
+
+exampleAPlanOut = mkPlan
+  [B_SCALAR (SYM "?alias")]
+  [C_XAZ (SYM "?e") (ATTR ":aka") (SYM "?alias"),
+   C_XAZ (SYM "?e") (ATTR ":nation") (SYM "?nation")]
+  (S.singleton (SYM "?nation"))
+{-
+planOutVal = PH_SET (SYM "?nation")
+  TabSetUnionVals
+    (TabScalarLookup
+      (InputScalar SYM "?alias" 0)
+      (LoadTab USE_AVE VAL_ATTR (ATTR ":aka") SYM "?alias" SYM "?e"))
+    (LoadTab USE_AEV VAL_ATTR (ATTR ":nation") SYM "?e" SYM "?nation")
+-}
+
+exampleAOut = evalPlan [REL_SCALAR $ RSCALAR (SYM "?alias") (VAL_STR "fred")]
+                       exampleADB
+                       exampleAPlanOut
+{-
+relOutVal = REL_SET (
+  RSET {sym = SYM "?nation",
+        val = HITCHHIKERSET {config = TREECONFIG,
+                             root = Just (HitchhikerSetNodeLeaf
+                                          (fromListN 1 [VAL_STR "France"]))}})
+-}
