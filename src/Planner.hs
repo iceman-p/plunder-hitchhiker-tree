@@ -31,6 +31,11 @@ import qualified Data.Kind
 
 -- TAKE 2 of all the things related to planning.
 
+mkTwoVector :: a -> a -> Vector a
+mkTwoVector x y = V.fromList [x, y]
+
+-- -----------------------------------------------------------------------
+
 -- A set of
 data Binding
   = B_SCALAR Symbol
@@ -47,10 +52,20 @@ data RelTab = RTAB { from :: Symbol
                    , val  :: HitchhikerSetMap Value Value}
   deriving (Show)
 
+-- A table from one key symbol to multiple value symbols. Since so many queries
+-- end with a series of lookups on a entity id, this often saves operations.
+data RelMultiTab = RMTAB
+  { from :: Symbol
+  , to   :: [Symbol]
+  , val  :: HitchhikerMap Value (Vector (HitchhikerSet Value))
+  }
+  deriving (Show)
+
 data Relation
   = REL_SCALAR RelScalar
   | REL_SET RelSet
   | REL_TAB RelTab
+  | REL_MULTITAB RelMultiTab
   deriving (Show)
 
 data RowLookup
@@ -74,8 +89,9 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
   TabKeySet :: Plan RelTab -> Plan RelSet
 
   SetJoin :: Plan RelSet -> Plan RelSet -> Plan RelSet
-
   SetScalarJoin :: Plan RelSet -> Plan RelScalar -> Plan RelSet
+
+  MkMultiTab :: Plan RelTab -> Plan RelTab -> Plan RelMultiTab
 
 instance Show (Plan a) where
   show (InputScalar sym int) = "InputScalar " <> show sym <> " " <> show int
@@ -90,6 +106,7 @@ instance Show (Plan a) where
   show (SetJoin a b) = "SetJoin (" <> show a <> ") (" <> show b <> ")"
   show (SetScalarJoin a b) = "SetScalarJoin (" <> show a <> ") (" <> show b <>
                              ")"
+  show (MkMultiTab a b) = "MkMultiTab (" <> show a <> ") (" <> show b <> ")"
 
 printableLookupToFunc :: RowLookup
                       -> (Database -> EAVRows Value Value Value Int)
@@ -101,9 +118,10 @@ printableLookupToFunc USE_VAE = vae
 evalPlan :: [Relation] -> Database -> PlanHolder -> Relation
 evalPlan inputs db = runFromPlanHolder
   where
-    runFromPlanHolder (PH_SCALAR _ s) = REL_SCALAR $ go s
-    runFromPlanHolder (PH_SET _ s)    = REL_SET $ go s
-    runFromPlanHolder (PH_TAB _ _ t)  = REL_TAB $ go t
+    runFromPlanHolder (PH_SCALAR _ s)     = REL_SCALAR $ go s
+    runFromPlanHolder (PH_SET _ s)        = REL_SET $ go s
+    runFromPlanHolder (PH_TAB _ _ t)      = REL_TAB $ go t
+    runFromPlanHolder (PH_MULTITAB _ _ m) = REL_MULTITAB $ go m
 
     go :: Plan a -> a
 
@@ -161,6 +179,15 @@ evalPlan inputs db = runFromPlanHolder
                          then HS.singleton config escalar.val
                          else HS.empty config
 
+    go (MkMultiTab plhs prhs) =
+      let elhs = go plhs
+          erhs = go prhs
+          hml = HSM.toHitchhikerMap elhs.val
+          hmr = HSM.toHitchhikerMap erhs.val
+          target = HM.intersectionWith mkTwoVector hml hmr
+      in if elhs.from == erhs.from
+         then RMTAB elhs.from [elhs.to, erhs.to] target
+         else error "Bad plan: multi-tab join of two different key symbols"
 
 -- All symbols bound by a clause
 clauseBinds :: Clause -> Set Symbol
@@ -181,12 +208,14 @@ data PlanHolder
   = PH_SCALAR Symbol (Plan RelScalar)
   | PH_SET Symbol (Plan RelSet)
   | PH_TAB Symbol Symbol (Plan RelTab)
+  | PH_MULTITAB Symbol [Symbol] (Plan RelMultiTab)
   deriving (Show)
 
 planHolderBinds :: PlanHolder -> Set Symbol
-planHolderBinds (PH_SCALAR s _)    = S.singleton s
-planHolderBinds (PH_SET s _)       = S.singleton s
-planHolderBinds (PH_TAB from to _) = S.fromList [from, to]
+planHolderBinds (PH_SCALAR s _)          = S.singleton s
+planHolderBinds (PH_SET s _)             = S.singleton s
+planHolderBinds (PH_TAB from to _)       = S.fromList [from, to]
+planHolderBinds (PH_MULTITAB from tos _) = S.fromList (from:tos)
 
 data Direction
   = FORWARDS
@@ -196,11 +225,22 @@ data Direction
   | IRRELEVANT
 
 mkPlan :: [Binding] -> [Clause] -> Set Symbol -> PlanHolder
-mkPlan bindingInputs clauses target = go startingInputs clauses
+mkPlan bindingInputs clauses target =
+  converge $ filter targetNeeds $ go startingInputs clauses
   where
-    go :: [PlanHolder] -> [Clause] -> PlanHolder
-    go [r] [] = r
-    go inputs [] = error "Plan did not converge to one relation"
+    converge :: [PlanHolder] -> PlanHolder
+    converge [r] = r
+    -- TODO: Since we've filtered out any irrelevant relations, this should be
+    -- turned into a Cartesian product of the remaining relations projected
+    -- into the target set.
+    converge inputs = error $ "Plan did not converge to one relation: "
+                           <> show inputs
+
+    targetNeeds :: PlanHolder -> Bool
+    targetNeeds ph = (S.intersection (planHolderBinds ph) target) /= S.empty
+
+    go :: [PlanHolder] -> [Clause] -> [PlanHolder]
+    go ph [] = ph
     go inputs (c:cs) =
       let past = pastProvides inputs
           future = futureNeeds cs
@@ -231,7 +271,7 @@ mkPlan bindingInputs clauses target = go startingInputs clauses
     direction :: Symbol -> Symbol -> Set Symbol -> Set Symbol -> Direction
     direction leftS rightS past future
       | S.member leftS future && S.member rightS future =
-          -- BOTH_FUTURE is a cop out, we need to make a decision about what
+          -- FORWARDS is a cop out, we need to make a decision about what
           -- the best direction to go in is now.
           -- error "Both future"
           FORWARDS
@@ -303,6 +343,17 @@ rhJoin future l r = case (l, r) of
   (PH_TAB lhFrom lhTo lhTab, PH_SCALAR rhSymb rhv)
     | rhSymb == lhFrom -> Just $ PH_SET lhTo $ TabScalarLookup rhv lhTab
     | rhSymb == lhTo -> error "Handle backwards scalar table matching."
+    | otherwise -> Nothing
+
+  (PH_TAB lhFrom lhTo lht, PH_TAB rhFrom rhTo rht)
+    | lhFrom == rhFrom -> Just $ PH_MULTITAB lhFrom [lhTo, rhTo]
+                               $ MkMultiTab lht rht
+    | otherwise -> error "Handle all the cases before adding Nothing at end"
+
+  (lhs@(PH_SCALAR _ _), rhs@(PH_MULTITAB _ _ _)) -> rhJoin future rhs lhs
+  (PH_MULTITAB keySymb valSymbs mt, PH_SCALAR rhSymb rhv)
+    | keySymb == rhSymb -> error "Handle multitab/scalar same"
+    | elem rhSymb valSymbs -> error "Handle multitab value scalar"
     | otherwise -> Nothing
 
   (a, b) -> error $ "TODO: Unhandled rhJoin case: " <> show a <> " <--> "
