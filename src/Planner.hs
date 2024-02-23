@@ -282,14 +282,6 @@ mkPlan bindingInputs clauses target =
       | otherwise = IRRELEVANT
 --        error $ "TODO: Figure out complicated cases in direction: " <> show leftS <> " " <> show rightS <> " " <> show past <> " " <> show future
 
-      -- TODO: Before I quit for the day, I was trying to turn the Derpibooru
-      -- query, minus the predicate, into something that could be executed in
-      -- the planner. This showed that `direction` above is incomplete, I
-      -- started trying to reason about the addition of LEFT_ONLY, RIGHT_ONLY
-      -- and IRRELEVANT but ran out of time before I had to prepare for company
-      -- this evening.
-
-
     pastProvides :: [PlanHolder] -> Set Symbol
     pastProvides rs = S.unions (map planHolderBinds rs)
 
@@ -361,7 +353,6 @@ rhJoin future l r = case (l, r) of
   where
     inFuture = flip S.member future
 
-
 -- -----------------------------------------------------------------------
 
 
@@ -384,6 +375,48 @@ derpTagPlan = mkPlan
    C_XAZ (SYM "?e") (ATTR ":derp/id") (SYM "?derpid"),
    C_XAZ (SYM "?e") (ATTR ":derp/thumbnail") (SYM "?thumburl")]
   (S.fromList [(SYM "?derpid"), (SYM "?thumburl")])
+
+-- -----------------------------------------------------------------------
+
+-- Next major question: how do predicates show up in this language? Datomic
+-- appears to treat predicates as not clauses and bundles them into the
+-- previous clause. That's kind of absurd. Our planner is still really taking
+-- the clauses one at a time.
+--
+-- How should we be thinking about rjoin? Is the massive rjoin actually a
+-- design mistake here?
+
+-- The best time for the predicate to run is during the rjoin: in the case of
+-- the above query, the C_XAZ does a load from the database, and now you have to join it to the
+--
+-- Maybe joinAll is wrong. Instead of just taking a list, there's a certain
+-- thing that needs to be joined maximally into the
+--
+--
+
+-- Pre planning.
+--
+-- Given a list of raw clauses, how do you plan out the
+
+data Source
+  = SourceDefault
+
+-- "Input" Clause: A new type of clause with everything in it.
+data IClause
+  = NotClause
+  | NotJoinClause
+  | OrClause
+  | OrJoinClause
+
+  -- ExpressionClause
+  | DataPatern
+  | PredicateExpression
+  | FunctionExpression
+  | RuleExpression
+
+
+
+
 
 
 
