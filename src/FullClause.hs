@@ -17,12 +17,15 @@ import           Utils
 
 import           HitchhikerDatomStore
 
+import           Data.Maybe           (fromJust)
+
 import           Data.Sorted
 
 import qualified HitchhikerMap        as HM
 import qualified HitchhikerSet        as HS
 import qualified HitchhikerSetMap     as HSM
 
+import qualified Data.List            as L
 import qualified Data.Map             as M
 import qualified Data.Set             as S
 import qualified Data.Vector          as V
@@ -136,19 +139,281 @@ data OrClauseBody
 -- time operations, duh.
 data RulePack
 
-
-
--- -----------------------------------------------------------------------
-
--- This is the stupid evaluator. It is very stupid.
-
--- stupidEvaluator
-
-
-
+-- TODO: Eventually, we'll want a sort order on this like there was in the
+-- original HitchhikerDataomStore version.
+data Rows = ROWS [Variable] [Vector Value]
+  deriving (Show)
 
 -- -----------------------------------------------------------------------
 
+-- This is the stupid evaluator. It is very stupid. Given a database and a list
+-- of iclauses, it evaluates the query line by line, materializing everything
+-- into rows immediately and then implementing all operations as full table
+-- scans.
+--
+-- The point of the stupid evaluator is that it should be obviously correct
+-- with little concern for runtime performance so that runs of the main
+-- implementation can be checked against the stupid evaluator for
+-- equivalence. The main engine which separates planning and evaluation is very
+-- complicated, so we must convince ourselves it is correct by comparing it
+-- against this.
+
+-- TODO: [Sources] instead of Database
+stupidEvaluator
+  :: Database -> [Rows] -> [RulePack] -> [IClause] -> [Variable]
+  -> Rows
+stupidEvaluator db inputs rulePacks clauses target = go inputs clauses
+  where
+    go inputs clauses = case (inputs, clauses) of
+      ([], [])    -> error "handle empty, empty"
+      ([r], [])   -> error "if r.vars and target are same, ok, otherwise err"
+      (x:y:rs, _) -> go ((stupidRowJoin x y):rs) clauses
+      ([r], cs)   -> evalWith r cs
+
+    evalWith :: Rows -> [IClause] -> Rows
+    evalWith r [] = projectRows target r
+    evalWith r (c:cs) = case c of
+      DataPattern (LC_XAZ eVar attr vVar) ->
+        let t = partialLookup (VAL_ATTR attr) (aev db)
+            newR = tabToRow eVar vVar t
+        in evalWith (stupidRowJoin r newR) cs
+
+      PredicateExpression (PREDICATE (PredBuiltin builtin) [pLeft, pRight]) ->
+        evalWith (runBuiltinPredicate builtin pLeft pRight r) cs
+
+projectRows :: [Variable] -> Rows -> Rows
+projectRows target (ROWS vars rows) = ROWS target $ L.nub $ map change rows
+  where
+    idxes = map (\a -> fromJust $ L.elemIndex a vars) target
+    change r = V.fromList $ map (r V.!) idxes
+
+getVariable :: Variable -> [Variable] -> Vector Value -> Value
+getVariable var vars row = row V.! (fromJust $ L.elemIndex var vars)
+
+runBuiltinPredicate :: BuiltinPred -> FnArg -> FnArg -> Rows -> Rows
+runBuiltinPredicate pred a b (ROWS vars rows) =
+  ROWS vars $ filter (match a b) rows
+  where
+    match (ARG_VAR argvar) (ARG_CONST val) row =
+      run pred (getVariable argvar vars row) val
+    match (ARG_VAR left) (ARG_VAR right) row =
+      run pred (getVariable left vars row) (getVariable right vars row)
+    match (ARG_CONST val) (ARG_VAR argvar) row =
+      run pred val (getVariable argvar vars row)
+
+    run B_LT lhs rhs  = lhs < rhs
+    run B_LTE lhs rhs = lhs <= rhs
+    run B_EQ lhs rhs  = lhs == rhs
+    run B_GTE lhs rhs = lhs >= rhs
+    run B_GT lhs rhs  = lhs >= rhs
+
+tabToRow :: Variable -> Variable -> HitchhikerSetMap Value Value -> Rows
+tabToRow from to setmap = ROWS [from, to] asRows
+  where
+    asRows = concat $ map step $ HM.toList $ HSM.toHitchhikerMap setmap
+
+    step :: (Value, HitchhikerSet Value) -> [Vector Value]
+    step (k, tops) = map (\a -> V.fromList [k, a]) $ HS.toList tops
+
+-- Perform join by just exploding the cartesian products of tables in the most
+-- naive way you can think of.
+stupidRowJoin :: Rows -> Rows -> Rows
+stupidRowJoin (ROWS lhs lhRow) (ROWS rhs rhRow)
+  | S.disjoint (S.fromList lhs) (S.fromList rhs)
+      -- If the two row's symbols are disjoint, this is just a simple cartesian
+      -- product with no other complications.
+      = ROWS (lhs ++ rhs) $ cartesianProduct (V.++) lhRow rhRow
+  | otherwise =
+      -- We have to check if
+      let (vars, overlap, leftCopy, rightCopy) = variableOverlap lhs rhs
+          rows = cartesianJoin overlap leftCopy rightCopy lhRow rhRow
+      in ROWS vars rows
+
+cartesianProduct :: (a -> b -> c) -> [a] -> [b] -> [c]
+cartesianProduct f x y = [f a b | a <- x, b <- y]
+
+cartesianJoin :: [(Int, Int)]
+              -> [Int]
+              -> [Int]
+              -> [Vector Value]
+              -> [Vector Value]
+              -> [Vector Value]
+cartesianJoin overlaps leftCopy rightCopy lhs rhs =
+  catMaybes $
+  cartesianProduct (vectorCompare overlaps leftCopy rightCopy) lhs rhs
+
+vectorCompare :: [(Int, Int)] -> [Int] -> [Int] -> Vector Value -> Vector Value
+              -> Maybe (Vector Value)
+vectorCompare checkIdxes lCopy rCopy l r = check checkIdxes
+  where
+    check [] = Just $ V.fromList $ (map (l V.!) lCopy ++ map (r V.!) rCopy)
+    check ((x,y):is) = if (l V.! x) /= (r V.! y)
+                       then Nothing
+                       else check is
+
+-- Given two lists of variables, calculate the unified variables, the overlap
+-- map (two indexes that point at the same variable) and the leftCopy/rightCopy
+-- lists (lists of items to copy on match).
+variableOverlap :: [Variable] -> [Variable]
+                -> ([Variable], [(Int, Int)], [Int], [Int])
+variableOverlap leftVars rightVars =
+  (vars, overlap, leftCopy, rightCopy)
+  where
+    overlap = findOverlap (zip [0..] leftVars) []
+    leftCopy = [0..(length leftVars - 1)]
+    (rightCopy, rightCopyVars) = findRight (zip [0..] rightVars) [] []
+    vars = leftVars ++ rightCopyVars
+
+    findOverlap [] overlap = reverse overlap
+    findOverlap ((li,x):xs) overlap = case L.elemIndex x rightVars of
+      Nothing -> findOverlap xs overlap
+      Just ri -> findOverlap xs ((li,ri):overlap)
+
+    findRight [] idxes vars = (reverse idxes, reverse vars)
+    findRight ((idx,rv):ys) idxes vars =
+      if hasIdxInOverlap overlap idx
+      then findRight ys idxes vars
+      else findRight ys (idx:idxes) (rv:vars)
+
+    hasIdxInOverlap :: [(Int, Int)] -> Int -> Bool
+    hasIdxInOverlap [] _ = False
+    hasIdxInOverlap ((_, ridx):xs) ndl
+      | ndl == ridx = True
+      | otherwise = hasIdxInOverlap xs ndl
+
+tlhs = [
+  VAR "?e",
+  VAR "?name"
+  ]
+
+lr = map V.fromList $ [
+  [VAL_INT 1, VAL_STR "Bob"],
+  [VAL_INT 2, VAL_STR "Sally"],
+  [VAL_INT 3, VAL_STR "George"]
+  ]
+
+
+trhs = [
+  VAR "?e",
+  VAR "?title"
+  ]
+
+rr = map V.fromList $ [
+  [VAL_INT 1, VAL_STR "President"],
+  [VAL_INT 2, VAL_STR "Vice President"],
+  [VAL_INT 3, VAL_STR "Foreign Relations"]
+  ]
+
+testStupidDisjoint = stupidRowJoin (ROWS tlhs lr) (ROWS trhs rr)
+
+-- Actually, it's correct that join with an empty is empty, isn't it? These are
+-- cartesian set operations.
+testEmptyJoin = stupidRowJoin (ROWS tlhs []) (ROWS trhs rr)
+
+
+
+db :: Database
+db = foldl' add emptyDB datoms
+  where
+    add db (e, a, v, tx, op) =
+      learn (VAL_ENTID $ ENTID e, VAL_ATTR $ ATTR a, VAL_STR v, tx, op) db
+
+    datoms = [
+      (1, ":name", "Frege", 100, True),
+      (1, ":nation", "France", 100, True),
+      (1, ":aka", "foo", 100, True),
+      (1, ":aka", "fred", 100, True),
+      (2, ":name", "Peirce", 100, True),
+      (2, ":nation", "France", 100, True),
+      (3, ":name", "De Morgan", 100, True),
+      (3, ":nation", "English", 100, True)
+      ]
+
+fullStupidEvalTest =
+  stupidEvaluator
+    db
+    [ROWS [VAR "?alias"] [V.fromList [VAL_STR "fred"]]]
+    []
+    [DataPattern (LC_XAZ (VAR "?e") (ATTR ":aka") (VAR "?alias")),
+     DataPattern (LC_XAZ (VAR "?e") (ATTR ":nation") (VAR "?nation"))]
+    [VAR "?nation"]
+
+-- -----------------------------------------------------------------------
+
+-- Mini derpibooru like db
+derpdb :: Database
+derpdb = foldl' add emptyDB datoms
+  where
+    add db (e, a, v, tx, op) =
+      learn (VAL_ENTID $ ENTID e, VAL_ATTR $ ATTR a, v, tx, op) db
+
+    datoms = [
+      -- Good image
+      (1, ":derp/tag", VAL_STR "twilight sparkle", 100, True),
+      (1, ":derp/tag", VAL_STR "cute", 100, True),
+      (1, ":derp/tag", VAL_STR "tea", 100, True),
+      (1, ":derp/upvotes", VAL_INT 200, 100, True),
+      (1, ":derp/id", VAL_INT 1020, 100, True),
+      (1, ":derp/thumburl", VAL_STR "//cdn/1020.jpg", 100, True),
+
+      -- Not as good image
+      (2, ":derp/tag", VAL_STR "twilight sparkle", 100, True),
+      (2, ":derp/tag", VAL_STR "cute", 100, True),
+      (2, ":derp/tag", VAL_STR "kite", 100, True),
+      (2, ":derp/upvotes", VAL_INT 31, 100, True),
+      (2, ":derp/id", VAL_INT 1283, 100, True),
+      (2, ":derp/thumburl", VAL_STR "//cdn/1283.jpg", 100, True),
+
+      -- Good image about a different subject
+      (3, ":derp/tag", VAL_STR "pinkie pie", 100, True),
+      (3, ":derp/upvotes", VAL_INT 9000, 100, True),
+      (3, ":derp/id", VAL_INT 1491, 100, True),
+      (3, ":derp/thumburl", VAL_STR "//cdn/1491.jpg", 100, True),
+
+      -- Bad image about a different subject
+      (4, ":derp/tag", VAL_STR "starlight glimmer", 100, True),
+      (4, ":derp/upvotes", VAL_INT 1, 100, True),
+      (4, ":derp/id", VAL_INT 2041, 100, True),
+      (4, ":derp/thumburl", VAL_STR "//cdn/2041.jpg", 100, True)
+      ]
+
+-- (db/q '[:find ?derpid ?thumburl
+--         :in $ [?tag ...] ?amount
+--         :where
+--         [?e :derp/tag ?tag]
+--         [?e :derp/upvotes ?upvotes]
+--         [(> ?upvotes ?amount)]
+--         [?e :derp/id ?derpid]
+--         [?e :derp/thumburl ?thumburl]]
+--        db
+--        ["twilight sparkle" "cute"] 100)
+
+fullDerpTagPlan =
+  stupidEvaluator
+    derpdb
+    [ROWS [VAR "?tag"] [
+        V.fromList [VAL_STR "twilight sparkle"],
+        V.fromList [VAL_STR "cute"]],
+     ROWS [VAR "?amount"] [V.fromList [VAL_INT 100]]]
+    []
+    [DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/tag") (VAR "?tag")),
+     DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes")),
+     PredicateExpression (PREDICATE (PredBuiltin B_GT) [
+                             ARG_VAR (VAR "?upvotes"),
+                             ARG_VAR (VAR "?amount")]),
+     DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
+     DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumburl") (VAR "?thumburl"))]
+    [VAR "?derpid", VAR "?thumburl"]
+
+-- OK, this is technically correct. We need to have a select on this to really
+-- be done (which should unify down to a single item, but without the select,
+-- we're getting
+{-
+ROWS [VAR "?tag",VAR "?amount",VAR "?e",VAR "?upvotes",VAR "?derpid",
+      VAR "?thumburl"]
+     [[VAL_STR "twilight sparkle",VAL_INT 100,VAL_ENTID (ENTID 1),VAL_INT 200,VAL_INT 1020,VAL_STR "//cdn/1020.jpg"],
+      [VAL_STR "cute",VAL_INT 100,VAL_ENTID (ENTID 1),VAL_INT 200,VAL_INT 1020,VAL_STR "//cdn/1020.jpg"]]
+-}
 
 
 -- nuMkPlan :: [Source] -> [Binding] -> [RulePack] -> [IClause] -> [Symbol]
@@ -232,6 +497,12 @@ data NuRelSet = RSET { sym :: Symbol, val :: HitchhikerSet Value}
 data NuRelTab = RTAB { from :: Symbol
                      , to   :: Symbol
                      , val  :: HitchhikerSetMap Value Value}
+  deriving (Show)
+
+data NuRelation
+  = REL_SCALAR NuRelScalar
+  | REL_SET NuRelSet
+  | REL_TAB NuRelTab
   deriving (Show)
 
 data RowLookup

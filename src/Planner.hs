@@ -376,6 +376,23 @@ derpTagPlan = mkPlan
    C_XAZ (SYM "?e") (ATTR ":derp/thumbnail") (SYM "?thumburl")]
   (S.fromList [(SYM "?derpid"), (SYM "?thumburl")])
 
+{-
+
+PH_MULTITAB (SYM "?e") [SYM "?thumburl",SYM "?derpid"]
+  MkMultiTab
+    (LoadTab USE_AEV VAL_ATTR (ATTR ":derp/thumbnail") SYM "?e" SYM "?thumburl")
+    (TabRestrictKeys
+      (LoadTab USE_AEV VAL_ATTR (ATTR ":derp/id") SYM "?e" SYM "?derpid")
+      (SetJoin
+        (TabKeySet
+          (LoadTab USE_AEV VAL_ATTR (ATTR ":derp/upvotes") SYM "?e" SYM "?upvotes"))
+        (TabSetUnionVals (InputSet SYM "?tag" 0) (LoadTab USE_AVE VAL_ATTR (ATTR ":derp/tag") SYM "?tag" SYM "?e"))))
+ghci>
+
+-}
+
+
+
 -- -----------------------------------------------------------------------
 
 -- Next major question: how do predicates show up in this language? Datomic
