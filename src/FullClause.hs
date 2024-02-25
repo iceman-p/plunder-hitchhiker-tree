@@ -21,6 +21,8 @@ import           Data.Maybe           (fromJust)
 
 import           Data.Sorted
 
+import           Query.Types
+
 import qualified HitchhikerMap        as HM
 import qualified HitchhikerSet        as HS
 import qualified HitchhikerSetMap     as HSM
@@ -32,104 +34,6 @@ import qualified Data.Vector          as V
 
 import qualified Data.Kind
 
--- -----------------------------------------------------------------------
-
-
--- Pre planning.
---
--- Given a list of raw clauses, how do you plan out the
-
--- A variable like "?e"
-newtype Variable = VAR Text
-  deriving (Show, Ord, Eq)
-
--- Binding query input or function output to the right type.
-data Binding
-  = B_SCALAR Symbol
-  -- | B_TUPLE [Symbol]
-  | B_COLLECTION Symbol
-  -- | B_RELATION
-  deriving (Show)
-
-data Source
-  = SourceDefault
-  | SourceNamed Text
-  deriving (Show)
-
-data FnArg
-  = ARG_VAR Variable
-  | ARG_CONST Value
-  | ARG_Source Source
-  deriving (Show)
-
-fnArgToVariable :: FnArg -> [Variable]
-fnArgToVariable (ARG_VAR v) = [v]
-
-data BuiltinPred
-  = B_LT
-  | B_LTE
-  | B_EQ
-  | B_GTE
-  | B_GT
-  deriving (Show)
-
-data Pred
-  = PredBuiltin BuiltinPred
-  | PredFun -- TODO
-  deriving (Show)
-
-data Func = FUNC
-  deriving (Show)
-
-data Predicate = PREDICATE Pred [FnArg]
-  deriving (Show)
-
--- Type pattern EAV for binding value, XYZ for binding symbol
-data LoadClause
-  = LC_EAZ EntityId Attr Variable
-  -- TODO: Possible in the model, but requires iteration.
-  -- | C_EYV EntityId Variable Value
-  | LC_XAV Variable Attr Value
-
-  | LC_EYZ EntityId Variable Variable
-  | LC_XAZ Variable Attr Variable
-  | LC_XYV Variable Variable Value
-  deriving (Show)
-
--- All symbols bound by a clause
-loadClauseBinds :: LoadClause -> Set Variable
-loadClauseBinds (LC_EAZ _ _ z) = S.fromList [z]
--- C_EYV
-loadClauseBinds (LC_XAV x _ _) = S.fromList [x]
-loadClauseBinds (LC_EYZ _ y z) = S.fromList [y, z]
-loadClauseBinds (LC_XAZ x _ z) = S.fromList [x, z]
-loadClauseBinds (LC_XYV x y _) = S.fromList [x, y]
-
--- "Input" Clause: A new type of clause with everything in it.
-data IClause
-  = NotClause Source [IClause]
-  | NotJoinClause Source [Variable] [IClause]
-  | OrClause Source [OrClauseBody]
-  | OrJoinClause -- TODO: This interacts with rule-vars in a weird way?
-
-  -- The ExpressionClause
-  | DataPattern LoadClause
-  | PredicateExpression Predicate
-  | FunctionExpression Func [FnArg] [Binding]
-  | RuleExpression -- big question mark.
-  deriving (Show)
-
-iclauseToVars :: IClause -> Set Variable
-iclauseToVars (DataPattern load)                         = loadClauseBinds load
-iclauseToVars (PredicateExpression (PREDICATE x fnArgs)) =
-  S.fromList $ join $ map fnArgToVariable fnArgs
-
--- Or and OrJoin have different rules around clauses. Ironically, the only
--- place you must explicitly state 'and' is inside an 'or'.
-data OrClauseBody
-  = OCB_CLAUSE IClause
-  | OCB_AND_CLAUSES [IClause]
-  deriving (Show)
 
 -- So given a set of the input clauses above, how do you form a query plan?
 -- DataPatterns bring data into scope. Bringing multiple patterns into scope
@@ -138,11 +42,6 @@ data OrClauseBody
 -- None of this "rules passed in at run time" nonsense, rules should be compile
 -- time operations, duh.
 data RulePack
-
--- TODO: Eventually, we'll want a sort order on this like there was in the
--- original HitchhikerDataomStore version.
-data Rows = ROWS [Variable] [Vector Value]
-  deriving (Show)
 
 -- -----------------------------------------------------------------------
 
@@ -158,9 +57,9 @@ data Rows = ROWS [Variable] [Vector Value]
 -- complicated, so we must convince ourselves it is correct by comparing it
 -- against this.
 
--- TODO: [Sources] instead of Database
+-- TODO: [DataSources] instead of Database
 stupidEvaluator
-  :: Database -> [Rows] -> [RulePack] -> [IClause] -> [Variable]
+  :: Database -> [Rows] -> [RulePack] -> [Clause] -> [Variable]
   -> Rows
 stupidEvaluator db inputs rulePacks clauses target = go inputs clauses
   where
@@ -170,7 +69,7 @@ stupidEvaluator db inputs rulePacks clauses target = go inputs clauses
       (x:y:rs, _) -> go ((stupidRowJoin x y):rs) clauses
       ([r], cs)   -> evalWith r cs
 
-    evalWith :: Rows -> [IClause] -> Rows
+    evalWith :: Rows -> [Clause] -> Rows
     evalWith r [] = projectRows target r
     evalWith r (c:cs) = case c of
       DataPattern (LC_XAZ eVar attr vVar) ->
@@ -182,7 +81,7 @@ stupidEvaluator db inputs rulePacks clauses target = go inputs clauses
         evalWith (runBuiltinPredicate builtin pLeft pRight r) cs
 
 projectRows :: [Variable] -> Rows -> Rows
-projectRows target (ROWS vars rows) = ROWS target $ L.nub $ map change rows
+projectRows target (ROWS vars _ rows) = ROWS target [] $ L.nub $ map change rows
   where
     idxes = map (\a -> fromJust $ L.elemIndex a vars) target
     change r = V.fromList $ map (r V.!) idxes
@@ -191,8 +90,8 @@ getVariable :: Variable -> [Variable] -> Vector Value -> Value
 getVariable var vars row = row V.! (fromJust $ L.elemIndex var vars)
 
 runBuiltinPredicate :: BuiltinPred -> FnArg -> FnArg -> Rows -> Rows
-runBuiltinPredicate pred a b (ROWS vars rows) =
-  ROWS vars $ filter (match a b) rows
+runBuiltinPredicate pred a b (ROWS vars _ rows) =
+  ROWS vars [] $ filter (match a b) rows
   where
     match (ARG_VAR argvar) (ARG_CONST val) row =
       run pred (getVariable argvar vars row) val
@@ -208,7 +107,7 @@ runBuiltinPredicate pred a b (ROWS vars rows) =
     run B_GT lhs rhs  = lhs >= rhs
 
 tabToRow :: Variable -> Variable -> HitchhikerSetMap Value Value -> Rows
-tabToRow from to setmap = ROWS [from, to] asRows
+tabToRow from to setmap = ROWS [from, to] [] asRows
   where
     asRows = concat $ map step $ HM.toList $ HSM.toHitchhikerMap setmap
 
@@ -218,16 +117,16 @@ tabToRow from to setmap = ROWS [from, to] asRows
 -- Perform join by just exploding the cartesian products of tables in the most
 -- naive way you can think of.
 stupidRowJoin :: Rows -> Rows -> Rows
-stupidRowJoin (ROWS lhs lhRow) (ROWS rhs rhRow)
+stupidRowJoin (ROWS lhs _ lhRow) (ROWS rhs _ rhRow)
   | S.disjoint (S.fromList lhs) (S.fromList rhs)
       -- If the two row's symbols are disjoint, this is just a simple cartesian
       -- product with no other complications.
-      = ROWS (lhs ++ rhs) $ cartesianProduct (V.++) lhRow rhRow
+      = ROWS (lhs ++ rhs) [] $ cartesianProduct (V.++) lhRow rhRow
   | otherwise =
       -- We have to check if
       let (vars, overlap, leftCopy, rightCopy) = variableOverlap lhs rhs
           rows = cartesianJoin overlap leftCopy rightCopy lhRow rhRow
-      in ROWS vars rows
+      in ROWS vars [] rows
 
 cartesianProduct :: (a -> b -> c) -> [a] -> [b] -> [c]
 cartesianProduct f x y = [f a b | a <- x, b <- y]
@@ -304,11 +203,11 @@ rr = map V.fromList $ [
   [VAL_INT 3, VAL_STR "Foreign Relations"]
   ]
 
-testStupidDisjoint = stupidRowJoin (ROWS tlhs lr) (ROWS trhs rr)
+testStupidDisjoint = stupidRowJoin (ROWS tlhs [] lr) (ROWS trhs [] rr)
 
 -- Actually, it's correct that join with an empty is empty, isn't it? These are
 -- cartesian set operations.
-testEmptyJoin = stupidRowJoin (ROWS tlhs []) (ROWS trhs rr)
+testEmptyJoin = stupidRowJoin (ROWS tlhs [] []) (ROWS trhs [] rr)
 
 
 
@@ -332,7 +231,7 @@ db = foldl' add emptyDB datoms
 fullStupidEvalTest =
   stupidEvaluator
     db
-    [ROWS [VAR "?alias"] [V.fromList [VAL_STR "fred"]]]
+    [ROWS [VAR "?alias"] [] [V.fromList [VAL_STR "fred"]]]
     []
     [DataPattern (LC_XAZ (VAR "?e") (ATTR ":aka") (VAR "?alias")),
      DataPattern (LC_XAZ (VAR "?e") (ATTR ":nation") (VAR "?nation"))]
@@ -391,10 +290,10 @@ derpdb = foldl' add emptyDB datoms
 fullDerpTagPlan =
   stupidEvaluator
     derpdb
-    [ROWS [VAR "?tag"] [
+    [ROWS [VAR "?tag"] [] [
         V.fromList [VAL_STR "twilight sparkle"],
         V.fromList [VAL_STR "cute"]],
-     ROWS [VAR "?amount"] [V.fromList [VAL_INT 100]]]
+     ROWS [VAR "?amount"] [] [V.fromList [VAL_INT 100]]]
     []
     [DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/tag") (VAR "?tag")),
      DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes")),
@@ -416,11 +315,11 @@ ROWS [VAR "?tag",VAR "?amount",VAR "?e",VAR "?upvotes",VAR "?derpid",
 -}
 
 
--- nuMkPlan :: [Source] -> [Binding] -> [RulePack] -> [IClause] -> [Symbol]
+-- nuMkPlan :: [DataSource] -> [Binding] -> [RulePack] -> [Clause] -> [Symbol]
 --          -> NuPlan
 -- nuMkPlan sources inputs rulePacks clauses target = undefined
 
--- Given a list of IClauses, how do you make an optimal graph out of them?
+-- Given a list of Clauses, how do you make an optimal graph out of them?
 --
 -- - Predicates should be handled as part of a join when possible.
 --
@@ -490,12 +389,12 @@ ROWS [VAR "?tag",VAR "?amount",VAR "?e",VAR "?upvotes",VAR "?derpid",
 --  Where the new MkMultiTab takes the two input tabs, a list of the output tab
 --  symbols to emit, and the predicates to run during
 
-data NuRelScalar = RSCALAR { sym :: Symbol, val :: Value }
+data NuRelScalar = RSCALAR { sym :: Variable, val :: Value }
   deriving (Show)
-data NuRelSet = RSET { sym :: Symbol, val :: HitchhikerSet Value}
+data NuRelSet = RSET { sym :: Variable, val :: HitchhikerSet Value}
   deriving (Show)
-data NuRelTab = RTAB { from :: Symbol
-                     , to   :: Symbol
+data NuRelTab = RTAB { from :: Variable
+                     , to   :: Variable
                      , val  :: HitchhikerSetMap Value Value}
   deriving (Show)
 
@@ -503,13 +402,6 @@ data NuRelation
   = REL_SCALAR NuRelScalar
   | REL_SET NuRelSet
   | REL_TAB NuRelTab
-  deriving (Show)
-
-data RowLookup
-  = USE_EAV
-  | USE_AEV
-  | USE_AVE
-  | USE_VAE
   deriving (Show)
 
 data NuPlan :: Data.Kind.Type -> Data.Kind.Type where
@@ -548,8 +440,8 @@ nuPlanHolderVars (PH_TAB a b _)  = S.fromList [a, b]
 
 -- -- Given the remaining clauses, attempt to unify two plans, possibly consuming
 -- -- additional future clauses and other plans.
--- nuUnify :: [IClause] -> [NuPlanHolder] -> NuPlanHolder -> NuPlanHolder
---         -> Maybe ([IClause], NuPlanHolder)
+-- nuUnify :: [Clause] -> [NuPlanHolder] -> NuPlanHolder -> NuPlanHolder
+--         -> Maybe ([Clause], NuPlanHolder)
 -- nuUnify clauses other lhs rhs = go lhs rhs
 --   where
 --     -- TODO: bothPreds cases are hard and will require the rows relation type
@@ -561,7 +453,7 @@ nuPlanHolderVars (PH_TAB a b _)  = S.fromList [a, b]
 --     -- If a predicate is promoted to this unify, it implies it's not used "in
 --     -- the future"; if the variables were used anywhere else, before or after,
 --     -- it wouldn't have been promoted in the first place.
---     inFuture a = S.member a $ S.unions $ map iclauseToVars restClauses
+--     inFuture a = S.member a $ S.unions $ map iclauseUses restClauses
 
 --     -- All cases of trying to unify two plans, with promoted predicates.
 --     go lhs rhs = fmap (\a -> (restClauses, a)) $ case (lhs, rhs) of
@@ -642,10 +534,10 @@ nuPlanHolderVars (PH_TAB a b _)  = S.fromList [a, b]
 -- -- there's a predicate that applies to both the lhs and rhs.
 -- findPromotablePredicates
 --   :: [NuPlanHolder]
---   -> [IClause]
+--   -> [Clause]
 --   -> NuPlanHolder
 --   -> NuPlanHolder
---   -> ([IClause], [Predicate], [Predicate], [Predicate])
+--   -> ([Clause], [Predicate], [Predicate], [Predicate])
 -- findPromotablePredicates bound clauses lhs rhs =
 --   (restClauses, lhPreds, rhPreds, bothPreds)
 --   where
@@ -662,11 +554,11 @@ nuPlanHolderVars (PH_TAB a b _)  = S.fromList [a, b]
 
 --     -- vars is the variables of the item being merged.
 
---     findSinglePred :: Set Variable -> [IClause]
---                    -> ([IClause], [Predicate])
+--     findSinglePred :: Set Variable -> [Clause]
+--                    -> ([Clause], [Predicate])
 --     findSinglePred boundVars = go [] []
 --       where
---         go :: [Predicate] -> [IClause] -> [IClause] -> ([IClause], [Predicate])
+--         go :: [Predicate] -> [Clause] -> [Clause] -> ([Clause], [Predicate])
 --         go outputPreds before [] = (reverse before, outputPreds)
 --         go outputPreds before (clause:after) = case clause of
 --           PredicateExpression p@(PREDICATE _ fnArgs)
@@ -679,8 +571,8 @@ nuPlanHolderVars (PH_TAB a b _)  = S.fromList [a, b]
 -- -- aren't used by antyhing but other predicates or functions as input.
 -- --
 -- canPromotePredicate :: Set Variable
---                     -> [IClause]
---                     -> [IClause]
+--                     -> [Clause]
+--                     -> [Clause]
 --                     -> [FnArg]
 --                     -> Bool
 -- canPromotePredicate boundVars beforeClause afterClause fnArg =
@@ -689,8 +581,8 @@ nuPlanHolderVars (PH_TAB a b _)  = S.fromList [a, b]
 --   (S.difference argVars boundVars == S.empty)
 --   where
 --     argVars = S.fromList $ join $ map fnArgToVariable fnArg
---     beforeVars = S.unions $ map iclauseToVars beforeClause
---     afterVars = S.unions $ map iclauseToVars afterClause
+--     beforeVars = S.unions $ map clauseUses beforeClause
+--     afterVars = S.unions $ map clauseUses afterClause
 
 
 -- -- -----------------------------------------------------------------------

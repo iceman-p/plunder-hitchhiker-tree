@@ -14,6 +14,8 @@ import           Utils
 
 import           Data.Sorted
 
+import           Query.Types
+
 import qualified HitchhikerMap    as HM
 import qualified HitchhikerSet    as HS
 import qualified HitchhikerSetMap as HSM
@@ -407,20 +409,6 @@ partialLookup e (EAVROWS config (Just top)) = lookInENode mempty top
 
 -- -----------------------------------------------------------------------
 
-newtype EntityId = ENTID Int
-  deriving (Show, Eq, Ord)
-
--- The attribute type
-newtype Attr = ATTR Text
-  deriving (Show, Eq, Ord)
-
-data Value
-  = VAL_ATTR Attr
-  | VAL_ENTID EntityId
-  | VAL_INT Int
-  | VAL_STR String
-  deriving (Show, Eq, Ord)
-
 type EAVStore = EAVRows Int Int Value Int
 
 data Database = DATABASE {
@@ -487,26 +475,6 @@ learn (e, a, v, tx, op) DATABASE{..} = DATABASE {
 -- [?x ?y v] -> VAE(v) if exists,
 
 
--- A variable reference like ?name
-data Symbol = SYM Text
-  deriving (Show, Ord, Eq)
-
--- Type pattern EAV for binding value, XYZ for binding symbol
-data Clause
-  = C_EAZ EntityId Attr Symbol
-  -- TODO: Possible in the model, but requires iteration.
-  -- | C_EYV EntityId Symbol Value
-  | C_XAV Symbol Attr Value
-
-  | C_EYZ EntityId Symbol Symbol
-  | C_XAZ Symbol Attr Symbol
-  | C_XYV Symbol Symbol Value
-
-  -- Predicates for
-  | C_PRED_GT Symbol Symbol
-
-
-
 {-
 
 
@@ -522,22 +490,22 @@ data Relation
   -- No relations because disjoint.
   | RDISJOINT
   -- Simple one set relation.
-  | RSET Symbol (HitchhikerSet Value)
+  | RSET Variable (HitchhikerSet Value)
   -- Bidirectional relation straight from the database. Created in the first
   -- clause when we don't know what direction we'll be searching. Always build
   -- it so the first symbol to the second symbol is the preferred search
   -- direction.
-  | RBIDIR Symbol
-           Symbol
+  | RBIDIR Variable
+           Variable
            (HitchhikerSetMap Value Value)
            (HitchhikerSetMap Value Value)
 
   -- A list of rows. Joining with this any other type produces a row. The first
   -- list of symbols is the order in the order of each row.
-  | RROW [Symbol] [Symbol] (Vector (Vector Value))
+  | RROW [Variable] [Variable] (Vector (Vector Value))
 
   -- A table from one symbol to possibly multiple symbols. ?a -> [?b ?c]
-  | RTAB Symbol [Symbol] (HitchhikerMap Value (Vector (HitchhikerSet Value)))
+  | RTAB Variable [Variable] (HitchhikerMap Value (Vector (HitchhikerSet Value)))
 
   deriving (Show)
 
@@ -545,8 +513,8 @@ data Relation
 
 -- We've hit a case where we can't join between two representations without
 -- iterating anyway, so build a full RROW table.
-tableToRows :: Symbol
-            -> [Symbol]
+tableToRows :: Variable
+            -> [Variable]
             -> HitchhikerMap Value (Vector (HitchhikerSet Value))
             -> Relation
 tableToRows key vals hhmap = RROW symbols sortOrder rowData
@@ -559,8 +527,8 @@ tableToRows key vals hhmap = RROW symbols sortOrder rowData
     step (k, tops) = V.sequence $
       V.cons (V.singleton k) (map (V.fromList . HS.toList) tops)
 
-ensureSortedBy :: [Symbol] -> [Symbol] -> [Symbol] -> Vector (Vector Value)
-               -> ([Symbol], Vector (Vector Value))
+ensureSortedBy :: [Variable] -> [Variable] -> [Variable] -> Vector (Vector Value)
+               -> ([Variable], Vector (Vector Value))
 ensureSortedBy request allSymb curSortedBy rows
   | request `isPrefixOf` curSortedBy = (curSortedBy, rows)
   | any isNothing mybRequestIdx = error "Invalid request"
@@ -693,10 +661,10 @@ data NextMatchType
 
 -- Given a map of x to y and a bunch of rows, where x is an element of the rows
 -- but y is not, join all values of y to all rows that
-addYToAllRows :: Symbol
-              -> Symbol
+addYToAllRows :: Variable
+              -> Variable
               -> HitchhikerMap Value (HitchhikerSet Value)
-              -> ([Symbol], [Symbol], Vector (Vector Value))
+              -> ([Variable], [Variable], Vector (Vector Value))
               -> Relation
 addYToAllRows x y maps (all, inSortedBy, inRows) = RROW newAll newSorted newRows
   where
@@ -849,9 +817,9 @@ above:
 
 -- A set of
 data Binding
-  = B_SCALAR Symbol
-  -- | B_TUPLE [Symbol]
-  | B_COLLECTION Symbol
+  = B_SCALAR Variable
+  -- | B_TUPLE [Variable]
+  | B_COLLECTION Variable
   -- | B_RELATION
 
 -- Query planner:
@@ -877,7 +845,7 @@ data Plan a where
 
   P_LOAD_TAB :: Clause -> Database -> Plan D_BITAB
 
-  P_SELECT_SET :: Symbol -> Plan a -> Plan D_SET
+  P_SELECT_SET :: Variable -> Plan a -> Plan D_SET
 
   P_JOIN_BITAB_BITAB :: Plan D_BITAB -> Plan D_BITAB -> Plan D_TAB
   P_JOIN_BITAB_TAB :: Plan D_BITAB -> Plan D_TAB -> Plan D_TAB
@@ -888,10 +856,10 @@ data Plan a where
 
   P_TO_ROW :: Plan x -> Plan D_ROW
 
-  P_SORT_BY :: [Symbol] -> Plan D_ROW -> Plan D_ROW
-  P_RANGE_FILTER_COL :: RangeType -> Symbol -> a -> Plan D_ROW -> Plan D_ROW
+  P_SORT_BY :: [Variable] -> Plan D_ROW -> Plan D_ROW
+  P_RANGE_FILTER_COL :: RangeType -> Variable -> a -> Plan D_ROW -> Plan D_ROW
 
-  -- = P_TARGET [Symbol]
+  -- = P_TARGET [Variable]
 
 -- What's the query plan for
 
@@ -972,7 +940,7 @@ fullq db tagset amount = P_TO_ROW
 -- OK, but how do you build the above plan in the first place?
 
 
--- mkPlan :: [Binding] -> [Clause] -> [Symbol] -> Plan
+-- mkPlan :: [Binding] -> [Clause] -> [Variable] -> Plan
 -- mkPlan starting clauses target =
 
   -- NEXT ACTION: Build a query planner that narrows everything down.

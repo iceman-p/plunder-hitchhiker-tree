@@ -19,6 +19,8 @@ import           HitchhikerDatomStore
 
 import           Data.Sorted
 
+import           Query.Types
+
 import qualified HitchhikerMap        as HM
 import qualified HitchhikerSet        as HS
 import qualified HitchhikerSetMap     as HSM
@@ -36,52 +38,13 @@ mkTwoVector x y = V.fromList [x, y]
 
 -- -----------------------------------------------------------------------
 
--- A set of
-data Binding
-  = B_SCALAR Symbol
-  -- | B_TUPLE [Symbol]
-  | B_COLLECTION Symbol
-  -- | B_RELATION
-
-data RelScalar = RSCALAR { sym :: Symbol, val :: Value }
-  deriving (Show)
-data RelSet = RSET { sym :: Symbol, val :: HitchhikerSet Value}
-  deriving (Show)
-data RelTab = RTAB { from :: Symbol
-                   , to   :: Symbol
-                   , val  :: HitchhikerSetMap Value Value}
-  deriving (Show)
-
--- A table from one key symbol to multiple value symbols. Since so many queries
--- end with a series of lookups on a entity id, this often saves operations.
-data RelMultiTab = RMTAB
-  { from :: Symbol
-  , to   :: [Symbol]
-  , val  :: HitchhikerMap Value (Vector (HitchhikerSet Value))
-  }
-  deriving (Show)
-
-data Relation
-  = REL_SCALAR RelScalar
-  | REL_SET RelSet
-  | REL_TAB RelTab
-  | REL_MULTITAB RelMultiTab
-  deriving (Show)
-
-data RowLookup
-  = USE_EAV
-  | USE_AEV
-  | USE_AVE
-  | USE_VAE
-  deriving (Show)
-
 -- Plan the steps to evaluate the query. This is the intermediate form of a
 -- query: it's dumpable to the console for debugging.
 data Plan :: Data.Kind.Type -> Data.Kind.Type where
-  InputScalar :: Symbol -> Int -> Plan RelScalar
-  InputSet    :: Symbol -> Int -> Plan RelSet
+  InputScalar :: Variable -> Int -> Plan RelScalar
+  InputSet    :: Variable -> Int -> Plan RelSet
 
-  LoadTab :: RowLookup -> Value -> Symbol -> Symbol -> Plan RelTab
+  LoadTab :: RowLookup -> Value -> Variable -> Variable -> Plan RelTab
 
   TabScalarLookup :: Plan RelScalar -> Plan RelTab -> Plan RelSet
   TabSetUnionVals :: Plan RelSet -> Plan RelTab -> Plan RelSet
@@ -189,29 +152,20 @@ evalPlan inputs db = runFromPlanHolder
          then RMTAB elhs.from [elhs.to, erhs.to] target
          else error "Bad plan: multi-tab join of two different key symbols"
 
--- All symbols bound by a clause
-clauseBinds :: Clause -> Set Symbol
-clauseBinds (C_EAZ _ _ z) = S.fromList [z]
--- C_EYV
-clauseBinds (C_XAV x _ _) = S.fromList [x]
-clauseBinds (C_EYZ _ y z) = S.fromList [y, z]
-clauseBinds (C_XAZ x _ z) = S.fromList [x, z]
-clauseBinds (C_XYV x y _) = S.fromList [x, y]
 
-
--- TODO: Symbols should actually only be referred to below, during mkPlan. We
+-- TODO: Variables should actually only be referred to below, during mkPlan. We
 -- don't actually care about symbols during the execution of the Plan (though
 -- we might still keep them there for debug dumping purposes).
 
 -- Type to hold the different possible Plans while
 data PlanHolder
-  = PH_SCALAR Symbol (Plan RelScalar)
-  | PH_SET Symbol (Plan RelSet)
-  | PH_TAB Symbol Symbol (Plan RelTab)
-  | PH_MULTITAB Symbol [Symbol] (Plan RelMultiTab)
+  = PH_SCALAR Variable (Plan RelScalar)
+  | PH_SET Variable (Plan RelSet)
+  | PH_TAB Variable Variable (Plan RelTab)
+  | PH_MULTITAB Variable [Variable] (Plan RelMultiTab)
   deriving (Show)
 
-planHolderBinds :: PlanHolder -> Set Symbol
+planHolderBinds :: PlanHolder -> Set Variable
 planHolderBinds (PH_SCALAR s _)          = S.singleton s
 planHolderBinds (PH_SET s _)             = S.singleton s
 planHolderBinds (PH_TAB from to _)       = S.fromList [from, to]
@@ -224,7 +178,7 @@ data Direction
   | RIGHT_ONLY
   | IRRELEVANT
 
-mkPlan :: [Binding] -> [Clause] -> Set Symbol -> PlanHolder
+mkPlan :: [Binding] -> [Clause] -> Set Variable -> PlanHolder
 mkPlan bindingInputs clauses target =
   converge $ filter targetNeeds $ go startingInputs clauses
   where
@@ -245,7 +199,7 @@ mkPlan bindingInputs clauses target =
       let past = pastProvides inputs
           future = futureNeeds cs
       in case c of
-        (C_XAZ eSymb attr vSymb) ->
+        (DataPattern (LC_XAZ eSymb attr vSymb)) ->
           case direction eSymb vSymb past future of
             FORWARDS  ->
               let load = PH_TAB eSymb vSymb
@@ -268,7 +222,7 @@ mkPlan bindingInputs clauses target =
     bindToPlan (i, B_SCALAR symb)     = PH_SCALAR symb $ InputScalar symb i
     bindToPlan (i, B_COLLECTION symb) = PH_SET symb $ InputSet symb i
 
-    direction :: Symbol -> Symbol -> Set Symbol -> Set Symbol -> Direction
+    direction :: Variable -> Variable -> Set Variable -> Set Variable -> Direction
     direction leftS rightS past future
       | S.member leftS future && S.member rightS future =
           -- FORWARDS is a cop out, we need to make a decision about what
@@ -282,11 +236,11 @@ mkPlan bindingInputs clauses target =
       | otherwise = IRRELEVANT
 --        error $ "TODO: Figure out complicated cases in direction: " <> show leftS <> " " <> show rightS <> " " <> show past <> " " <> show future
 
-    pastProvides :: [PlanHolder] -> Set Symbol
+    pastProvides :: [PlanHolder] -> Set Variable
     pastProvides rs = S.unions (map planHolderBinds rs)
 
-    futureNeeds :: [Clause] -> Set Symbol
-    futureNeeds cs = S.unions (target:(map clauseBinds cs))
+    futureNeeds :: [Clause] -> Set Variable
+    futureNeeds cs = S.unions (target:(map clauseUses cs))
 
 -- -----------------------------------------------------------------------
 
@@ -309,7 +263,7 @@ joinAll f (x:xs) = joinOuter x xs []
       Nothing  -> joinInner x ys (y:prev)
       Just new -> Just (new, reverse prev ++ ys)
 
-rhJoin :: Set Symbol -> PlanHolder -> PlanHolder -> Maybe PlanHolder
+rhJoin :: Set Variable -> PlanHolder -> PlanHolder -> Maybe PlanHolder
 rhJoin future l r = case (l, r) of
   (PH_SET lhs lhv, PH_SET rhs rhv)
     | lhs == rhs -> Just $ PH_SET lhs $ SetJoin lhv rhv
@@ -368,17 +322,17 @@ rhJoin future l r = case (l, r) of
 --        ["twilight sparkle" "cute"] 100)
 
 derpTagPlan = mkPlan
-  [B_COLLECTION (SYM "?tag"), B_SCALAR (SYM "?amount")]
-  [C_XAZ (SYM "?e") (ATTR ":derp/tag") (SYM "?tag"),
-   C_XAZ (SYM "?e") (ATTR ":derp/upvotes") (SYM "?upvotes"),
+  [B_COLLECTION (VAR "?tag"), B_SCALAR (VAR "?amount")]
+  [DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/tag") (VAR "?tag")),
+   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes")),
    -- C_PREDICATE (whole bundle of hurt)
-   C_XAZ (SYM "?e") (ATTR ":derp/id") (SYM "?derpid"),
-   C_XAZ (SYM "?e") (ATTR ":derp/thumbnail") (SYM "?thumburl")]
-  (S.fromList [(SYM "?derpid"), (SYM "?thumburl")])
+   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
+   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumbnail") (VAR "?thumburl"))]
+  (S.fromList [(VAR "?derpid"), (VAR "?thumburl")])
 
 {-
 
-PH_MULTITAB (SYM "?e") [SYM "?thumburl",SYM "?derpid"]
+PH_MULTITAB (VAR "?e") [SYM "?thumburl",SYM "?derpid"]
   MkMultiTab
     (LoadTab USE_AEV VAL_ATTR (ATTR ":derp/thumbnail") SYM "?e" SYM "?thumburl")
     (TabRestrictKeys
@@ -481,40 +435,40 @@ data IClause
 -- fullq db tagset amount = P_TO_ROW
 --   (P_JOIN_BITAB_TAB
 --     -- [?e :derp/thumburl ?thumburl]
---     (P_LOAD_TAB (C_XAZ (SYM "?e") (ATTR ":derp/thumburl") (SYM "?thumburl")) db)
+--     (P_LOAD_TAB (LC_XAZ (VAR "?e") (ATTR ":derp/thumburl") (VAR "?thumburl")) db)
 
 --     (P_JOIN_BITAB_SET
 --       -- [?e :derp/id ?derpid]
---       (P_LOAD_TAB (C_XAZ (SYM "?e") (ATTR ":derp/id") (SYM "?derpid")) db)
+--       (P_LOAD_TAB (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")) db)
 
 --       -- range filter.
---       (P_SELECT_SET (SYM "?e")
---         (P_RANGE_FILTER_COL RT_GT (SYM "?upvotes") amount
+--       (P_SELECT_SET (VAR "?e")
+--         (P_RANGE_FILTER_COL RT_GT (VAR "?upvotes") amount
 --           -- ?e->?upvotes
---           (P_SORT_BY [(SYM "?upvotes")]
+--           (P_SORT_BY [(VAR "?upvotes")]
 --             (P_TO_ROW
 --               (P_JOIN_BITAB_SET
 --                 -- [?e :derp/upvotes ?upvotes]
 --                 (P_LOAD_TAB
---                   (C_XAZ (SYM "?e") (ATTR ":derp/upvotes") (SYM "?upvotes")) db)
+--                   (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes")) db)
 --                 -- (select ?e's which have all tags)
---                 (P_SELECT_SET (SYM "?e")
+--                 (P_SELECT_SET (VAR "?e")
 --                  (P_JOIN_BITAB_SET
 --                    (P_LOAD_TAB
---                      (C_XAZ (SYM "?e") (ATTR ":derp/tag") (SYM "?tag")) db)
+--                      (LC_XAZ (VAR "?e") (ATTR ":derp/tag") (VAR "?tag")) db)
 --                    (P_FROM_SET tagset))))))))))
 
 
 -- OK, but how do you build the above plan in the first place?
 
--- mkPlan :: [Symbol] -> [Clause] -> [Symbol] -> Plan a
+-- mkPlan :: [Variable] -> [Clause] -> [Variable] -> Plan a
 -- mkPlan starting clauses target = undefined
 
 
 
 
 
--- mkPlan :: [Binding] -> [Clause] -> [Symbol] -> Plan
+-- mkPlan :: [Binding] -> [Clause] -> [Variable] -> Plan
 -- mkPlan starting clauses target =
 
   -- NEXT ACTION: Build a query planner that narrows everything down.
@@ -549,12 +503,12 @@ exampleADB = foldl' add emptyDB datoms
 --           "fred")))
 
 exampleAPlanOut = mkPlan
-  [B_SCALAR (SYM "?alias")]
-  [C_XAZ (SYM "?e") (ATTR ":aka") (SYM "?alias"),
-   C_XAZ (SYM "?e") (ATTR ":nation") (SYM "?nation")]
-  (S.singleton (SYM "?nation"))
+  [B_SCALAR (VAR "?alias")]
+  [DataPattern (LC_XAZ (VAR "?e") (ATTR ":aka") (VAR "?alias")),
+   DataPattern (LC_XAZ (VAR "?e") (ATTR ":nation") (VAR "?nation"))]
+  (S.singleton (VAR "?nation"))
 {-
-planOutVal = PH_SET (SYM "?nation")
+planOutVal = PH_SET (VAR "?nation")
   TabSetUnionVals
     (TabScalarLookup
       (InputScalar SYM "?alias" 0)
@@ -562,7 +516,7 @@ planOutVal = PH_SET (SYM "?nation")
     (LoadTab USE_AEV VAL_ATTR (ATTR ":nation") SYM "?e" SYM "?nation")
 -}
 
-exampleAOut = evalPlan [REL_SCALAR $ RSCALAR (SYM "?alias") (VAL_STR "fred")]
+exampleAOut = evalPlan [REL_SCALAR $ RSCALAR (VAR "?alias") (VAL_STR "fred")]
                        exampleADB
                        exampleAPlanOut
 {-
