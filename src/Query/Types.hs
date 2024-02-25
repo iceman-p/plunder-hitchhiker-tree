@@ -2,12 +2,81 @@ module Query.Types where
 
 import           ClassyPrelude
 
+import           Impl.Types
 import           Types
+
+import           Data.Sorted
+
+import qualified Data.Kind
 
 import qualified HitchhikerSet    as HS
 import qualified HitchhikerSetMap as HSM
 
 import qualified Data.Set         as S
+
+-- -----------------------------------------------------------------------
+-- Hitchhiker set types
+-- -----------------------------------------------------------------------
+-- Our database is built on
+
+-- What are we building here? What's the purpose? We're making a hitchhiker
+-- tree variant where for any six tuple, such as [e a v tx o], we have an
+-- efficient way to minimize churn in the upper levels of the tree.
+--
+-- You need to think of this as a way to map [e a] -> [%{v}  [tx o]], with
+-- hitchhiker entries [d e a v tx o] pushed down (or in some situations used
+-- for quick short circuits on cardinality once).
+
+-- As a convention in this file, all types are of the form [e a v tx o] even
+-- though the code is written so it can be reused for the ave or vea indexes,
+-- too.
+
+data EDatomRow e a v tx
+  = ERowIndex (TreeIndex e (EDatomRow e a v tx))
+              (Map e (ArraySet (a, v, tx, Bool)))
+  | ELeaf (Map e (ADatomRow a v tx))
+  deriving (Show, Generic, NFData)
+
+-- TODO: Think about data locality. A lot. Right now VStorage's indirection
+-- means that vs aren't stored next to each other when doing a simple a scan.
+data ADatomRow a v tx
+  = ARowIndex (TreeIndex a (ADatomRow a v tx))
+              (Map a (ArraySet (v, tx, Bool)))
+  | ALeaf (Map a (VStorage v tx))
+  deriving (Show, Generic, NFData)
+
+-- At the end is VStorage: a set copy of the current existing values, and a
+-- separate log of transactions.
+data VStorage v tx
+  -- Many values are going to be a single value that doesn't change; don't
+  -- allocate two hitchhiker trees to deal with them, just inline.
+  = VSimple v tx
+  -- We have multiple
+  | VStorage (Maybe (HitchhikerSetNode v)) (HitchhikerSetMapNode tx (v, Bool))
+  deriving (Show, Generic, NFData)
+
+data EAVRows e a v tx = EAVROWS {
+  config :: TreeConfig,
+  root   :: Maybe (EDatomRow e a v tx)
+  }
+  deriving (Show)
+
+
+type EAVStore = EAVRows Int Int Value Int
+
+data Database = DATABASE {
+  -- TODO: More restricted types.
+  eav :: EAVRows Value Value Value Int,
+  aev :: EAVRows Value Value Value Int,
+  ave :: EAVRows Value Value Value Int,
+  vae :: EAVRows Value Value Value Int
+
+  -- eav :: EAVRows Int Attr Value Int,
+  -- aev :: EAVRows Attr Int Value Int,
+  -- ave :: EAVRows Attr Value Int Int,
+  -- vae :: EAVRows Value Attr Int Int
+  }
+  deriving (Show)
 
 -- -----------------------------------------------------------------------
 
@@ -186,3 +255,57 @@ data OrClauseBody
   = OCB_CLAUSE Clause
   | OCB_AND_CLAUSES [Clause]
   deriving (Show)
+
+data RulePack
+
+-- -----------------------------------------------------------------------
+
+-- Plan the steps to evaluate the query. This is the intermediate form of a
+-- query: it's dumpable to the console for debugging.
+data Plan :: Data.Kind.Type -> Data.Kind.Type where
+  InputScalar :: Variable -> Int -> Plan RelScalar
+  InputSet    :: Variable -> Int -> Plan RelSet
+
+  LoadTab :: RowLookup -> Value -> Variable -> Variable -> Plan RelTab
+
+  TabScalarLookup :: Plan RelScalar -> Plan RelTab -> Plan RelSet
+  TabSetUnionVals :: Plan RelSet -> Plan RelTab -> Plan RelSet
+  TabRestrictKeys :: Plan RelTab -> Plan RelSet -> Plan RelTab
+  TabKeySet :: Plan RelTab -> Plan RelSet
+
+  SetJoin :: Plan RelSet -> Plan RelSet -> Plan RelSet
+  SetScalarJoin :: Plan RelSet -> Plan RelScalar -> Plan RelSet
+
+  MkMultiTab :: Plan RelTab -> Plan RelTab -> Plan RelMultiTab
+
+instance Show (Plan a) where
+  show (InputScalar sym int) = "InputScalar " <> show sym <> " " <> show int
+  show (InputSet sym int) = "InputSet " <> show sym <> " " <> show int
+  show (LoadTab rl val from to) = "LoadTab " <> show rl <> " " <> show val <>
+                                  " " <> show from <> " " <> show to
+  show (TabScalarLookup a b) = "TabScalarLookup (" <> show a <> ") (" <> show b <> ")"
+  show (TabSetUnionVals a b) = "TabSetUnionVals (" <> show a <> ") (" <> show b <> ")"
+  show (TabRestrictKeys tab set) = "TabRestrictKeys (" <> show tab <> ") (" <>
+                                   show set <> ")"
+  show (TabKeySet tab) = "TabKeySet (" <> show tab <> ")"
+  show (SetJoin a b) = "SetJoin (" <> show a <> ") (" <> show b <> ")"
+  show (SetScalarJoin a b) = "SetScalarJoin (" <> show a <> ") (" <> show b <>
+                             ")"
+  show (MkMultiTab a b) = "MkMultiTab (" <> show a <> ") (" <> show b <> ")"
+
+-- Type to hold the different possible Plan types while maintaining what the
+-- set of variables this plan operates under.
+data PlanHolder
+  = PH_SCALAR Variable (Plan RelScalar)
+  | PH_SET Variable (Plan RelSet)
+  | PH_TAB Variable Variable (Plan RelTab)
+  | PH_MULTITAB Variable [Variable] (Plan RelMultiTab)
+  deriving (Show)
+
+planHolderBinds :: PlanHolder -> Set Variable
+planHolderBinds (PH_SCALAR s _)          = S.singleton s
+planHolderBinds (PH_SET s _)             = S.singleton s
+planHolderBinds (PH_TAB from to _)       = S.fromList [from, to]
+planHolderBinds (PH_MULTITAB from tos _) = S.fromList (from:tos)
+
+-- -----------------------------------------------------------------------

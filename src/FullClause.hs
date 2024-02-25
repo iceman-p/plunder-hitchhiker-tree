@@ -2,11 +2,11 @@ module FullClause where
 
 import           ClassyPrelude
 
-import           Data.List            (foldl1')
-import           Data.Map             (Map)
-import           Data.Set             (Set)
+import           Data.List                  (foldl1')
+import           Data.Map                   (Map)
+import           Data.Set                   (Set)
 
-import           Safe                 (atMay, tailSafe)
+import           Safe                       (atMay, tailSafe)
 
 import           Impl.Index
 import           Impl.Leaf
@@ -15,22 +15,19 @@ import           Impl.Types
 import           Types
 import           Utils
 
-import           HitchhikerDatomStore
-
-import           Data.Maybe           (fromJust)
-
 import           Data.Sorted
 
+import           Query.HitchhikerDatomStore
 import           Query.Types
 
-import qualified HitchhikerMap        as HM
-import qualified HitchhikerSet        as HS
-import qualified HitchhikerSetMap     as HSM
+import qualified HitchhikerMap              as HM
+import qualified HitchhikerSet              as HS
+import qualified HitchhikerSetMap           as HSM
 
-import qualified Data.List            as L
-import qualified Data.Map             as M
-import qualified Data.Set             as S
-import qualified Data.Vector          as V
+import qualified Data.List                  as L
+import qualified Data.Map                   as M
+import qualified Data.Set                   as S
+import qualified Data.Vector                as V
 
 import qualified Data.Kind
 
@@ -41,145 +38,11 @@ import qualified Data.Kind
 
 -- None of this "rules passed in at run time" nonsense, rules should be compile
 -- time operations, duh.
-data RulePack
 
 -- -----------------------------------------------------------------------
 
--- This is the stupid evaluator. It is very stupid. Given a database and a list
--- of iclauses, it evaluates the query line by line, materializing everything
--- into rows immediately and then implementing all operations as full table
--- scans.
---
--- The point of the stupid evaluator is that it should be obviously correct
--- with little concern for runtime performance so that runs of the main
--- implementation can be checked against the stupid evaluator for
--- equivalence. The main engine which separates planning and evaluation is very
--- complicated, so we must convince ourselves it is correct by comparing it
--- against this.
 
--- TODO: [DataSources] instead of Database
-stupidEvaluator
-  :: Database -> [Rows] -> [RulePack] -> [Clause] -> [Variable]
-  -> Rows
-stupidEvaluator db inputs rulePacks clauses target = go inputs clauses
-  where
-    go inputs clauses = case (inputs, clauses) of
-      ([], [])    -> error "handle empty, empty"
-      ([r], [])   -> error "if r.vars and target are same, ok, otherwise err"
-      (x:y:rs, _) -> go ((stupidRowJoin x y):rs) clauses
-      ([r], cs)   -> evalWith r cs
-
-    evalWith :: Rows -> [Clause] -> Rows
-    evalWith r [] = projectRows target r
-    evalWith r (c:cs) = case c of
-      DataPattern (LC_XAZ eVar attr vVar) ->
-        let t = partialLookup (VAL_ATTR attr) (aev db)
-            newR = tabToRow eVar vVar t
-        in evalWith (stupidRowJoin r newR) cs
-
-      PredicateExpression (PREDICATE (PredBuiltin builtin) [pLeft, pRight]) ->
-        evalWith (runBuiltinPredicate builtin pLeft pRight r) cs
-
-projectRows :: [Variable] -> Rows -> Rows
-projectRows target (ROWS vars _ rows) = ROWS target [] $ L.nub $ map change rows
-  where
-    idxes = map (\a -> fromJust $ L.elemIndex a vars) target
-    change r = V.fromList $ map (r V.!) idxes
-
-getVariable :: Variable -> [Variable] -> Vector Value -> Value
-getVariable var vars row = row V.! (fromJust $ L.elemIndex var vars)
-
-runBuiltinPredicate :: BuiltinPred -> FnArg -> FnArg -> Rows -> Rows
-runBuiltinPredicate pred a b (ROWS vars _ rows) =
-  ROWS vars [] $ filter (match a b) rows
-  where
-    match (ARG_VAR argvar) (ARG_CONST val) row =
-      run pred (getVariable argvar vars row) val
-    match (ARG_VAR left) (ARG_VAR right) row =
-      run pred (getVariable left vars row) (getVariable right vars row)
-    match (ARG_CONST val) (ARG_VAR argvar) row =
-      run pred val (getVariable argvar vars row)
-
-    run B_LT lhs rhs  = lhs < rhs
-    run B_LTE lhs rhs = lhs <= rhs
-    run B_EQ lhs rhs  = lhs == rhs
-    run B_GTE lhs rhs = lhs >= rhs
-    run B_GT lhs rhs  = lhs >= rhs
-
-tabToRow :: Variable -> Variable -> HitchhikerSetMap Value Value -> Rows
-tabToRow from to setmap = ROWS [from, to] [] asRows
-  where
-    asRows = concat $ map step $ HM.toList $ HSM.toHitchhikerMap setmap
-
-    step :: (Value, HitchhikerSet Value) -> [Vector Value]
-    step (k, tops) = map (\a -> V.fromList [k, a]) $ HS.toList tops
-
--- Perform join by just exploding the cartesian products of tables in the most
--- naive way you can think of.
-stupidRowJoin :: Rows -> Rows -> Rows
-stupidRowJoin (ROWS lhs _ lhRow) (ROWS rhs _ rhRow)
-  | S.disjoint (S.fromList lhs) (S.fromList rhs)
-      -- If the two row's symbols are disjoint, this is just a simple cartesian
-      -- product with no other complications.
-      = ROWS (lhs ++ rhs) [] $ cartesianProduct (V.++) lhRow rhRow
-  | otherwise =
-      -- We have to check if
-      let (vars, overlap, leftCopy, rightCopy) = variableOverlap lhs rhs
-          rows = cartesianJoin overlap leftCopy rightCopy lhRow rhRow
-      in ROWS vars [] rows
-
-cartesianProduct :: (a -> b -> c) -> [a] -> [b] -> [c]
-cartesianProduct f x y = [f a b | a <- x, b <- y]
-
-cartesianJoin :: [(Int, Int)]
-              -> [Int]
-              -> [Int]
-              -> [Vector Value]
-              -> [Vector Value]
-              -> [Vector Value]
-cartesianJoin overlaps leftCopy rightCopy lhs rhs =
-  catMaybes $
-  cartesianProduct (vectorCompare overlaps leftCopy rightCopy) lhs rhs
-
-vectorCompare :: [(Int, Int)] -> [Int] -> [Int] -> Vector Value -> Vector Value
-              -> Maybe (Vector Value)
-vectorCompare checkIdxes lCopy rCopy l r = check checkIdxes
-  where
-    check [] = Just $ V.fromList $ (map (l V.!) lCopy ++ map (r V.!) rCopy)
-    check ((x,y):is) = if (l V.! x) /= (r V.! y)
-                       then Nothing
-                       else check is
-
--- Given two lists of variables, calculate the unified variables, the overlap
--- map (two indexes that point at the same variable) and the leftCopy/rightCopy
--- lists (lists of items to copy on match).
-variableOverlap :: [Variable] -> [Variable]
-                -> ([Variable], [(Int, Int)], [Int], [Int])
-variableOverlap leftVars rightVars =
-  (vars, overlap, leftCopy, rightCopy)
-  where
-    overlap = findOverlap (zip [0..] leftVars) []
-    leftCopy = [0..(length leftVars - 1)]
-    (rightCopy, rightCopyVars) = findRight (zip [0..] rightVars) [] []
-    vars = leftVars ++ rightCopyVars
-
-    findOverlap [] overlap = reverse overlap
-    findOverlap ((li,x):xs) overlap = case L.elemIndex x rightVars of
-      Nothing -> findOverlap xs overlap
-      Just ri -> findOverlap xs ((li,ri):overlap)
-
-    findRight [] idxes vars = (reverse idxes, reverse vars)
-    findRight ((idx,rv):ys) idxes vars =
-      if hasIdxInOverlap overlap idx
-      then findRight ys idxes vars
-      else findRight ys (idx:idxes) (rv:vars)
-
-    hasIdxInOverlap :: [(Int, Int)] -> Int -> Bool
-    hasIdxInOverlap [] _ = False
-    hasIdxInOverlap ((_, ridx):xs) ndl
-      | ndl == ridx = True
-      | otherwise = hasIdxInOverlap xs ndl
-
+{-
 tlhs = [
   VAR "?e",
   VAR "?name"
@@ -208,7 +71,7 @@ testStupidDisjoint = stupidRowJoin (ROWS tlhs [] lr) (ROWS trhs [] rr)
 -- Actually, it's correct that join with an empty is empty, isn't it? These are
 -- cartesian set operations.
 testEmptyJoin = stupidRowJoin (ROWS tlhs [] []) (ROWS trhs [] rr)
-
+-}
 
 
 db :: Database
@@ -228,6 +91,7 @@ db = foldl' add emptyDB datoms
       (3, ":nation", "English", 100, True)
       ]
 
+{-
 fullStupidEvalTest =
   stupidEvaluator
     db
@@ -236,6 +100,7 @@ fullStupidEvalTest =
     [DataPattern (LC_XAZ (VAR "?e") (ATTR ":aka") (VAR "?alias")),
      DataPattern (LC_XAZ (VAR "?e") (ATTR ":nation") (VAR "?nation"))]
     [VAR "?nation"]
+-}
 
 -- -----------------------------------------------------------------------
 
@@ -287,6 +152,7 @@ derpdb = foldl' add emptyDB datoms
 --        db
 --        ["twilight sparkle" "cute"] 100)
 
+{-
 fullDerpTagPlan =
   stupidEvaluator
     derpdb
@@ -303,6 +169,7 @@ fullDerpTagPlan =
      DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
      DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumburl") (VAR "?thumburl"))]
     [VAR "?derpid", VAR "?thumburl"]
+-}
 
 -- OK, this is technically correct. We need to have a select on this to really
 -- be done (which should unify down to a single item, but without the select,
@@ -316,7 +183,7 @@ ROWS [VAR "?tag",VAR "?amount",VAR "?e",VAR "?upvotes",VAR "?derpid",
 
 
 -- nuMkPlan :: [DataSource] -> [Binding] -> [RulePack] -> [Clause] -> [Symbol]
---          -> NuPlan
+--          -> Plan
 -- nuMkPlan sources inputs rulePacks clauses target = undefined
 
 -- Given a list of Clauses, how do you make an optimal graph out of them?
@@ -389,59 +256,13 @@ ROWS [VAR "?tag",VAR "?amount",VAR "?e",VAR "?upvotes",VAR "?derpid",
 --  Where the new MkMultiTab takes the two input tabs, a list of the output tab
 --  symbols to emit, and the predicates to run during
 
-data NuRelScalar = RSCALAR { sym :: Variable, val :: Value }
-  deriving (Show)
-data NuRelSet = RSET { sym :: Variable, val :: HitchhikerSet Value}
-  deriving (Show)
-data NuRelTab = RTAB { from :: Variable
-                     , to   :: Variable
-                     , val  :: HitchhikerSetMap Value Value}
-  deriving (Show)
-
-data NuRelation
-  = REL_SCALAR NuRelScalar
-  | REL_SET NuRelSet
-  | REL_TAB NuRelTab
-  deriving (Show)
-
-data NuPlan :: Data.Kind.Type -> Data.Kind.Type where
-  InputScalar :: Variable -> Int -> NuPlan NuRelScalar
-  InputSet    :: Variable -> Int -> NuPlan NuRelSet
-
-  LoadTab :: RowLookup -> Value -> Variable -> Variable -> NuPlan NuRelTab
-
-  TabScalarLookup :: NuPlan NuRelScalar -> NuPlan NuRelTab -> NuPlan NuRelSet
-  TabSetUnionVals :: NuPlan NuRelSet -> NuPlan NuRelTab -> NuPlan NuRelSet
-  TabRestrictKeys :: NuPlan NuRelTab -> NuPlan NuRelSet -> NuPlan NuRelTab
-  TabKeySet :: NuPlan NuRelTab -> NuPlan NuRelSet
-
-  SetJoin :: NuPlan NuRelSet -> NuPlan NuRelSet -> NuPlan NuRelSet
-  SetScalarJoin :: NuPlan NuRelSet -> NuPlan NuRelScalar -> NuPlan NuRelSet
-
---  MkMultiTab :: NuPlan NuRelTab -> NuPlan NuRelTab -> NuPlan NuRelMultiTab
-
-
-
-
-data NuPlanHolder
-  = PH_SCALAR Variable (NuPlan NuRelScalar)
-  | PH_SET Variable (NuPlan NuRelSet)
-  | PH_TAB Variable Variable (NuPlan NuRelTab)
-
-nuPlanHolderVars :: NuPlanHolder -> Set Variable
-nuPlanHolderVars (PH_SCALAR a _) = S.singleton a
-nuPlanHolderVars (PH_SET a _)    = S.singleton a
-nuPlanHolderVars (PH_TAB a b _)  = S.fromList [a, b]
-
-
-
 -- -- -----------------------------------------------------------------------
 
 
 -- -- Given the remaining clauses, attempt to unify two plans, possibly consuming
 -- -- additional future clauses and other plans.
--- nuUnify :: [Clause] -> [NuPlanHolder] -> NuPlanHolder -> NuPlanHolder
---         -> Maybe ([Clause], NuPlanHolder)
+-- nuUnify :: [Clause] -> [PlanHolder] -> PlanHolder -> PlanHolder
+--         -> Maybe ([Clause], PlanHolder)
 -- nuUnify clauses other lhs rhs = go lhs rhs
 --   where
 --     -- TODO: bothPreds cases are hard and will require the rows relation type
@@ -489,10 +310,10 @@ nuPlanHolderVars (PH_TAB a b _)  = S.fromList [a, b]
 
 --     -- ------------------------------------------------------------------------
 
---     unifySetAndSet :: (Variable, NuPlan NuRelSet)
---                    -> (Variable, NuPlan NuRelSet)
+--     unifySetAndSet :: (Variable, Plan RelSet)
+--                    -> (Variable, Plan RelSet)
 --                    -> [Predicate]
---                    -> Maybe NuPlanHolder
+--                    -> Maybe PlanHolder
 --     unifySetAndSet (lKey, lSet) (rKey, rSet) []
 --       | lKey /= rKey = Nothing
 --       | otherwise = Just $ PH_SET lKey $ SetJoin lSet rSet
@@ -506,8 +327,8 @@ nuPlanHolderVars (PH_TAB a b _)  = S.fromList [a, b]
 
 --     resolvePredicateForSet :: Variable
 --                            -> Predicate
---                            -> NuPlan NuRelSet
---                            -> NuPlan NuRelSet
+--                            -> Plan RelSet
+--                            -> Plan RelSet
 
 --     -- We have a list of predicates. We want to maximally remove
 
@@ -533,10 +354,10 @@ nuPlanHolderVars (PH_TAB a b _)  = S.fromList [a, b]
 -- -- TODO: Separating this into a lhs/rhs search might be wrong: imagine if
 -- -- there's a predicate that applies to both the lhs and rhs.
 -- findPromotablePredicates
---   :: [NuPlanHolder]
+--   :: [PlanHolder]
 --   -> [Clause]
---   -> NuPlanHolder
---   -> NuPlanHolder
+--   -> PlanHolder
+--   -> PlanHolder
 --   -> ([Clause], [Predicate], [Predicate], [Predicate])
 -- findPromotablePredicates bound clauses lhs rhs =
 --   (restClauses, lhPreds, rhPreds, bothPreds)

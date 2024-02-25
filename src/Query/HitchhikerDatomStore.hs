@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wno-partial-fields   #-}
 {-# OPTIONS_GHC -Wincomplete-patterns   #-}
 {-# LANGUAGE GADTs #-}
-module HitchhikerDatomStore where
+module Query.HitchhikerDatomStore where
 
 import           ClassyPrelude    hiding (lookup)
 
@@ -25,47 +25,6 @@ import qualified Data.Map         as M
 import qualified Data.Set         as S
 import qualified Data.Vector      as V
 
--- What are we building here? What's the purpose? We're making a hitchhiker
--- tree variant where for any six tuple, such as [e a v tx o], we have an
--- efficient way to minimize churn in the upper levels of the tree.
---
--- You need to think of this as a way to map [e a] -> [%{v}  [tx o]], with
--- hitchhiker entries [d e a v tx o] pushed down (or in some situations used
--- for quick short circuits on cardinality once).
-
--- As a convention in this file, all types are of the form [e a v tx o] even
--- though the code is written so it can be reused for the ave or vea indexes,
--- too.
-
-data EDatomRow e a v tx
-  = ERowIndex (TreeIndex e (EDatomRow e a v tx))
-              (Map e (ArraySet (a, v, tx, Bool)))
-  | ELeaf (Map e (ADatomRow a v tx))
-  deriving (Show, Generic, NFData)
-
--- TODO: Think about data locality. A lot. Right now VStorage's indirection
--- means that vs aren't stored next to each other when doing a simple a scan.
-data ADatomRow a v tx
-  = ARowIndex (TreeIndex a (ADatomRow a v tx))
-              (Map a (ArraySet (v, tx, Bool)))
-  | ALeaf (Map a (VStorage v tx))
-  deriving (Show, Generic, NFData)
-
--- At the end is VStorage: a set copy of the current existing values, and a
--- separate log of transactions.
-data VStorage v tx
-  -- Many values are going to be a single value that doesn't change; don't
-  -- allocate two hitchhiker trees to deal with them, just inline.
-  = VSimple v tx
-  -- We have multiple
-  | VStorage (Maybe (HitchhikerSetNode v)) (HitchhikerSetMapNode tx (v, Bool))
-  deriving (Show, Generic, NFData)
-
-data EAVRows e a v tx = EAVROWS {
-  config :: TreeConfig,
-  root   :: Maybe (EDatomRow e a v tx)
-  }
-  deriving (Show)
 
 emptyRows :: TreeConfig -> EAVRows e a v tx
 emptyRows config = EAVROWS config Nothing
@@ -408,22 +367,6 @@ partialLookup e (EAVROWS config (Just top)) = lookInENode mempty top
       in HITCHHIKERSETMAP config $ Just $ translate arow
 
 -- -----------------------------------------------------------------------
-
-type EAVStore = EAVRows Int Int Value Int
-
-data Database = DATABASE {
-  -- TODO: More restricted types.
-  eav :: EAVRows Value Value Value Int,
-  aev :: EAVRows Value Value Value Int,
-  ave :: EAVRows Value Value Value Int,
-  vae :: EAVRows Value Value Value Int
-
-  -- eav :: EAVRows Int Attr Value Int,
-  -- aev :: EAVRows Attr Int Value Int,
-  -- ave :: EAVRows Attr Value Int Int,
-  -- vae :: EAVRows Value Attr Int Int
-  }
-  deriving (Show)
 
 emptyDB :: Database
 emptyDB = DATABASE {
