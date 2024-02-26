@@ -259,238 +259,238 @@ ROWS [VAR "?tag",VAR "?amount",VAR "?e",VAR "?upvotes",VAR "?derpid",
 -- -- -----------------------------------------------------------------------
 
 
--- -- Given the remaining clauses, attempt to unify two plans, possibly consuming
--- -- additional future clauses and other plans.
--- nuUnify :: [Clause] -> [PlanHolder] -> PlanHolder -> PlanHolder
---         -> Maybe ([Clause], PlanHolder)
--- nuUnify clauses other lhs rhs = go lhs rhs
---   where
---     -- TODO: bothPreds cases are hard and will require the rows relation type
---     -- so punt for now. You can't implement them on top of multitab so you must
---     -- fall back to rows.
---     (restClauses, lhPreds, rhPreds, bothPreds) =
---       findPromotablePredicates other clauses lhs rhs
+-- Given the remaining clauses, attempt to unify two plans, possibly consuming
+-- additional future clauses and other plans.
+nuUnify :: [Clause] -> [PlanHolder] -> PlanHolder -> PlanHolder
+        -> Maybe ([Clause], PlanHolder)
+nuUnify clauses other lhs rhs = go lhs rhs
+  where
+    -- TODO: bothPreds cases are hard and will require the rows relation type
+    -- so punt for now. You can't implement them on top of multitab so you must
+    -- fall back to rows.
+    (restClauses, lhPreds, rhPreds, bothPreds) =
+      findPromotablePredicates other clauses lhs rhs
 
---     -- If a predicate is promoted to this unify, it implies it's not used "in
---     -- the future"; if the variables were used anywhere else, before or after,
---     -- it wouldn't have been promoted in the first place.
---     inFuture a = S.member a $ S.unions $ map iclauseUses restClauses
+    -- If a predicate is promoted to this unify, it implies it's not used "in
+    -- the future"; if the variables were used anywhere else, before or after,
+    -- it wouldn't have been promoted in the first place.
+    inFuture a = S.member a $ S.unions $ map clauseUses restClauses
 
---     -- All cases of trying to unify two plans, with promoted predicates.
---     go lhs rhs = fmap (\a -> (restClauses, a)) $ case (lhs, rhs) of
---         (PH_SET sKey sSet, PH_TAB tFrom tTo tTab) ->
---           unifyTabAndSet (tFrom, tTo, tTab) (sKey, sSet) rhPreds lhPreds []
+    -- All cases of trying to unify two plans, with promoted predicates.
+    go lhs rhs = fmap (\a -> (restClauses, a)) $ case (lhs, rhs) of
+        (PH_SET sKey sSet, PH_TAB tFrom tTo tTab) ->
+          unifyTabAndSet (tFrom, tTo, tTab) (sKey, sSet) rhPreds lhPreds []
 
---         -- (PH_TAB lhFrom lhTo lht, PH_SET rhSymb rhv, lp, rp, [])
---         --   | lhFrom == rhSymb && inFuture lhFrom && inFuture lhTo ->
---         --       Just $ PH_TAB
+        -- (PH_TAB lhFrom lhTo lht, PH_SET rhSymb rhv, lp, rp, [])
+        --   | lhFrom == rhSymb && inFuture lhFrom && inFuture lhTo ->
+        --       Just $ PH_TAB
 
---         _ -> undefined
+        _ -> undefined
 
---     -- You're trying to unify a tab and a set. Maybe one side or both have a
---     -- predicate. (Maybe both have a predicate, but we can't handle that case
---     -- yet.)
---     unifyTabAndSet (tFrom, tTo, tTab) (sKey, sSet) []{-tPred-} []{-sPred-} []
---       --
---       -- TODO: I am NOT handling predicates yet, I need to reenable tPred/sPred
---       -- above and handle them below.
---       --
---       | tFrom == sKey && inFuture tFrom && inFuture tTo =
---           -- All keys are in the future, there can't be any predicates.
---           Just $ PH_TAB tFrom tTo $ TabRestrictKeys tTab sSet
---       | tFrom == sKey && inFuture tFrom =
---           -- OK, here we have a list of predicates
---           -- case tPred of
---           --   []
---           Just $ PH_SET tFrom $ SetJoin (TabKeySet tTab) sSet
---       | tFrom == sKey && inFuture tTo =
---           Just $ PH_SET tTo $ TabSetUnionVals sSet tTab
---       | tFrom == sKey = error "wtf is this case; both from and to not used?"
---       | otherwise = error "Handle all the lhTo cases."
+    -- You're trying to unify a tab and a set. Maybe one side or both have a
+    -- predicate. (Maybe both have a predicate, but we can't handle that case
+    -- yet.)
+    unifyTabAndSet (tFrom, tTo, tTab) (sKey, sSet) []{-tPred-} []{-sPred-} []
+      --
+      -- TODO: I am NOT handling predicates yet, I need to reenable tPred/sPred
+      -- above and handle them below.
+      --
+      | tFrom == sKey && inFuture tFrom && inFuture tTo =
+          -- All keys are in the future, there can't be any predicates.
+          Just $ PH_TAB tFrom tTo $ TabRestrictKeys tTab sSet
+      | tFrom == sKey && inFuture tFrom =
+          -- OK, here we have a list of predicates
+          -- case tPred of
+          --   []
+          Just $ PH_SET tFrom $ SetJoin (TabKeySet tTab) sSet
+      | tFrom == sKey && inFuture tTo =
+          Just $ PH_SET tTo $ TabSetUnionVals sSet tTab
+      | tFrom == sKey = error "wtf is this case; both from and to not used?"
+      | otherwise = error "Handle all the lhTo cases."
 
---     -- ------------------------------------------------------------------------
+    -- ------------------------------------------------------------------------
 
---     unifySetAndSet :: (Variable, Plan RelSet)
---                    -> (Variable, Plan RelSet)
---                    -> [Predicate]
---                    -> Maybe PlanHolder
---     unifySetAndSet (lKey, lSet) (rKey, rSet) []
---       | lKey /= rKey = Nothing
---       | otherwise = Just $ PH_SET lKey $ SetJoin lSet rSet
+    unifySetAndSet :: (Variable, Plan RelSet)
+                   -> (Variable, Plan RelSet)
+                   -> [Predicate]
+                   -> Maybe PlanHolder
+    unifySetAndSet (lKey, lSet) (rKey, rSet) []
+      | lKey /= rKey = Nothing
+      | otherwise = Just $ PH_SET lKey $ SetJoin lSet rSet
 
---     unifySetAndSet (lKey, lSet) (rKey, rSet) (p:ps)
---       | lKey /= rKey = Nothing
---       | otherwise = undefined
---         -- We have set predicates here. We have to resolve the
+    unifySetAndSet (lKey, lSet) (rKey, rSet) (p:ps)
+      | lKey /= rKey = Nothing
+      | otherwise = undefined
+        -- We have set predicates here. We have to resolve the
 
---     -- During predicate resolving, we might need to bind the
+    -- During predicate resolving, we might need to bind the
 
---     resolvePredicateForSet :: Variable
---                            -> Predicate
---                            -> Plan RelSet
---                            -> Plan RelSet
+    -- resolvePredicateForSet :: Variable
+    --                        -> Predicate
+    --                        -> Plan RelSet
+    --                        -> Plan RelSet
 
---     -- We have a list of predicates. We want to maximally remove
-
-
-
---   -- What's the equivalent of the old inFuture in this new world? We're trying
---   -- to determine
+    -- We have a list of predicates. We want to maximally remove
 
 
 
+  -- What's the equivalent of the old inFuture in this new world? We're trying
+  -- to determine
 
 
---   -- (PH_TAB lhFrom lhTo lhTab, PH_TAB rhFrom rhTo rhTab) ->
---   --   -- let predicatesA = findPredicates lhFrom lhTo rhFrom rhTo
---   --   -- in
---   --     undefined
-
--- -- Given a possible join, figure out what predicates we can attach to this join
--- -- step. Predicates can either affect the left plan, the right plan, or require
--- -- data from both plans. Also returns the new list of clauses with all
--- -- promotable predicates removed.
--- --
--- -- TODO: Separating this into a lhs/rhs search might be wrong: imagine if
--- -- there's a predicate that applies to both the lhs and rhs.
--- findPromotablePredicates
---   :: [PlanHolder]
---   -> [Clause]
---   -> PlanHolder
---   -> PlanHolder
---   -> ([Clause], [Predicate], [Predicate], [Predicate])
--- findPromotablePredicates bound clauses lhs rhs =
---   (restClauses, lhPreds, rhPreds, bothPreds)
---   where
---     boundVars = S.unions $ map nuPlanHolderVars bound
---     lhsVars = S.union boundVars $ nuPlanHolderVars lhs
---     rhsVars = S.union boundVars $ nuPlanHolderVars rhs
-
---     (clauses2, lhPreds) = findSinglePred lhsVars clauses
---     (clauses3, rhPreds) = findSinglePred rhsVars clauses2
---     -- todo: double sided checks, where one symbol on each side has to be
---     -- compared. this part is separate because having a bothPreds often
---     (restClauses, bothPreds) = (clauses3, [])
 
 
---     -- vars is the variables of the item being merged.
 
---     findSinglePred :: Set Variable -> [Clause]
---                    -> ([Clause], [Predicate])
---     findSinglePred boundVars = go [] []
---       where
---         go :: [Predicate] -> [Clause] -> [Clause] -> ([Clause], [Predicate])
---         go outputPreds before [] = (reverse before, outputPreds)
---         go outputPreds before (clause:after) = case clause of
---           PredicateExpression p@(PREDICATE _ fnArgs)
---             | canPromotePredicate boundVars before after fnArgs ->
---                 go (p:outputPreds) before after
---             | otherwise -> go outputPreds (clause:before) after
---           _ -> go outputPreds (clause:before) after
+  -- (PH_TAB lhFrom lhTo lhTab, PH_TAB rhFrom rhTo rhTab) ->
+  --   -- let predicatesA = findPredicates lhFrom lhTo rhFrom rhTo
+  --   -- in
+  --     undefined
 
--- -- You can promote a predicate if all its args are bound, and those arguments
--- -- aren't used by antyhing but other predicates or functions as input.
--- --
--- canPromotePredicate :: Set Variable
---                     -> [Clause]
---                     -> [Clause]
---                     -> [FnArg]
---                     -> Bool
--- canPromotePredicate boundVars beforeClause afterClause fnArg =
---   (S.intersection beforeVars argVars == S.empty) &&
---   (S.intersection afterVars argVars == S.empty) &&
---   (S.difference argVars boundVars == S.empty)
---   where
---     argVars = S.fromList $ join $ map fnArgToVariable fnArg
---     beforeVars = S.unions $ map clauseUses beforeClause
---     afterVars = S.unions $ map clauseUses afterClause
+-- Given a possible join, figure out what predicates we can attach to this join
+-- step. Predicates can either affect the left plan, the right plan, or require
+-- data from both plans. Also returns the new list of clauses with all
+-- promotable predicates removed.
+--
+-- TODO: Separating this into a lhs/rhs search might be wrong: imagine if
+-- there's a predicate that applies to both the lhs and rhs.
+findPromotablePredicates
+  :: [PlanHolder]
+  -> [Clause]
+  -> PlanHolder
+  -> PlanHolder
+  -> ([Clause], [Predicate], [Predicate], [Predicate])
+findPromotablePredicates bound clauses lhs rhs =
+  (restClauses, lhPreds, rhPreds, bothPreds)
+  where
+    boundVars = S.unions $ map planHolderBinds bound
+    lhsVars = S.union boundVars $ planHolderBinds lhs
+    rhsVars = S.union boundVars $ planHolderBinds rhs
+
+    (clauses2, lhPreds) = findSinglePred lhsVars clauses
+    (clauses3, rhPreds) = findSinglePred rhsVars clauses2
+    -- todo: double sided checks, where one symbol on each side has to be
+    -- compared. this part is separate because having a bothPreds often
+    (restClauses, bothPreds) = (clauses3, [])
+
+
+    -- vars is the variables of the item being merged.
+
+    findSinglePred :: Set Variable -> [Clause]
+                   -> ([Clause], [Predicate])
+    findSinglePred boundVars = go [] []
+      where
+        go :: [Predicate] -> [Clause] -> [Clause] -> ([Clause], [Predicate])
+        go outputPreds before [] = (reverse before, outputPreds)
+        go outputPreds before (clause:after) = case clause of
+          PredicateExpression p@(PREDICATE _ fnArgs)
+            | canPromotePredicate boundVars before after fnArgs ->
+                go (p:outputPreds) before after
+            | otherwise -> go outputPreds (clause:before) after
+          _ -> go outputPreds (clause:before) after
+
+-- You can promote a predicate if all its args are bound, and those arguments
+-- aren't used by antyhing but other predicates or functions as input.
+--
+canPromotePredicate :: Set Variable
+                    -> [Clause]
+                    -> [Clause]
+                    -> [FnArg]
+                    -> Bool
+canPromotePredicate boundVars beforeClause afterClause fnArg =
+  (S.intersection beforeVars argVars == S.empty) &&
+  (S.intersection afterVars argVars == S.empty) &&
+  (S.difference argVars boundVars == S.empty)
+  where
+    argVars = S.fromList $ join $ map fnArgToVariable fnArg
+    beforeVars = S.unions $ map clauseUses beforeClause
+    afterVars = S.unions $ map clauseUses afterClause
 
 
 -- -- -----------------------------------------------------------------------
 
--- -- (db/q '[:find ?derpid ?thumburl
--- --         :in $ [?tag ...] ?amount
--- --         :where
--- --         [?e :derp/tag ?tag]
--- --         [?e :derp/upvotes ?upvotes]
--- --         [?e :derp/id ?derpid]
--- --         [(> ?upvotes ?amount)]
--- --         [?e :derp/thumburl ?thumburl]]
--- --        db
--- --        ["twilight sparkle" "cute"] 100)
+-- (db/q '[:find ?derpid ?thumburl
+--         :in $ [?tag ...] ?amount
+--         :where
+--         [?e :derp/tag ?tag]
+--         [?e :derp/upvotes ?upvotes]
+--         [?e :derp/id ?derpid]
+--         [(> ?upvotes ?amount)]
+--         [?e :derp/thumburl ?thumburl]]
+--        db
+--        ["twilight sparkle" "cute"] 100)
 
--- --
--- -- TODO: What's next? We have to turn the above into a test case where a
--- -- artificially build out the steps for
+--
+-- TODO: What's next? We have to turn the above into a test case where a
+-- artificially build out the steps for
 
--- -- Q: boundRelations should not include lhs and rhs.
--- promotableTest = findPromotablePredicates bounds clauses lhs rhs
---   where
---     -- Things bound which aren't lhs or rhs that need to be unified with.
---     bounds = [PH_SCALAR (VAR "?amount") $ InputScalar (VAR "?amount") 100]
+-- Q: boundRelations should not include lhs and rhs.
+promotableTest = findPromotablePredicates bounds clauses lhs rhs
+  where
+    -- Things bound which aren't lhs or rhs that need to be unified with.
+    bounds = [PH_SCALAR (VAR "?amount") $ InputScalar (VAR "?amount") 100]
 
---     -- The two join candidates that we're searching for matches for:
---     -- We have consumed and unified [?tag...] with [?e :derp/tag ?tag] at this
---     -- point.
---     lhs = PH_SET (VAR "?e")
---       $ (TabSetUnionVals
---        (InputSet (VAR "?tag") 0)
---        (LoadTab USE_AVE (VAL_ATTR (ATTR ":derp/tag")) (VAR "?tag") (VAR "?e")))
+    -- The two join candidates that we're searching for matches for:
+    -- We have consumed and unified [?tag...] with [?e :derp/tag ?tag] at this
+    -- point.
+    lhs = PH_SET (VAR "?e")
+      $ (TabSetUnionVals
+       (InputSet (VAR "?tag") 0)
+       (LoadTab USE_AVE (VAL_ATTR (ATTR ":derp/tag")) (VAR "?tag") (VAR "?e")))
 
---     rhs = PH_TAB (VAR "?e") (VAR "?upvotes")
---         $ LoadTab USE_AEV (VAL_ATTR (ATTR ":derp/upvotes")) (VAR "?e")
---                   (VAR "?upvotes")
+    rhs = PH_TAB (VAR "?e") (VAR "?upvotes")
+        $ LoadTab USE_AEV (VAL_ATTR (ATTR ":derp/upvotes")) (VAR "?e")
+                  (VAR "?upvotes")
 
---     -- The remaining clauses to check in the
---     clauses = [
---       DataPattern $ LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid"),
---       PredicateExpression $ PREDICATE
---           (PredBuiltin B_GT)
---           [(ARG_VAR (VAR "?upvotes")), (ARG_VAR (VAR "?amount"))],
---       DataPattern $ LC_XAZ (VAR "?e") (ATTR ":derp/thumburl") (VAR "?thumburl")
---       ]
+    -- The remaining clauses to check in the
+    clauses = [
+      DataPattern $ LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid"),
+      PredicateExpression $ PREDICATE
+          (PredBuiltin B_GT)
+          [(ARG_VAR (VAR "?upvotes")), (ARG_VAR (VAR "?amount"))],
+      DataPattern $ LC_XAZ (VAR "?e") (ATTR ":derp/thumburl") (VAR "?thumburl")
+      ]
 
--- {-
--- -- YES! I have predicate promotion (for one sided predicates). But how do I use
--- -- this?
+{-
+-- YES! I have predicate promotion (for one sided predicates). But how do I use
+-- this?
 
--- ([DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
---   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumburl") (VAR "?thumburl"))],
+([DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
+  DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumburl") (VAR "?thumburl"))],
 
---  --
---  [],
---  [PREDICATE (PredBuiltin B_GT) [ARG_VAR (VAR "?upvotes"),
---                                 ARG_VAR (VAR "?amount")]],
---  [])
--- -}
+ --
+ [],
+ [PREDICATE (PredBuiltin B_GT) [ARG_VAR (VAR "?upvotes"),
+                                ARG_VAR (VAR "?amount")]],
+ [])
+-}
 
--- -- -----------------------------------------------------------------------
+-- -----------------------------------------------------------------------
 
--- -- Let's take a step back: what does the evaluation step look like?
--- {-
+-- Let's take a step back: what does the evaluation step look like?
+{-
 
--- go (SetFilterPredicate B_LTE val pset) =
---   let (RSET sym s) = go pset
---   in RSET sym $ HS.takeWhileAntitone (< val) s
+go (SetFilterPredicate B_LTE val pset) =
+  let (RSET sym s) = go pset
+  in RSET sym $ HS.takeWhileAntitone (< val) s
 
--- So what does the processing look like that generates the above from
--- `(PREDICATE (PredBuiltin B_LTE) [(ARG_VAR (VAR "?upvotes")),
---                                  (ARG_VAR (VAR "?amount"))])` ?
+So what does the processing look like that generates the above from
+`(PREDICATE (PredBuiltin B_LTE) [(ARG_VAR (VAR "?upvotes")),
+                                 (ARG_VAR (VAR "?amount"))])` ?
 
--- Let's say we've determined that the set of ?upvotes has to be filtered by the
--- above predicate. How do we change that into
+Let's say we've determined that the set of ?upvotes has to be filtered by the
+above predicate. How do we change that into
 
--- -}
+-}
 
--- -- -----------------------------------------------------------------------
+-- -----------------------------------------------------------------------
 
--- {-
+{-
 
--- Maybe I've just coded myself into a corner. Some facts:
+Maybe I've just coded myself into a corner. Some facts:
 
--- - I've got the
+- I've got the
 
--- -
+-
 
 
--- -}
+-}
