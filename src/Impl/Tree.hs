@@ -286,6 +286,47 @@ setlistMaplistIntersect partial ao@(a:as) bo@(b:bs) =
            | otherwise ->
                filteredBy (toSet (a:partial)) $ setlistMaplistIntersect [] ao bs
 
+setlistMaplistIntersectWithPred :: forall k v
+         . (Show k, Ord k, Show v)
+        => (k -> v -> Bool)
+        -> [ArraySet k]
+        -> [ArraySet k]
+        -> [Map k v]
+        -> [Map k v]
+setlistMaplistIntersectWithPred func _ a []                = []
+setlistMaplistIntersectWithPred func [] [] b                = []
+setlistMaplistIntersectWithPred func partial ao@(a:as) bo@(b:bs) =
+    let aMin = ssetFindMin a
+        aMax = ssetFindMax a
+        bMin = fst $ M.findMin b
+        bMax = fst $ M.findMax b
+        overlap = aMin <= bMax && bMin <= aMax
+
+        filteredBy s rest = let f = M.restrictKeys b s
+                            in if M.null f
+                               then rest
+                               else let ff = M.filterWithKey func f
+                                    in if M.null ff
+                                       then rest
+                                       else ff:rest
+
+        toSet :: [ArraySet k] -> Set k
+        toSet = foldl' S.union S.empty . map (S.fromList . ssetToAscList)
+
+    in case (partial, overlap) of
+         ([], False)
+           | aMax > bMax -> setlistMaplistIntersect [] ao bs
+           | otherwise   -> setlistMaplistIntersect [] as bo
+         (partial, False) -> error "Should be impossible"
+         (partial, True)
+           | aMax == bMax ->
+               filteredBy (toSet (a:partial)) $ setlistMaplistIntersect [] as bs
+           | aMax < bMax ->
+               setlistMaplistIntersect (a:partial) as bo
+           | otherwise ->
+               filteredBy (toSet (a:partial)) $ setlistMaplistIntersect [] ao bs
+
+
 -- With maplist x maplist, we have to also have a mapping function for when
 -- there's an intersection.
 maplistMaplistIntersect

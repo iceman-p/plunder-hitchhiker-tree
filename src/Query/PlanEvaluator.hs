@@ -75,6 +75,15 @@ evalPlan inputs db = runFromPlanHolder
       let (RTAB from _ tab) = go ptab
       in RSET from $ HSM.toKeySet tab
 
+    go (FilterValsTabRestrictKeys ppred ptab pset) =
+      let (RTAB from to tab) = go ptab
+          (RSET sym set) = go pset
+          (PUPRED predvars predfunc) = go ppred
+      -- OK, pred has to be some sort of plan that we also evaluate here. We
+      -- have to take
+
+      in RTAB from to $ undefined "TODO"  -- HSM.restrictKeys set tab
+
     go (SetJoin pa pb) =
       let ea = go pa
           eb = go pb

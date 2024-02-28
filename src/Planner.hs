@@ -193,11 +193,15 @@ rhJoin future l r = case (l, r) of
 derpTagPlan = mkPlan
   [B_COLLECTION (VAR "?tag"), B_SCALAR (VAR "?amount")]
   [DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/tag") (VAR "?tag")),
-   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes")),
+   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes"))
+--  ,
    -- C_PREDICATE (whole bundle of hurt)
-   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
-   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumbnail") (VAR "?thumburl"))]
-  (S.fromList [(VAR "?derpid"), (VAR "?thumburl")])
+   -- DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
+   -- DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumbnail") (VAR "?thumburl"))
+  ]
+  -- (S.fromList [(VAR "?derpid"), (VAR "?thumburl")])
+  (S.fromList [(VAR "?e"), (VAR "?upvotes")])
+--  (S.fromList [(VAR "?e")])
 
 {-
 

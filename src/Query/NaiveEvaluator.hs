@@ -50,7 +50,7 @@ naiveEvaluator db inputs rulePacks clauses target = go inputs clauses
             newR = tabToRow eVar vVar t
         in evalWith (naiveRowJoin r newR) cs
 
-      PredicateExpression (PREDICATE (PredBuiltin builtin) [pLeft, pRight]) ->
+      BiPredicateExpression builtin pLeft pRight ->
         evalWith (runBuiltinPredicate builtin pLeft pRight r) cs
 
 projectRows :: [Variable] -> Rows -> Rows

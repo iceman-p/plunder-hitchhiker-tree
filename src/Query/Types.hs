@@ -189,6 +189,13 @@ data RelTab = RTAB { from :: Variable
                    , val  :: HitchhikerSetMap Value Value}
   deriving (Show)
 
+-- A unipredicate takes one value
+data PlanUniPredicate = PUPRED { arg :: Variable
+                               , fun :: Value -> Bool }
+
+instance Show PlanUniPredicate where
+  show (PUPRED args _) = "PUPRED " <> show args
+
 -- A table from one key symbol to multiple value symbols. Since so many queries
 -- end with a series of lookups on a entity id, this often saves
 -- operations. This should be read as a mapping from `from` to the Cartesian
@@ -239,15 +246,23 @@ data Clause
 
   -- The ExpressionClause
   | DataPattern LoadClause
-  | PredicateExpression Predicate
+
+  -- The simpler predicate for building things out.
+  --
+  -- TODO: Enable full blows PredicateExpression with unbounded arity later.
+  | BiPredicateExpression BuiltinPred FnArg FnArg
+  -- | PredicateExpression Predicate
+
   | FunctionExpression Func [FnArg] [Binding]
   | RuleExpression -- big question mark.
   deriving (Show)
 
 clauseUses :: Clause -> Set Variable
 clauseUses (DataPattern load)                         = loadClauseBinds load
-clauseUses (PredicateExpression (PREDICATE x fnArgs)) =
-  S.fromList $ join $ map fnArgToVariable fnArgs
+clauseUses (BiPredicateExpression _ a b) =
+  S.fromList $ join [fnArgToVariable a, fnArgToVariable b]
+-- clauseUses (PredicateExpression (PREDICATE x fnArgs)) =
+--   S.fromList $ join $ map fnArgToVariable fnArgs
 
 -- Or and OrJoin have different rules around clauses. Ironically, the only
 -- place you must explicitly state 'and' is inside an 'or'.
@@ -266,6 +281,8 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
   InputScalar :: Variable -> Int -> Plan RelScalar
   InputSet    :: Variable -> Int -> Plan RelSet
 
+  InputConst :: Value -> Plan RelScalar
+
   LoadTab :: RowLookup -> Value -> Variable -> Variable -> Plan RelTab
 
   TabScalarLookup :: Plan RelScalar -> Plan RelTab -> Plan RelSet
@@ -273,10 +290,32 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
   TabRestrictKeys :: Plan RelTab -> Plan RelSet -> Plan RelTab
   TabKeySet :: Plan RelTab -> Plan RelSet
 
+  -- Filter versions of tab operations that also check a predicate.
+  FilterValsTabRestrictKeys :: Plan PlanUniPredicate
+                            -> Plan RelTab -> Plan RelSet -> Plan RelTab
+   -- (Value -> HitchhikerSet Value -> Bool)
+
   SetJoin :: Plan RelSet -> Plan RelSet -> Plan RelSet
   SetScalarJoin :: Plan RelSet -> Plan RelScalar -> Plan RelSet
 
   MkMultiTab :: Plan RelTab -> Plan RelTab -> Plan RelMultiTab
+
+  -- What does Prepare predicate have to represent? We need
+
+  -- Since our arguments might
+  PrepareLHSBiPredicate :: Variable -> Plan a
+                        -> (Value -> Value -> Bool) -> Plan PlanUniPredicate
+
+  -- Imagine you are the
+
+-- (FilterValsTabRestrictKeys
+--    (PrepareLHSBiPred
+--       (VAR "?upvotes")
+--       (InputScalar (VAR "?amount") 1)
+--       (<))
+--    (
+
+
 
 instance Show (Plan a) where
   show (InputScalar sym int) = "InputScalar " <> show sym <> " " <> show int

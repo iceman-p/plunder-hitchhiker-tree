@@ -260,6 +260,26 @@ restrictKeys (HITCHHIKERSET sConfig (Just a))
     as = getLeafList HS.hhSetTF a
     bs = getLeafList (hhSetMapTF mConfig) b
 
+restrictKeysWithPred :: forall k v
+                      . (Show k, Show v, Ord k, Ord v)
+                     => (k -> HitchhikerSet v -> Bool)
+                     -> HitchhikerSet k
+                     -> HitchhikerSetMap k v
+                     -> HitchhikerSetMap k v
+restrictKeysWithPred _ _ orig@(HITCHHIKERSETMAP _ Nothing) = orig
+
+restrictKeysWithPred _ (HITCHHIKERSET _ Nothing) (HITCHHIKERSETMAP config _) =
+  HitchhikerSetMap.empty config
+
+restrictKeysWithPred func (HITCHHIKERSET sConfig (Just a))
+                          (HITCHHIKERSETMAP mConfig (Just b)) =
+  fromLeafMaps mConfig $ setlistMaplistIntersectWithPred convertFunc [] as bs
+  where
+    as = getLeafList HS.hhSetTF a
+    bs = getLeafList (hhSetMapTF mConfig) b
+
+    convertFunc k (NAKEDSET n) = func k (HITCHHIKERSET sConfig n)
+
 toKeySet :: forall k v
           . (Show k, Show v, Ord k, Ord v)
          => HitchhikerSetMap k v
