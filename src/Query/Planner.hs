@@ -1,44 +1,17 @@
-module Planner where
+module Query.Planner where
 
 import           ClassyPrelude
-
-import           Data.Map                   (Map)
-import           Data.Set                   (Set)
-
-import           Safe                       (atMay, tailSafe)
-
-import           Impl.Index
-import           Impl.Leaf
-import           Impl.Tree
-import           Impl.Types
-import           Types
-import           Utils
 
 import           Query.HitchhikerDatomStore
 import           Query.PlanEvaluator
 import           Query.Types
 
-import           Data.Sorted
-
-
-
-import qualified HitchhikerMap              as HM
-import qualified HitchhikerSet              as HS
-import qualified HitchhikerSetMap           as HSM
-
-import qualified Data.Map                   as M
 import qualified Data.Set                   as S
-import qualified Data.Vector                as V
 
--- TAKE 2 of all the things related to planning.
-
--- -----------------------------------------------------------------------
-
-
-
--- TODO: Variables should actually only be referred to below, during mkPlan. We
--- don't actually care about symbols during the execution of the Plan (though
--- we might still keep them there for debug dumping purposes).
+-- Planner try 3
+--
+-- This Planner can be thought of as analogous to the first planner sketch I
+-- made, but with predicate handling where we only
 
 data Direction
   = FORWARDS
@@ -83,15 +56,61 @@ mkPlan bindingInputs clauses target =
                        $ TabKeySet
                        $ LoadTab USE_AEV (VAL_ATTR attr) eSymb vSymb
               in go (joinAll (rhJoin future) (load:inputs)) cs
-            RIGHT_ONLY -> error "RIGHT_ONLY todo"
+            RIGHT_ONLY ->
+              let load = PH_SET vSymb
+                       $ TabKeySet
+                       $ LoadTab USE_AVE (VAL_ATTR attr) vSymb eSymb
+              in go (joinAll (rhJoin future) (load:inputs)) cs
             IRRELEVANT -> go inputs cs
+        (BiPredicateExpression pred arg1 arg2) ->
+          -- We're a predicate. We look at the current state of the tree to try
+          -- to transform that tree into a structure with specialized predicate
+          -- supports, but otherwise
+          case (arg1, arg2) of
+            (ARG_VAR var1, ARG_VAR var2) ->
+              -- This is the kind of complicated one because
+              error "both are variables"
+            (ARG_CONST const1, ARG_VAR var2) ->
+              go (map (applyPredCV pred const1 var2) inputs) cs
+            (ARG_VAR var1, ARG_CONST const2) -> error "compare against const"
+            (ARG_CONST const1, ARG_CONST const2) ->
+              error "degenerate case; i hate you."
+
+    applyPredCV :: BuiltinPred -> Value -> Variable -> PlanHolder -> PlanHolder
+    applyPredCV pred const1 var2 ph
+      | not $ S.member var2 $ planHolderBinds ph = ph
+      | otherwise = case ph of
+          -- TODO: this isn't general, this is to support one very specific
+          -- query.
+
+          --
+          -- TODO: Continue here once I've made th
+
+--          (PH_SET s (TabKeySet tab)) -> (PH_SET s (TabKeySet $ filter
+
+          -- TODO: Finish here!
+          --
+          -- (PH_SET s (SetJoin lhs rhs))
+          --   | s == var2 -> PH_SET s (SetJoin
+          --                           -- TODO: Can't recur like this because
+          --                           -- these are the actual sets. Damn.
+          --                            (applyPredCV pred const1 var2 lhs)
+          --                            (applyPredCV pred const1 var2 rhs))
+          _               -> undefined
+
+    -- applyPredToPlanSet :: BuiltinPred -> Value -> Variable
+    --                    -> Plan RelSet
+    --                    -> Plan RelSet
+    -- applyPredToPlanSet pred const1 var2 (TabKeySet ptab) =
+
 
     startingInputs = map bindToPlan $ zip [0..] bindingInputs
 
     bindToPlan (i, B_SCALAR symb)     = PH_SCALAR symb $ InputScalar symb i
     bindToPlan (i, B_COLLECTION symb) = PH_SET symb $ InputSet symb i
 
-    direction :: Variable -> Variable -> Set Variable -> Set Variable -> Direction
+    direction :: Variable -> Variable -> Set Variable -> Set Variable
+              -> Direction
     direction leftS rightS past future
       | S.member leftS future && S.member rightS future =
           -- FORWARDS is a cop out, we need to make a decision about what
@@ -171,13 +190,29 @@ rhJoin future l r = case (l, r) of
     | elem rhSymb valSymbs -> error "Handle multitab value scalar"
     | otherwise -> Nothing
 
+  (PH_ROWS lSymb lSort lRows, PH_ROWS rSymb rSort rRows) -> undefined
+
   (a, b) -> error $ "TODO: Unhandled rhJoin case: " <> show a <> " <--> "
                  <> show b
   where
     inFuture = flip S.member future
 
--- -----------------------------------------------------------------------
 
+
+
+
+
+
+
+
+
+-- This is the integrated planner.
+
+-- So we're back here again: we have a bunch of clauses and we have to build a
+-- plan out of them.
+
+
+-- I'm really building a dependency graph here.
 
 -- (db/q '[:find ?derpid ?thumburl
 --         :in $ [?tag ...] ?amount
@@ -190,137 +225,112 @@ rhJoin future l r = case (l, r) of
 --        db
 --        ["twilight sparkle" "cute"] 100)
 
-derpTagPlan = mkPlan
-  [B_COLLECTION (VAR "?tag"), B_SCALAR (VAR "?amount")]
-  [DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/tag") (VAR "?tag")),
-   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes"))
---  ,
-   -- C_PREDICATE (whole bundle of hurt)
-   -- DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
-   -- DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumbnail") (VAR "?thumburl"))
-  ]
-  -- (S.fromList [(VAR "?derpid"), (VAR "?thumburl")])
-  (S.fromList [(VAR "?e"), (VAR "?upvotes")])
---  (S.fromList [(VAR "?e")])
 
-{-
-
-PH_MULTITAB (VAR "?e") [SYM "?thumburl",SYM "?derpid"]
-  MkMultiTab
-    (LoadTab USE_AEV VAL_ATTR (ATTR ":derp/thumbnail") SYM "?e" SYM "?thumburl")
-    (TabRestrictKeys
-      (LoadTab USE_AEV VAL_ATTR (ATTR ":derp/id") SYM "?e" SYM "?derpid")
-      (SetJoin
-        (TabKeySet
-          (LoadTab USE_AEV VAL_ATTR (ATTR ":derp/upvotes") SYM "?e" SYM "?upvotes"))
-        (TabSetUnionVals (InputSet SYM "?tag" 0) (LoadTab USE_AVE VAL_ATTR (ATTR ":derp/tag") SYM "?tag" SYM "?e"))))
-ghci>
-
--}
-
-
-
--- -----------------------------------------------------------------------
-
--- Next major question: how do predicates show up in this language? Datomic
--- appears to treat predicates as not clauses and bundles them into the
--- previous clause. That's kind of absurd. Our planner is still really taking
--- the clauses one at a time.
+-- A quick chatgpt q suggests that starting from :in is how most database query
+-- engines work (and only then do a second pass optimization starting from the
+-- results).
 --
--- How should we be thinking about rjoin? Is the massive rjoin actually a
--- design mistake here?
+-- This implies that last weeks' work was probably mostly ok?
 
--- The best time for the predicate to run is during the rjoin: in the case of
--- the above query, the C_XAZ does a load from the database, and now you have to join it to the
+
+-- The entire idea around finding promotable predicates is actually rather
+-- difficult to handle in all cases. You need to make the
+
+-- The above is an input graph, a sort of edge list. How do you
+
+-- ?amount ---------------------------------------------v
+-- [?tag] -> :derp/tag -> [?e ?tag] -> :derp/upvotes (pred) ->
+
+
+-- The current structure of mkPlan in the old Planner.hs implementation goes
+-- one clause at a time, and then tries to joinAll repeatedly. That kind of
+-- works? But not really.
+
+
+-- The repeated join is actually not the way to structure this because it can't
+-- do middle joins.
+
+
+-- Imagine you are trying to write a
 --
--- Maybe joinAll is wrong. Instead of just taking a list, there's a certain
--- thing that needs to be joined maximally into the
+-- What performs the unification?
+
+-- mkPlanSketch :: [PlanHolder] -> [Clause] -> Set Variable -> [PlanHolder]
+-- mkPlanSketch startingInputs clauses targets = go startingInputs clauses
+--   where
+
+--     go :: [PlanHolder] -> [Clause] -> [PlanHolder]
+--     go ph [] = undefined
+--     go inputs (c:cs) =
+--       -- We want to build around a different pattern here. Previously, going to
+--       -- the
+--       case c of
+--         (BiPredicateExpression pred lhs rhs) ->
+--           -- We now know that we're a predicate. We have to determine from the
+--           -- args what the inputs we need to bind with are.
+--           undefined
+
+-- How do you determine how to bind this? In the below, it's obvious that since
+-- ?amount is a single item, it's easy to
+
+-- Truth table:
+--
+-- Everything with rows becomes rows. (TODO: is that right? Are there limited
+-- cases with limited need variables where it'd be more efficient to output the
+-- other?)
+--
+-- (PH_ROWS ...) (PH_ROWS ...) -> ROWS
+-- (PH_ROWS ...) (PH_SCALAR ) -> ROWS
+-- (PH_ROWS ...) (PH_SET ..) -> ROWS
+
+--
+-- (PH_SET ...) (PH_SET ...) -> ROWS
+
+
+
+-- (PH_TAB _ value) (PH_SCALAR ...) -> PH_TAB
+
+-- -- OK, let's JUST write this case.
+-- reworkTabScalar
+--   :: BuiltinPred
+--   -> Variable
+--   -> Variable
+--   -> PlanHolder -> PlanHolder -> PlanHolder
+-- reworkTabScalar pred l r (PH_TAB from to planTab) (PH_SCALAR var scalar) =
+--   case planTab of
+--     lt@(LoadTab _ _ _ _) ->
+--       -- We can't directly modify a load, so wrap it in a filter afterwards.
+--       undefined
+--     trk@(TabRestrictKeys _ _)
+--       | l == to && r == var ->
+--           (FilterValsTabRestrictKeys
+--             (PrepareLHSBiPred
+
+--       -- We want to rewrite this restriction so that
+
+
+--
+-- predPlan = mkPlanSketch
+--   [PH_TAB (VAR "?e") (VAR "?upvotes") $ TabRestrictKeys
+--    (LoadTab USE_AEV (VAL_ATTR (ATTR ":derp/upvotes")) (VAR "?e") (VAR "?upvotes"))
+--    (TabSetUnionVals (InputSet (VAR "?tag") 0)
+--     (LoadTab USE_AVE (VAL_ATTR (ATTR ":derp/tag")) (VAR "?tag") (VAR "?e"))),
+
+--    PH_SCALAR (VAR "?amount") $ InputScalar (VAR "?amount") 1
+--   ]
+--   [BiPredicateExpression B_GT
+--                          (ARG_VAR (VAR "?upvotes"))
+--                          (ARG_VAR (VAR "?amount"))]
+--   (S.fromList [(VAR "?e")])
+
+-- The tree transformation that we want is the above to equal
+
+
+
+
+-- What's the main loop for this? What do you do?
 --
 --
 
 
--- TODO: The entire BITAB framing from the first sketch feels weird here when
--- doing a query planner: we want to know exactly which way to scan the data to
--- try to calculate
-
--- -- I can visually see that the tag search query above would become something
--- -- like the below, but I don't see how you write an algorithm to do this end to
--- -- end.
--- fullq db tagset amount = P_TO_ROW
---   (P_JOIN_BITAB_TAB
---     -- [?e :derp/thumburl ?thumburl]
---     (P_LOAD_TAB (LC_XAZ (VAR "?e") (ATTR ":derp/thumburl") (VAR "?thumburl")) db)
-
---     (P_JOIN_BITAB_SET
---       -- [?e :derp/id ?derpid]
---       (P_LOAD_TAB (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")) db)
-
---       -- range filter.
---       (P_SELECT_SET (VAR "?e")
---         (P_RANGE_FILTER_COL RT_GT (VAR "?upvotes") amount
---           -- ?e->?upvotes
---           (P_SORT_BY [(VAR "?upvotes")]
---             (P_TO_ROW
---               (P_JOIN_BITAB_SET
---                 -- [?e :derp/upvotes ?upvotes]
---                 (P_LOAD_TAB
---                   (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes")) db)
---                 -- (select ?e's which have all tags)
---                 (P_SELECT_SET (VAR "?e")
---                  (P_JOIN_BITAB_SET
---                    (P_LOAD_TAB
---                      (LC_XAZ (VAR "?e") (ATTR ":derp/tag") (VAR "?tag")) db)
---                    (P_FROM_SET tagset))))))))))
-
--- -----------------------------------------------------------------------
-
-exampleADB :: Database
-exampleADB = foldl' add emptyDB datoms
-  where
-    add db (e, a, v, tx, op) =
-      learn (VAL_ENTID $ ENTID e, VAL_ATTR $ ATTR a, VAL_STR v, tx, op) db
-
-    datoms = [
-      (1, ":name", "Frege", 100, True),
-      (1, ":nation", "France", 100, True),
-      (1, ":aka", "foo", 100, True),
-      (1, ":aka", "fred", 100, True),
-      (2, ":name", "Peirce", 100, True),
-      (2, ":nation", "France", 100, True),
-      (3, ":name", "De Morgan", 100, True),
-      (3, ":nation", "English", 100, True)
-      ]
-
--- How do we go about making a plan? Stupid simple query:
---    (sut/q '[:find ?nation
---             :in $ ?alias
---             :where
---             [?e :aka ?alias]
---             [?e :nation ?nation]]
---           (sut/db conn1)
---           "fred")))
-
-exampleAPlanOut = mkPlan
-  [B_SCALAR (VAR "?alias")]
-  [DataPattern (LC_XAZ (VAR "?e") (ATTR ":aka") (VAR "?alias")),
-   DataPattern (LC_XAZ (VAR "?e") (ATTR ":nation") (VAR "?nation"))]
-  (S.singleton (VAR "?nation"))
-{-
-planOutVal = PH_SET (VAR "?nation")
-  TabSetUnionVals
-    (TabScalarLookup
-      (InputScalar SYM "?alias" 0)
-      (LoadTab USE_AVE VAL_ATTR (ATTR ":aka") SYM "?alias" SYM "?e"))
-    (LoadTab USE_AEV VAL_ATTR (ATTR ":nation") SYM "?e" SYM "?nation")
--}
-
-exampleAOut = evalPlan [REL_SCALAR $ RSCALAR (VAR "?alias") (VAL_STR "fred")]
-                       exampleADB
-                       exampleAPlanOut
-{-
-relOutVal = REL_SET (
-  RSET {sym = SYM "?nation",
-        val = HITCHHIKERSET {config = TREECONFIG,
-                             root = Just (HitchhikerSetNodeLeaf
-                                          (fromListN 1 [VAL_STR "France"]))}})
--}
+-- Finally, removes relations that just don't build towards the future.

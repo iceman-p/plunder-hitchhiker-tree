@@ -17,7 +17,7 @@ import qualified Data.Set         as S
 -- -----------------------------------------------------------------------
 -- Hitchhiker set types
 -- -----------------------------------------------------------------------
--- Our database is built on
+-- Our database is built on a trie of datoms stored in a hitchhiker tree.
 
 -- What are we building here? What's the purpose? We're making a hitchhiker
 -- tree variant where for any six tuple, such as [e a v tx o], we have an
@@ -212,6 +212,7 @@ data Relation
   | REL_SET RelSet
   | REL_TAB RelTab
   | REL_MULTITAB RelMultiTab
+  | REL_ROWS Rows
   deriving (Show)
 
 -- -----------------------------------------------------------------------
@@ -290,15 +291,21 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
   TabRestrictKeys :: Plan RelTab -> Plan RelSet -> Plan RelTab
   TabKeySet :: Plan RelTab -> Plan RelSet
 
-  -- Filter versions of tab operations that also check a predicate.
-  FilterValsTabRestrictKeys :: Plan PlanUniPredicate
-                            -> Plan RelTab -> Plan RelSet -> Plan RelTab
-   -- (Value -> HitchhikerSet Value -> Bool)
+  -- -- Filter versions of tab operations that also check a predicate.
+  -- FilterValsTabRestrictKeys :: Plan PlanUniPredicate
+  --                           -> Plan RelTab -> Plan RelSet -> Plan RelTab
+  --  -- (Value -> HitchhikerSet Value -> Bool)
 
   SetJoin :: Plan RelSet -> Plan RelSet -> Plan RelSet
   SetScalarJoin :: Plan RelSet -> Plan RelScalar -> Plan RelSet
 
   MkMultiTab :: Plan RelTab -> Plan RelTab -> Plan RelMultiTab
+
+  -- Sometimes, you can't do anything but fallback to stupid rows.
+  SetToRows :: Plan RelSet -> Plan Rows
+
+  --
+  --ApplyPredToRows
 
   -- What does Prepare predicate have to represent? We need
 
@@ -338,6 +345,7 @@ data PlanHolder
   = PH_SCALAR Variable (Plan RelScalar)
   | PH_SET Variable (Plan RelSet)
   | PH_TAB Variable Variable (Plan RelTab)
+  | PH_ROWS [Variable] [Variable] (Plan Rows)
   | PH_MULTITAB Variable [Variable] (Plan RelMultiTab)
   deriving (Show)
 
@@ -345,6 +353,7 @@ planHolderBinds :: PlanHolder -> Set Variable
 planHolderBinds (PH_SCALAR s _)          = S.singleton s
 planHolderBinds (PH_SET s _)             = S.singleton s
 planHolderBinds (PH_TAB from to _)       = S.fromList [from, to]
+planHolderBinds (PH_ROWS vars _ _)       = S.fromList vars
 planHolderBinds (PH_MULTITAB from tos _) = S.fromList (from:tos)
 
 -- -----------------------------------------------------------------------

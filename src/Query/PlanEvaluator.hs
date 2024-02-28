@@ -6,6 +6,7 @@ import           Data.List                  (foldl1')
 
 import           Query.HitchhikerDatomStore
 import           Query.Types
+import           Types
 
 import           Safe                       (atMay)
 
@@ -13,6 +14,7 @@ import qualified HitchhikerMap              as HM
 import qualified HitchhikerSet              as HS
 import qualified HitchhikerSetMap           as HSM
 
+import qualified Data.List                  as L
 import qualified Data.Set                   as S
 import qualified Data.Vector                as V
 
@@ -75,14 +77,14 @@ evalPlan inputs db = runFromPlanHolder
       let (RTAB from _ tab) = go ptab
       in RSET from $ HSM.toKeySet tab
 
-    go (FilterValsTabRestrictKeys ppred ptab pset) =
-      let (RTAB from to tab) = go ptab
-          (RSET sym set) = go pset
-          (PUPRED predvars predfunc) = go ppred
-      -- OK, pred has to be some sort of plan that we also evaluate here. We
-      -- have to take
+    -- go (FilterValsTabRestrictKeys ppred ptab pset) =
+    --   let (RTAB from to tab) = go ptab
+    --       (RSET sym set) = go pset
+    --       (PUPRED predvars predfunc) = go ppred
+    --   -- OK, pred has to be some sort of plan that we also evaluate here. We
+    --   -- have to take
 
-      in RTAB from to $ undefined "TODO"  -- HSM.restrictKeys set tab
+    --   in RTAB from to $ undefined "TODO"  -- HSM.restrictKeys set tab
 
     go (SetJoin pa pb) =
       let ea = go pa
@@ -108,4 +110,44 @@ evalPlan inputs db = runFromPlanHolder
       in if elhs.from == erhs.from
          then RMTAB elhs.from [elhs.to, erhs.to] target
          else error "Bad plan: multi-tab join of two different key symbols"
+
+    go (SetToRows pset) =
+      let (RSET sym set) = go pset
+      in ROWS [sym] [sym] $ map V.singleton $ HS.toList set
+
+
+-- -----------------------------------------------------------------------
+
+-- During evaluation, we may have a row, but we will want to
+
+sortRowsBy :: [Variable] -> [Variable] -> [Vector Value] -> [Vector Value]
+sortRowsBy allVars reqSortOrder rows
+  | any isNothing mybRequestIdx = error "Invalid requested sort order"
+  | otherwise = sortedRows
+  where
+    mybRequestIdx :: [Maybe Int]
+    mybRequestIdx = map (flip L.elemIndex allVars) reqSortOrder
+
+    requestIdxes = catMaybes mybRequestIdx
+
+    sortedRows = sortBy (doSort requestIdxes) rows
+
+    doSort :: [Int] -> Vector Value -> Vector Value -> Ordering
+    doSort [] a b = EQ
+    doSort (x:xs) a b = case compare a b of
+      EQ -> doSort xs a b
+      x  -> x
+
+multiTabToRows :: Variable
+               -> [Variable]
+               -> HitchhikerMap Value (Vector (HitchhikerSet Value))
+               -> Rows
+multiTabToRows key vals hhmap = ROWS vars vars rowData
+  where
+    vars = key:vals
+    rowData = concat $ map step $ HM.toList hhmap
+
+    step :: (Value, Vector (HitchhikerSet Value)) -> [Vector Value]
+    step (k, tops) = V.toList $ V.sequence $
+      V.cons (V.singleton k) (map (V.fromList . HS.toList) tops)
 
