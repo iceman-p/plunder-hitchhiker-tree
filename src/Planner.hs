@@ -40,141 +40,142 @@ import qualified Data.Vector                as V
 -- don't actually care about symbols during the execution of the Plan (though
 -- we might still keep them there for debug dumping purposes).
 
-data Direction
-  = FORWARDS
-  | BACKWARDS
-  | LEFT_ONLY
-  | RIGHT_ONLY
-  | IRRELEVANT
+-- data Direction
+--   = FORWARDS
+--   | BACKWARDS
+--   | LEFT_ONLY
+--   | RIGHT_ONLY
+--   | IRRELEVANT
 
-mkPlan :: [Binding] -> [Clause] -> Set Variable -> PlanHolder
-mkPlan bindingInputs clauses target =
-  converge $ filter targetNeeds $ go startingInputs clauses
-  where
-    converge :: [PlanHolder] -> PlanHolder
-    converge [r] = r
-    -- TODO: Since we've filtered out any irrelevant relations, this should be
-    -- turned into a Cartesian product of the remaining relations projected
-    -- into the target set.
-    converge inputs = error $ "Plan did not converge to one relation: "
-                           <> show inputs
+-- mkPlan :: [Binding] -> [Clause] -> Set Variable -> PlanHolder
+-- mkPlan bindingInputs clauses target =
+--   converge $ filter targetNeeds $ go startingInputs clauses
+--   where
+--     converge :: [PlanHolder] -> PlanHolder
+--     converge [r] = r
+--     -- TODO: Since we've filtered out any irrelevant relations, this should be
+--     -- turned into a Cartesian product of the remaining relations projected
+--     -- into the target set.
+--     converge inputs = error $ "Plan did not converge to one relation: "
+--                            <> show inputs
 
-    targetNeeds :: PlanHolder -> Bool
-    targetNeeds ph = (S.intersection (planHolderBinds ph) target) /= S.empty
+--     targetNeeds :: PlanHolder -> Bool
+--     targetNeeds ph = (S.intersection (planHolderBinds ph) target) /= S.empty
 
-    go :: [PlanHolder] -> [Clause] -> [PlanHolder]
-    go ph [] = ph
-    go inputs (c:cs) =
-      let past = pastProvides inputs
-          future = futureNeeds cs
-      in case c of
-        (DataPattern (LC_XAZ eSymb attr vSymb)) ->
-          case direction eSymb vSymb past future of
-            FORWARDS  ->
-              let load = PH_TAB eSymb vSymb
-                       $ LoadTab USE_AEV (VAL_ATTR attr) eSymb vSymb
-              in go (joinAll (rhJoin future) (load:inputs)) cs
-            BACKWARDS ->
-              let load = PH_TAB vSymb eSymb
-                       $ LoadTab USE_AVE (VAL_ATTR attr) vSymb eSymb
-              in go (joinAll (rhJoin future) (load:inputs)) cs
-            LEFT_ONLY ->
-              let load = PH_SET eSymb
-                       $ TabKeySet
-                       $ LoadTab USE_AEV (VAL_ATTR attr) eSymb vSymb
-              in go (joinAll (rhJoin future) (load:inputs)) cs
-            RIGHT_ONLY -> error "RIGHT_ONLY todo"
-            IRRELEVANT -> go inputs cs
+--     go :: [PlanHolder] -> [Clause] -> [PlanHolder]
+--     go ph [] = ph
+--     go inputs (c:cs) =
+--       let past = pastProvides inputs
+--           future = futureNeeds cs
+--       in case c of
+--         (DataPattern (LC_XAZ eSymb attr vSymb)) ->
+--           case direction eSymb vSymb past future of
+--             FORWARDS  ->
+--               let load = PH_TAB eSymb vSymb
+--                        $ LoadTab USE_AEV (VAL_ATTR attr) eSymb vSymb
+--               in go (joinAll (rhJoin future) (load:inputs)) cs
+--             BACKWARDS ->
+--               let load = PH_TAB vSymb eSymb
+--                        $ LoadTab USE_AVE (VAL_ATTR attr) vSymb eSymb
+--               in go (joinAll (rhJoin future) (load:inputs)) cs
+--             LEFT_ONLY ->
+--               let load = PH_SET eSymb
+--                        $ TabKeySet
+--                        $ LoadTab USE_AEV (VAL_ATTR attr) eSymb vSymb
+--               in go (joinAll (rhJoin future) (load:inputs)) cs
+--             RIGHT_ONLY -> error "RIGHT_ONLY todo"
+--             IRRELEVANT -> go inputs cs
 
-    startingInputs = map bindToPlan $ zip [0..] bindingInputs
+--     startingInputs = map bindToPlan $ zip [0..] bindingInputs
 
-    bindToPlan (i, B_SCALAR symb)     = PH_SCALAR symb $ InputScalar symb i
-    bindToPlan (i, B_COLLECTION symb) = PH_SET symb $ InputSet symb i
+--     bindToPlan (i, B_SCALAR symb)     = PH_SCALAR symb $ InputScalar symb i
+--     bindToPlan (i, B_COLLECTION symb) = PH_SET symb $ InputSet symb i
 
-    direction :: Variable -> Variable -> Set Variable -> Set Variable -> Direction
-    direction leftS rightS past future
-      | S.member leftS future && S.member rightS future =
-          -- FORWARDS is a cop out, we need to make a decision about what
-          -- the best direction to go in is now.
-          -- error "Both future"
-          FORWARDS
-      | S.member leftS past && S.member rightS future = FORWARDS
-      | S.member leftS future && S.member rightS past = BACKWARDS
-      | S.member leftS future = LEFT_ONLY
-      | S.member rightS future = RIGHT_ONLY
-      | otherwise = IRRELEVANT
---        error $ "TODO: Figure out complicated cases in direction: " <> show leftS <> " " <> show rightS <> " " <> show past <> " " <> show future
+--     direction :: Variable -> Variable -> Set Variable -> Set Variable -> Direction
+--     direction leftS rightS past future
+--       | S.member leftS future && S.member rightS future =
+--           -- FORWARDS is a cop out, we need to make a decision about what
+--           -- the best direction to go in is now.
+--           -- error "Both future"
+--           FORWARDS
+--       | S.member leftS past && S.member rightS future = FORWARDS
+--       | S.member leftS future && S.member rightS past = BACKWARDS
+--       | S.member leftS future = LEFT_ONLY
+--       | S.member rightS future = RIGHT_ONLY
+--       | otherwise = IRRELEVANT
+-- --        error $ "TODO: Figure out complicated cases in direction: " <> show leftS <> " " <> show rightS <> " " <> show past <> " " <> show future
 
-    pastProvides :: [PlanHolder] -> Set Variable
-    pastProvides rs = S.unions (map planHolderBinds rs)
+--     pastProvides :: [PlanHolder] -> Set Variable
+--     pastProvides rs = S.unions (map planHolderBinds rs)
 
-    futureNeeds :: [Clause] -> Set Variable
-    futureNeeds cs = S.unions (target:(map clauseUses cs))
+--     futureNeeds :: [Clause] -> Set Variable
+--     futureNeeds cs = S.unions (target:(map clauseUses cs))
 
--- -----------------------------------------------------------------------
+-- -- -----------------------------------------------------------------------
 
--- Given a joining function which may or may not join two elements, run all
--- permutations of all elements of with the associative function `f`. If `f`
--- returns Just, replaces both elements with the newly joined element and
--- starts over, returning only when no more joins can be made.
-joinAll :: (a -> a -> Maybe a) -> [a] -> [a]
-joinAll _ [] = []
-joinAll _ [x] = [x]
-joinAll f (x:xs) = joinOuter x xs []
-  where
-    joinOuter x [] prev     = reverse (x:prev)
-    joinOuter x yo@(y:ys) prev = case joinInner x yo [] of
-      Nothing              -> joinOuter y ys (x:prev)
-      Just (new, ysMinusY) -> joinAll f (reverse (new:prev) ++ ysMinusY)
+-- -- Given a joining function which may or may not join two elements, run all
+-- -- permutations of all elements of with the associative function `f`. If `f`
+-- -- returns Just, replaces both elements with the newly joined element and
+-- -- starts over, returning only when no more joins can be made.
+-- joinAll :: (a -> a -> Maybe a) -> [a] -> [a]
+-- joinAll _ [] = []
+-- joinAll _ [x] = [x]
+-- joinAll f (x:xs) = joinOuter x xs []
+--   where
+--     joinOuter x [] prev     = reverse (x:prev)
+--     joinOuter x yo@(y:ys) prev = case joinInner x yo [] of
+--       Nothing              -> joinOuter y ys (x:prev)
+--       Just (new, ysMinusY) -> joinAll f (reverse (new:prev) ++ ysMinusY)
 
-    joinInner x [] prev = Nothing
-    joinInner x (y:ys) prev = case f x y of
-      Nothing  -> joinInner x ys (y:prev)
-      Just new -> Just (new, reverse prev ++ ys)
+--     joinInner x [] prev = Nothing
+--     joinInner x (y:ys) prev = case f x y of
+--       Nothing  -> joinInner x ys (y:prev)
+--       Just new -> Just (new, reverse prev ++ ys)
 
-rhJoin :: Set Variable -> PlanHolder -> PlanHolder -> Maybe PlanHolder
-rhJoin future l r = case (l, r) of
-  (PH_SET lhs lhv, PH_SET rhs rhv)
-    | lhs == rhs -> Just $ PH_SET lhs $ SetJoin lhv rhv
-    | otherwise  -> Nothing
+-- rhJoin :: Set Variable -> PlanHolder -> PlanHolder -> Maybe PlanHolder
+-- rhJoin future l r = case (l, r) of
+--   (PH_SET lhs lhv, PH_SET rhs rhv)
+--     | lhs == rhs -> Just $ PH_SET lhs $ SetJoin lhv rhv
+--     | otherwise  -> Nothing
 
-  (lhs@(PH_SCALAR _ _), rhs@(PH_SET _ _)) -> rhJoin future rhs lhs
-  (PH_SET lhs lhv, PH_SCALAR rhs rhv)
-    | lhs == rhs -> Just $ PH_SET lhs $ SetScalarJoin lhv rhv
-    | otherwise -> Nothing
+--   (lhs@(PH_SCALAR _ _), rhs@(PH_SET _ _)) -> rhJoin future rhs lhs
+--   (PH_SET lhs lhv, PH_SCALAR rhs rhv)
+--     | lhs == rhs -> Just $ PH_SET lhs $ SetScalarJoin lhv rhv
+--     | otherwise -> Nothing
 
-  (lhs@(PH_SET _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
-  (PH_TAB lhFrom lhTo lht, PH_SET rhSymb rhv)
-    | lhFrom == rhSymb && inFuture lhFrom && inFuture lhTo ->
-        Just $ PH_TAB lhFrom lhTo $ TabRestrictKeys lht rhv
-    | lhFrom == rhSymb && inFuture lhFrom ->
-        Just $ PH_SET lhFrom $ SetJoin (TabKeySet lht) rhv
-    | lhFrom == rhSymb && inFuture lhTo ->
-        Just $ PH_SET lhTo $ TabSetUnionVals rhv lht
-    | lhFrom == rhSymb -> error "wtf is this case"
-    | otherwise -> error "Handle all the lhTo cases."
+--   (lhs@(PH_SET _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
+--   (PH_TAB lhFrom lhTo lht, PH_SET rhSymb rhv)
+--     | lhFrom == rhSymb && inFuture lhFrom && inFuture lhTo ->
+--         Just $ PH_TAB lhFrom lhTo $ TabRestrictKeys lht rhv
+--     | lhFrom == rhSymb && inFuture lhFrom ->
+--         Just $ PH_SET lhFrom $ SetJoin (TabKeySet lht) rhv
+--     | lhFrom == rhSymb && inFuture lhTo ->
+--         Just $ PH_SET lhTo $ TabSetUnionVals lhFrom rhv lhTo lht
+--     | lhFrom == rhSymb -> error "wtf is this case"
+--     | otherwise -> error "Handle all the lhTo cases."
 
-  (lhs@(PH_SCALAR _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
-  (PH_TAB lhFrom lhTo lhTab, PH_SCALAR rhSymb rhv)
-    | rhSymb == lhFrom -> Just $ PH_SET lhTo $ TabScalarLookup rhv lhTab
-    | rhSymb == lhTo -> error "Handle backwards scalar table matching."
-    | otherwise -> Nothing
+--   (lhs@(PH_SCALAR _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
+--   (PH_TAB lhFrom lhTo lhTab, PH_SCALAR rhSymb rhv)
+--     | rhSymb == lhFrom ->
+--       Just $ PH_SET lhTo $ TabScalarLookup lhFrom rhv lhTo lhTab
+--     | rhSymb == lhTo -> error "Handle backwards scalar table matching."
+--     | otherwise -> Nothing
 
-  (PH_TAB lhFrom lhTo lht, PH_TAB rhFrom rhTo rht)
-    | lhFrom == rhFrom -> Just $ PH_MULTITAB lhFrom [lhTo, rhTo]
-                               $ MkMultiTab lht rht
-    | otherwise -> error "Handle all the cases before adding Nothing at end"
+--   (PH_TAB lhFrom lhTo lht, PH_TAB rhFrom rhTo rht)
+--     | lhFrom == rhFrom -> Just $ PH_MULTITAB lhFrom [lhTo, rhTo]
+--                                $ MkMultiTab lht rht
+--     | otherwise -> error "Handle all the cases before adding Nothing at end"
 
-  (lhs@(PH_SCALAR _ _), rhs@(PH_MULTITAB _ _ _)) -> rhJoin future rhs lhs
-  (PH_MULTITAB keySymb valSymbs mt, PH_SCALAR rhSymb rhv)
-    | keySymb == rhSymb -> error "Handle multitab/scalar same"
-    | elem rhSymb valSymbs -> error "Handle multitab value scalar"
-    | otherwise -> Nothing
+--   (lhs@(PH_SCALAR _ _), rhs@(PH_MULTITAB _ _ _)) -> rhJoin future rhs lhs
+--   (PH_MULTITAB keySymb valSymbs mt, PH_SCALAR rhSymb rhv)
+--     | keySymb == rhSymb -> error "Handle multitab/scalar same"
+--     | elem rhSymb valSymbs -> error "Handle multitab value scalar"
+--     | otherwise -> Nothing
 
-  (a, b) -> error $ "TODO: Unhandled rhJoin case: " <> show a <> " <--> "
-                 <> show b
-  where
-    inFuture = flip S.member future
+--   (a, b) -> error $ "TODO: Unhandled rhJoin case: " <> show a <> " <--> "
+--                  <> show b
+--   where
+--     inFuture = flip S.member future
 
 -- -----------------------------------------------------------------------
 
@@ -190,18 +191,18 @@ rhJoin future l r = case (l, r) of
 --        db
 --        ["twilight sparkle" "cute"] 100)
 
-derpTagPlan = mkPlan
-  [B_COLLECTION (VAR "?tag"), B_SCALAR (VAR "?amount")]
-  [DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/tag") (VAR "?tag")),
-   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes"))
---  ,
-   -- C_PREDICATE (whole bundle of hurt)
-   -- DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
-   -- DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumbnail") (VAR "?thumburl"))
-  ]
-  -- (S.fromList [(VAR "?derpid"), (VAR "?thumburl")])
-  (S.fromList [(VAR "?e"), (VAR "?upvotes")])
---  (S.fromList [(VAR "?e")])
+-- derpTagPlan = mkPlan
+--   [B_COLLECTION (VAR "?tag"), B_SCALAR (VAR "?amount")]
+--   [DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/tag") (VAR "?tag")),
+--    DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes"))
+-- --  ,
+--    -- C_PREDICATE (whole bundle of hurt)
+--    -- DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
+--    -- DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumbnail") (VAR "?thumburl"))
+--   ]
+--   -- (S.fromList [(VAR "?derpid"), (VAR "?thumburl")])
+--   (S.fromList [(VAR "?e"), (VAR "?upvotes")])
+-- --  (S.fromList [(VAR "?e")])
 
 {-
 
@@ -300,11 +301,11 @@ exampleADB = foldl' add emptyDB datoms
 --           (sut/db conn1)
 --           "fred")))
 
-exampleAPlanOut = mkPlan
-  [B_SCALAR (VAR "?alias")]
-  [DataPattern (LC_XAZ (VAR "?e") (ATTR ":aka") (VAR "?alias")),
-   DataPattern (LC_XAZ (VAR "?e") (ATTR ":nation") (VAR "?nation"))]
-  (S.singleton (VAR "?nation"))
+-- exampleAPlanOut = mkPlan
+--   [B_SCALAR (VAR "?alias")]
+--   [DataPattern (LC_XAZ (VAR "?e") (ATTR ":aka") (VAR "?alias")),
+--    DataPattern (LC_XAZ (VAR "?e") (ATTR ":nation") (VAR "?nation"))]
+--   (S.singleton (VAR "?nation"))
 {-
 planOutVal = PH_SET (VAR "?nation")
   TabSetUnionVals
@@ -314,9 +315,9 @@ planOutVal = PH_SET (VAR "?nation")
     (LoadTab USE_AEV VAL_ATTR (ATTR ":nation") SYM "?e" SYM "?nation")
 -}
 
-exampleAOut = evalPlan [REL_SCALAR $ RSCALAR (VAR "?alias") (VAL_STR "fred")]
-                       exampleADB
-                       exampleAPlanOut
+-- exampleAOut = evalPlan [REL_SCALAR $ RSCALAR (VAR "?alias") (VAL_STR "fred")]
+--                        exampleADB
+--                        exampleAPlanOut
 {-
 relOutVal = REL_SET (
   RSET {sym = SYM "?nation",

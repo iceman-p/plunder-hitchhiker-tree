@@ -73,11 +73,7 @@ runBuiltinPredicate pred a b (ROWS vars _ rows) =
     match (ARG_CONST val) (ARG_VAR argvar) row =
       run pred val (getVariable argvar vars row)
 
-    run B_LT lhs rhs  = lhs < rhs
-    run B_LTE lhs rhs = lhs <= rhs
-    run B_EQ lhs rhs  = lhs == rhs
-    run B_GTE lhs rhs = lhs >= rhs
-    run B_GT lhs rhs  = lhs > rhs
+    run pred lhs rhs = (builtinPredToCompare pred) lhs rhs
 
 tabToRow :: Variable -> Variable -> HitchhikerSetMap Value Value -> Rows
 tabToRow from to setmap = ROWS [from, to] [] asRows

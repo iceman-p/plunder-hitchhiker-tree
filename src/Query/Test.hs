@@ -138,7 +138,14 @@ countStupid = naiveEvaluator
 
 -- TODO: Now replicate with the real evaluator!
 
+-- countPlan = mkPlan
+--   [B_SCALAR (VAR "?min")]
+--   [DataPattern (LC_XAZ (VAR "?e") (ATTR ":has") (VAR "?amount")),
+--    BiPredicateExpression B_GT (ARG_VAR (VAR "?min")) (ARG_VAR (VAR "?amount"))]
+--   (S.singleton (VAR "?amount"))
+
 countPlan = mkPlan
-  [B_SCALAR (VAR "?min")]
-  [DataPattern (LC_XAZ (VAR "?e") (ATTR ":has") (VAR "?amount"))]
+  []
+  [DataPattern (LC_XAZ (VAR "?e") (ATTR ":has") (VAR "?amount")),
+   BiPredicateExpression B_GT (ARG_CONST (VAL_INT 100)) (ARG_VAR (VAR "?amount"))]
   (S.singleton (VAR "?amount"))

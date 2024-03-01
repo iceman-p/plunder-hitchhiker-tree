@@ -132,6 +132,7 @@ data FnArg
 
 fnArgToVariable :: FnArg -> [Variable]
 fnArgToVariable (ARG_VAR v) = [v]
+fnArgToVariable _           = []
 
 data BuiltinPred
   = B_LT
@@ -140,6 +141,13 @@ data BuiltinPred
   | B_GTE
   | B_GT
   deriving (Show)
+
+builtinPredToCompare :: Ord a => BuiltinPred -> (a -> a -> Bool)
+builtinPredToCompare B_LT  = (<)
+builtinPredToCompare B_LTE = (<=)
+builtinPredToCompare B_EQ  = (==)
+builtinPredToCompare B_GTE = (>=)
+builtinPredToCompare B_GT  = (>)
 
 data Pred
   = PredBuiltin BuiltinPred
@@ -279,30 +287,35 @@ data RulePack
 -- Plan the steps to evaluate the query. This is the intermediate form of a
 -- query: it's dumpable to the console for debugging.
 data Plan :: Data.Kind.Type -> Data.Kind.Type where
+  -- Inputs: loads data into the rows.
   InputScalar :: Variable -> Int -> Plan RelScalar
   InputSet    :: Variable -> Int -> Plan RelSet
-
   InputConst :: Value -> Plan RelScalar
-
   LoadTab :: RowLookup -> Value -> Variable -> Variable -> Plan RelTab
 
-  TabScalarLookup :: Plan RelScalar -> Plan RelTab -> Plan RelSet
-  TabSetUnionVals :: Plan RelSet -> Plan RelTab -> Plan RelSet
-  TabRestrictKeys :: Plan RelTab -> Plan RelSet -> Plan RelTab
-  TabKeySet :: Plan RelTab -> Plan RelSet
+  TabScalarLookup :: Variable -> Plan RelScalar
+                  -> Variable -> Plan RelTab -> Plan RelSet
+  TabSetUnionVals :: Variable -> Plan RelSet
+                  -> Variable -> Plan RelTab -> Plan RelSet
+  TabRestrictKeys :: Variable -> Variable
+                  -> Plan RelTab -> Plan RelSet -> Plan RelTab
+
+  TabKeySet :: Variable -> Variable -> Plan RelTab -> Plan RelSet
+
+  FilterPredTabKeysL :: Value -> BuiltinPred -> Plan RelTab -> Plan RelTab
 
   -- -- Filter versions of tab operations that also check a predicate.
   -- FilterValsTabRestrictKeys :: Plan PlanUniPredicate
   --                           -> Plan RelTab -> Plan RelSet -> Plan RelTab
   --  -- (Value -> HitchhikerSet Value -> Bool)
 
-  SetJoin :: Plan RelSet -> Plan RelSet -> Plan RelSet
+  SetJoin :: Variable -> Plan RelSet -> Plan RelSet -> Plan RelSet
   SetScalarJoin :: Plan RelSet -> Plan RelScalar -> Plan RelSet
 
   MkMultiTab :: Plan RelTab -> Plan RelTab -> Plan RelMultiTab
 
   -- Sometimes, you can't do anything but fallback to stupid rows.
-  SetToRows :: Plan RelSet -> Plan Rows
+  SetToRows :: Variable -> Plan RelSet -> Plan Rows
 
   --
   --ApplyPredToRows
@@ -327,14 +340,28 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
 instance Show (Plan a) where
   show (InputScalar sym int) = "InputScalar " <> show sym <> " " <> show int
   show (InputSet sym int) = "InputSet " <> show sym <> " " <> show int
-  show (LoadTab rl val from to) = "LoadTab " <> show rl <> " " <> show val <>
-                                  " " <> show from <> " " <> show to
-  show (TabScalarLookup a b) = "TabScalarLookup (" <> show a <> ") (" <> show b <> ")"
-  show (TabSetUnionVals a b) = "TabSetUnionVals (" <> show a <> ") (" <> show b <> ")"
-  show (TabRestrictKeys tab set) = "TabRestrictKeys (" <> show tab <> ") (" <>
-                                   show set <> ")"
-  show (TabKeySet tab) = "TabKeySet (" <> show tab <> ")"
-  show (SetJoin a b) = "SetJoin (" <> show a <> ") (" <> show b <> ")"
+  show (LoadTab rl val from to) = "LoadTab " <> show rl <> " (" <> show val <>
+                                  ") (" <> show from <> ") (" <> show to <> ")"
+  show (TabScalarLookup from set to tab) =
+    "TabScalarLookup (" <> show from <> ") (" <> show set <> ") (" <>
+    show to <> ") (" <> show tab <> ")"
+  show (TabSetUnionVals from set to tab) =
+    "TabSetUnionVals (" <> show from <> ") (" <> show set <> ") (" <>
+    show to <> ") (" <> show tab <> ")"
+  show (TabRestrictKeys from to tab set) =
+    "TabRestrictKeys (" <> show from <> ") (" <> show to <> ") (" <>
+    show tab <> ") (" <> show set <> ")"
+  show (TabKeySet from to tab) = "TabKeySet (" <> show from <> ") (" <>
+    show to <> ") (" <> show tab <> ")"
+
+  -- :: Value -> BuiltinPred -> Plan RelTab -> Plan RelTab
+  show (FilterPredTabKeysL lConst pred rTab) =
+    "FilterPredTabKeysL (" <> show lConst <> ") (" <> show pred <> ") (" <>
+    show rTab <> ")"
+--        :: Value -> BuiltinPred -> Plan RelTab -> Plan RelTab
+
+  show (SetJoin key a b) = "SetJoin (" <> show key <> ") (" <> show a <>
+    ") (" <> show b <> ")"
   show (SetScalarJoin a b) = "SetScalarJoin (" <> show a <> ") (" <> show b <>
                              ")"
   show (MkMultiTab a b) = "MkMultiTab (" <> show a <> ") (" <> show b <> ")"

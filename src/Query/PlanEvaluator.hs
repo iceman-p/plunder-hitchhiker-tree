@@ -49,12 +49,12 @@ evalPlan inputs db = runFromPlanHolder
       let val = partialLookup lookupVal (printableLookupToFunc which $ db)
       in RTAB {from,to,val}
 
-    go (TabScalarLookup pscalar ptab) =
+    go (TabScalarLookup _from pscalar _to ptab) =
       let (RSCALAR sym val) = go pscalar
           (RTAB from to tab) = go ptab
       in RSET to $ HSM.lookup val tab
 
-    go (TabSetUnionVals pset ptab) =
+    go (TabSetUnionVals _from pset _to ptab) =
       let (RSET sym set) = go pset
           (RTAB from to tab) = go ptab
 
@@ -68,14 +68,19 @@ evalPlan inputs db = runFromPlanHolder
             xs  -> foldl1' HS.union xs
       in RSET to asSet
 
-    go (TabRestrictKeys ptab pset) =
+    go (TabRestrictKeys _from _to ptab pset) =
       let (RTAB from to tab) = go ptab
           (RSET sym set) = go pset
       in RTAB from to $ HSM.restrictKeys set tab
 
-    go (TabKeySet ptab) =
+    go (TabKeySet _from _to ptab) =
       let (RTAB from _ tab) = go ptab
       in RSET from $ HSM.toKeySet tab
+
+    go (FilterPredTabKeysL lConst pred ptab) =
+      let (RTAB from to tab) = go ptab
+      in RTAB from to $
+         HSM.takeWhileAntitone ((builtinPredToCompare pred) lConst) tab
 
     -- go (FilterValsTabRestrictKeys ppred ptab pset) =
     --   let (RTAB from to tab) = go ptab
@@ -86,7 +91,7 @@ evalPlan inputs db = runFromPlanHolder
 
     --   in RTAB from to $ undefined "TODO"  -- HSM.restrictKeys set tab
 
-    go (SetJoin pa pb) =
+    go (SetJoin _key pa pb) =
       let ea = go pa
           eb = go pb
       in if ea.sym == eb.sym
@@ -111,7 +116,7 @@ evalPlan inputs db = runFromPlanHolder
          then RMTAB elhs.from [elhs.to, erhs.to] target
          else error "Bad plan: multi-tab join of two different key symbols"
 
-    go (SetToRows pset) =
+    go (SetToRows _ pset) =
       let (RSET sym set) = go pset
       in ROWS [sym] [sym] $ map V.singleton $ HS.toList set
 

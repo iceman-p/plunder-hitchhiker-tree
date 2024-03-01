@@ -53,12 +53,12 @@ mkPlan bindingInputs clauses target =
               in go (joinAll (rhJoin future) (load:inputs)) cs
             LEFT_ONLY ->
               let load = PH_SET eSymb
-                       $ TabKeySet
+                       $ TabKeySet eSymb vSymb
                        $ LoadTab USE_AEV (VAL_ATTR attr) eSymb vSymb
               in go (joinAll (rhJoin future) (load:inputs)) cs
             RIGHT_ONLY ->
               let load = PH_SET vSymb
-                       $ TabKeySet
+                       $ TabKeySet vSymb eSymb
                        $ LoadTab USE_AVE (VAL_ATTR attr) vSymb eSymb
               in go (joinAll (rhJoin future) (load:inputs)) cs
             IRRELEVANT -> go inputs cs
@@ -77,26 +77,39 @@ mkPlan bindingInputs clauses target =
               error "degenerate case; i hate you."
 
     applyPredCV :: BuiltinPred -> Value -> Variable -> PlanHolder -> PlanHolder
-    applyPredCV pred const1 var2 ph
-      | not $ S.member var2 $ planHolderBinds ph = ph
-      | otherwise = case ph of
-          -- TODO: this isn't general, this is to support one very specific
-          -- query.
+    applyPredCV pred const1 var2 = \case
+      (PH_SET s val)
+        | s == var2 -> PH_SET s $ applyPredCVToPlan val
+      _ -> undefined
+      where
+        applyPredCVToPlan :: Plan a -> Plan a
+        applyPredCVToPlan = \case
+          lt@(LoadTab _ _ from to)
+            | var2 == from -> (FilterPredTabKeysL const1 pred lt)
 
-          --
-          -- TODO: Continue here once I've made th
+          (TabKeySet from to tab)
+            | var2 == from -> (TabKeySet from to $ applyPredCVToPlan tab)
 
---          (PH_SET s (TabKeySet tab)) -> (PH_SET s (TabKeySet $ filter
+--     ph
+--       | not $ S.member var2 $ planHolderBinds ph = ph
+--       | otherwise = case ph of
+--           -- TODO: this isn't general, this is to support one very specific
+--           -- query.
 
-          -- TODO: Finish here!
-          --
-          -- (PH_SET s (SetJoin lhs rhs))
-          --   | s == var2 -> PH_SET s (SetJoin
-          --                           -- TODO: Can't recur like this because
-          --                           -- these are the actual sets. Damn.
-          --                            (applyPredCV pred const1 var2 lhs)
-          --                            (applyPredCV pred const1 var2 rhs))
-          _               -> undefined
+--           --
+--           -- TODO: Continue here once I've made th
+
+-- --          (PH_SET s (TabKeySet tab)) -> (PH_SET s (TabKeySet $ filter
+
+--           -- TODO: Finish here!
+--           --
+--           -- (PH_SET s (SetJoin lhs rhs))
+--           --   | s == var2 -> PH_SET s (SetJoin
+--           --                           -- TODO: Can't recur like this because
+--           --                           -- these are the actual sets. Damn.
+--           --                            (applyPredCV pred const1 var2 lhs)
+--           --                            (applyPredCV pred const1 var2 rhs))
+--           _               -> undefined
 
     -- applyPredToPlanSet :: BuiltinPred -> Value -> Variable
     --                    -> Plan RelSet
@@ -154,7 +167,7 @@ joinAll f (x:xs) = joinOuter x xs []
 rhJoin :: Set Variable -> PlanHolder -> PlanHolder -> Maybe PlanHolder
 rhJoin future l r = case (l, r) of
   (PH_SET lhs lhv, PH_SET rhs rhv)
-    | lhs == rhs -> Just $ PH_SET lhs $ SetJoin lhv rhv
+    | lhs == rhs -> Just $ PH_SET lhs $ SetJoin lhs lhv rhv
     | otherwise  -> Nothing
 
   (lhs@(PH_SCALAR _ _), rhs@(PH_SET _ _)) -> rhJoin future rhs lhs
@@ -165,17 +178,18 @@ rhJoin future l r = case (l, r) of
   (lhs@(PH_SET _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
   (PH_TAB lhFrom lhTo lht, PH_SET rhSymb rhv)
     | lhFrom == rhSymb && inFuture lhFrom && inFuture lhTo ->
-        Just $ PH_TAB lhFrom lhTo $ TabRestrictKeys lht rhv
+        Just $ PH_TAB lhFrom lhTo $ TabRestrictKeys lhFrom lhTo lht rhv
     | lhFrom == rhSymb && inFuture lhFrom ->
-        Just $ PH_SET lhFrom $ SetJoin (TabKeySet lht) rhv
+        Just $ PH_SET lhFrom $ SetJoin lhFrom (TabKeySet lhFrom lhTo lht) rhv
     | lhFrom == rhSymb && inFuture lhTo ->
-        Just $ PH_SET lhTo $ TabSetUnionVals rhv lht
+        Just $ PH_SET lhTo $ TabSetUnionVals lhFrom rhv lhTo lht
     | lhFrom == rhSymb -> error "wtf is this case"
     | otherwise -> error "Handle all the lhTo cases."
 
   (lhs@(PH_SCALAR _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
   (PH_TAB lhFrom lhTo lhTab, PH_SCALAR rhSymb rhv)
-    | rhSymb == lhFrom -> Just $ PH_SET lhTo $ TabScalarLookup rhv lhTab
+    | rhSymb == lhFrom ->
+      Just $ PH_SET lhTo $ TabScalarLookup rhSymb rhv lhTo lhTab
     | rhSymb == lhTo -> error "Handle backwards scalar table matching."
     | otherwise -> Nothing
 

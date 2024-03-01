@@ -295,3 +295,36 @@ toKeySet (HITCHHIKERSETMAP config (Just top)) =
         HitchhikerSetNodeIndex (mapIndex translate idx) mempty
       HitchhikerSetMapNodeLeaf l ->
         HitchhikerSetNodeLeaf $ ssetFromList $ M.keys l
+
+takeWhileAntitone :: forall k v
+                   . (Show k, Show v, Ord k, Ord v)
+                  => (k -> Bool)
+                  -> HitchhikerSetMap k v
+                  -> HitchhikerSetMap k v
+takeWhileAntitone fun hsm@(HITCHHIKERSETMAP _ Nothing) = hsm
+takeWhileAntitone fun (HITCHHIKERSETMAP config (Just top)) =
+  (HITCHHIKERSETMAP config newTop)
+  where
+    newTop = case hsmTakeWhile $ flushDownwards (hhSetMapTF config) top of
+      HitchhikerSetMapNodeLeaf l | M.null l -> Nothing
+      x                                     -> Just x
+
+    hsmTakeWhile = \case
+
+      -- What do we have to do here?
+      HitchhikerSetMapNodeIndex (TreeIndex keys vals) _ ->
+        -- The antitone function is run for every value in the index. While
+        -- it's taken
+        let !nuKeys = takeWhile fun keys
+        in if V.null nuKeys
+           then
+             hsmTakeWhile $ vals V.! 0
+           else
+             let tVals = take (length nuKeys + 1) vals
+                 lastItem = length tVals - 1
+                 nuVals = tVals V.//
+                          [(lastItem, hsmTakeWhile (tVals V.! lastItem))]
+             in HitchhikerSetMapNodeIndex (TreeIndex nuKeys nuVals) mempty
+
+      HitchhikerSetMapNodeLeaf l ->
+        HitchhikerSetMapNodeLeaf $ M.takeWhileAntitone fun l
