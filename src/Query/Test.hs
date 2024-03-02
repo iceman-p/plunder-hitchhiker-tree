@@ -7,9 +7,12 @@ import           Query.NaiveEvaluator
 import           Query.PlanEvaluator
 import           Query.Planner
 import           Query.Types
+import           Types
 
 import qualified Data.Set                   as S
 import qualified Data.Vector                as V
+
+import qualified HitchhikerSet              as HS
 
 nationDemoDB :: Database
 nationDemoDB = foldl' add emptyDB datoms
@@ -88,26 +91,36 @@ derpdb = foldl' add emptyDB datoms
 --        db
 --        ["twilight sparkle" "cute"] 100)
 
--- {-
--- fullDerpTagPlan =
---   stupidEvaluator
---     derpdb
---     [ROWS [VAR "?tag"] [] [
---         V.fromList [VAL_STR "twilight sparkle"],
---         V.fromList [VAL_STR "cute"]],
---      ROWS [VAR "?amount"] [] [V.fromList [VAL_INT 100]]]
---     []
---     [DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/tag") (VAR "?tag")),
---      DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes")),
---      PredicateExpression (PREDICATE (PredBuiltin B_GT) [
---                              ARG_VAR (VAR "?upvotes"),
---                              ARG_VAR (VAR "?amount")]),
---      DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
---      DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumburl") (VAR "?thumburl"))]
---     [VAR "?derpid", VAR "?thumburl"]
--- -}
+fullDerpClauses = [
+  DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/tag") (VAR "?tag")),
+  DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes")),
+  BiPredicateExpression B_GT (ARG_VAR (VAR "?upvotes"))
+                             (ARG_VAR (VAR "?amount")),
+  DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
+  DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumburl") (VAR "?thumburl"))]
 
+fullDerpNaiveResult =
+  naiveEvaluator
+    derpdb
+    [ROWS [VAR "?tag"] [] [
+        V.fromList [VAL_STR "twilight sparkle"],
+        V.fromList [VAL_STR "cute"]],
+     ROWS [VAR "?amount"] [] [V.fromList [VAL_INT 100]]]
+    []
+    fullDerpClauses
+    [VAR "?derpid", VAR "?thumburl"]
 
+fullDerpPlan = mkPlan
+  [B_COLLECTION (VAR "?tag"), B_SCALAR (VAR "?amount")]
+  fullDerpClauses
+  (S.fromList [VAR "?derpid", VAR "?thumbnurl"])
+
+fullDerpOut = evalPlan
+  [REL_SET $ RSET (VAR "?tag")
+                  (HS.fromSet twoThreeConfig $ S.fromList $ map VAL_STR ["twilight sparkle", "cute"]),
+   REL_SCALAR $ RSCALAR (VAR "?amount") (VAL_INT 100)]
+  derpdb
+  fullDerpPlan
 
 -- -----------------------------------------------------------------------
 
@@ -146,9 +159,13 @@ countStupid = naiveEvaluator
 --   (S.singleton (VAR "?amount"))
 
 countPlan = mkPlan
-  []
+  [B_SCALAR (VAR "?min")]
   [DataPattern (LC_XAZ (VAR "?e") (ATTR ":has") (VAR "?amount")),
-   BiPredicateExpression B_GT (ARG_CONST (VAL_INT 100)) (ARG_VAR (VAR "?amount"))]
+   BiPredicateExpression B_GT (ARG_VAR (VAR "?min")) (ARG_VAR (VAR "?amount"))]
+--   BiPredicateExpression B_GT (ARG_CONST (VAL_INT 100)) (ARG_VAR (VAR "?amount"))]
   (S.singleton (VAR "?amount"))
 
-countOut = evalPlan [] countdb countPlan
+countOut = evalPlan
+  [REL_SCALAR $ RSCALAR (VAR "?min") (VAL_INT 100)]
+  countdb
+  countPlan

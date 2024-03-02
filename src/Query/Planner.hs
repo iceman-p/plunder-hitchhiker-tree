@@ -65,30 +65,87 @@ mkPlan bindingInputs clauses target =
         (BiPredicateExpression pred arg1 arg2) ->
           -- We're a predicate. We look at the current state of the tree to try
           -- to transform that tree into a structure with specialized predicate
-          -- supports, but otherwise
+          -- supports, but otherwise will fallback on just making everything
+          -- rows.
           case (arg1, arg2) of
-            (ARG_VAR var1, ARG_VAR var2) ->
-              -- This is the kind of complicated one because
-              error "both are variables"
             (ARG_CONST const1, ARG_VAR var2) ->
-              go (map (applyPredCV pred const1 var2) inputs) cs
-            (ARG_VAR var1, ARG_CONST const2) -> error "compare against const"
-            (ARG_CONST const1, ARG_CONST const2) ->
-              error "degenerate case; i hate you."
+              go (map (applyPredL pred (InputConst const1) var2) inputs) cs
+            (ARG_VAR var1, ARG_CONST const2) ->
+              go (map (applyPredR pred var1 (InputConst const2)) inputs) cs
 
-    applyPredCV :: BuiltinPred -> Value -> Variable -> PlanHolder -> PlanHolder
-    applyPredCV pred const1 var2 = \case
-      (PH_SET s val)
-        | s == var2 -> PH_SET s $ applyPredCVToPlan val
-      _ -> undefined
+            (ARG_VAR var1, ARG_VAR var2)
+              | var1 == var2 -> error "handle this weird case"
+
+              | Just (var1Plan, restInputs) <- findScalarFor future var1 inputs
+              , Nothing <- findScalarFor future var2 restInputs
+                -> go (map (applyPredL pred var1Plan var2) inputs) cs
+
+              | Just (var2Plan, restInputs) <- findScalarFor future var2 inputs
+              , Nothing <- findScalarFor future var1 restInputs
+                -> go (map (applyPredR pred var1 var2Plan) inputs) cs
+
+              -- TODO: Both are variables where both aren't scalars.
+              | otherwise -> error "both are variables"
+
+            (ARG_CONST const1, ARG_CONST const2) ->
+              error "degenerate case. i hate you."
+
+    -- Finds and extracts a scalar plan
+    findScalarFor :: Set Variable -> Variable -> [PlanHolder]
+                  -> Maybe (Plan RelScalar, [PlanHolder])
+    findScalarFor future var = go []
       where
-        applyPredCVToPlan :: Plan a -> Plan a
-        applyPredCVToPlan = \case
+        go :: [PlanHolder] -> [PlanHolder]
+           -> Maybe (Plan RelScalar, [PlanHolder])
+        go _ [] = Nothing
+        go prev (ph@(PH_SCALAR scalarVar plan):xs)
+          | var == scalarVar && inFuture var =
+            Just (plan, (reverse prev) ++ [ph] ++ xs)
+          | var == scalarVar =
+            Just (plan, (reverse prev) ++ xs)
+          | otherwise = go (ph:prev) xs
+        go prev (x:xs) = go (x:prev) xs
+
+        inFuture = flip S.member future
+
+    applyPredL :: BuiltinPred -> Plan RelScalar -> Variable -> PlanHolder
+               -> PlanHolder
+    applyPredL pred const1 var2 = \case
+      (PH_SET s val)
+        | s == var2 -> PH_SET s $ applyPredLToPlan val
+      ph | not $ S.member var2 $ planHolderBinds ph -> ph
+         | otherwise -> undefined {- fallback case -}
+      where
+        applyPredLToPlan :: Plan a -> Plan a
+        applyPredLToPlan = \case
           lt@(LoadTab _ _ from to)
             | var2 == from -> (FilterPredTabKeysL const1 pred lt)
 
+          sj@(SetJoin from lhs rhs)
+            | var2 == from -> SetJoin from (applyPredLToPlan lhs)
+                                           (applyPredLToPlan rhs)
+
           (TabKeySet from to tab)
-            | var2 == from -> (TabKeySet from to $ applyPredCVToPlan tab)
+            | var2 == from -> (TabKeySet from to $ applyPredLToPlan tab)
+
+    -- TODO: The VC case is basically undone right now and is just here to
+    applyPredR :: BuiltinPred -> Variable -> Plan RelScalar -> PlanHolder
+               -> PlanHolder
+    applyPredR pred var1 const2 = \case
+      -- (PH_SET s val)
+      --   | s == var2 -> PH_SET s $ applyPredRToPlan val
+      -- ph | not $ S.member var2 $ planHolderBinds ph -> ph
+      --    | otherwise -> undefined {- fallback case -}
+      ph -> ph
+--       where
+--         applyPredRToPlan :: Plan a -> Plan a
+--         applyPredRToPlan = \case
+--           (TabKeySet from to tab)
+--             | var1 == from -> (TabKeySet from to $ applyPredCVToPlan tab)
+
+
+
+-- --          elsecase -> (FilterPredTabKeysL const1 pred elsecase)
 
 --     ph
 --       | not $ S.member var2 $ planHolderBinds ph = ph

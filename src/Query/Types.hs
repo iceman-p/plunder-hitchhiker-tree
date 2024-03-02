@@ -300,14 +300,17 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
   TabRestrictKeys :: Variable -> Variable
                   -> Plan RelTab -> Plan RelSet -> Plan RelTab
 
+  -- TabRestrictKeysValPred :: Variable -> Variable
+  --                        -
+  --                        -> Plan RelTab -> Plan RelSet -> PlanRelTab
+
   TabKeySet :: Variable -> Variable -> Plan RelTab -> Plan RelSet
 
-  FilterPredTabKeysL :: Value -> BuiltinPred -> Plan RelTab -> Plan RelTab
-
-  -- -- Filter versions of tab operations that also check a predicate.
-  -- FilterValsTabRestrictKeys :: Plan PlanUniPredicate
-  --                           -> Plan RelTab -> Plan RelSet -> Plan RelTab
-  --  -- (Value -> HitchhikerSet Value -> Bool)
+  -- TODO: Change these values into (Plan RelScalar)
+  FilterPredTabKeysL :: Plan RelScalar -> BuiltinPred -> Plan RelTab
+                     -> Plan RelTab
+  FilterPredTabKeysR :: Plan RelTab -> BuiltinPred -> Plan RelScalar
+                     -> Plan RelTab
 
   SetJoin :: Variable -> Plan RelSet -> Plan RelSet -> Plan RelSet
   SetScalarJoin :: Plan RelSet -> Plan RelScalar -> Plan RelSet
@@ -316,15 +319,6 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
 
   -- Sometimes, you can't do anything but fallback to stupid rows.
   SetToRows :: Variable -> Plan RelSet -> Plan Rows
-
-  --
-  --ApplyPredToRows
-
-  -- What does Prepare predicate have to represent? We need
-
-  -- Since our arguments might
-  PrepareLHSBiPredicate :: Variable -> Plan a
-                        -> (Value -> Value -> Bool) -> Plan PlanUniPredicate
 
   -- Imagine you are the
 

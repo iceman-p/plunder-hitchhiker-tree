@@ -40,7 +40,7 @@ evalPlan inputs db = runFromPlanHolder
 
     go (InputScalar _ i) = case atMay inputs i of
       Just (REL_SCALAR rs) -> rs
-      _                    -> error "Input doesn't match plan in InputScalar"
+      x                    -> error $ "Input doesn't match plan in InputScalar"
     go (InputSet _ i) = case atMay inputs i of
       Just (REL_SET rs) -> rs
       _                 -> error "Input doesn't match plan in InputSet"
@@ -77,17 +77,15 @@ evalPlan inputs db = runFromPlanHolder
       let (RTAB from _ tab) = go ptab
       in RSET from $ HSM.toKeySet tab
 
-    -- Next: figure out if I can use `takeWhileAntitone` for all predicates or
-    -- if it's just `<`. I probably need to
-    --
-    go (FilterPredTabKeysL lConst pred ptab) =
-      let (RTAB from to tab) = go ptab
+    go (FilterPredTabKeysL pconst pred ptab) =
+      let (RSCALAR _ val) = go pconst
+          (RTAB from to tab) = go ptab
       in RTAB from to $ case pred of
-        B_LT  -> HSM.takeWhileAntitone (lConst <) tab
-        B_LTE -> HSM.takeWhileAntitone (lConst <=) tab
+        B_LT  -> HSM.dropWhileAntitone (val <) tab
+        B_LTE -> HSM.dropWhileAntitone (val <=) tab
         B_EQ  -> undefined -- Perform lookup, make singleton
-        B_GTE -> HSM.dropWhileAntitone (lConst <) tab
-        B_GT  -> HSM.dropWhileAntitone (lConst <=) tab
+        B_GTE -> HSM.takeWhileAntitone (val >=) tab
+        B_GT  -> HSM.takeWhileAntitone (val >) tab
 
     -- go (FilterValsTabRestrictKeys ppred ptab pset) =
     --   let (RTAB from to tab) = go ptab
