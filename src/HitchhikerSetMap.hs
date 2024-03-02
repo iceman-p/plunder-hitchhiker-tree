@@ -310,21 +310,52 @@ takeWhileAntitone fun (HITCHHIKERSETMAP config (Just top)) =
       x                                     -> Just x
 
     hsmTakeWhile = \case
-
-      -- What do we have to do here?
       HitchhikerSetMapNodeIndex (TreeIndex keys vals) _ ->
         -- The antitone function is run for every value in the index. While
-        -- it's taken
-        let !nuKeys = takeWhile fun keys
+        -- the function holds, we don't need to recur into the subnodes.
+        let nuKeys = takeWhile fun keys
+            tVals = take (length nuKeys + 1) vals
+            lastItem = length tVals - 1
+            nuVals = tVals V.//
+                     [(lastItem, hsmTakeWhile (tVals V.! lastItem))]
         in if V.null nuKeys
-           then
-             hsmTakeWhile $ vals V.! 0
-           else
-             let tVals = take (length nuKeys + 1) vals
-                 lastItem = length tVals - 1
-                 nuVals = tVals V.//
-                          [(lastItem, hsmTakeWhile (tVals V.! lastItem))]
-             in HitchhikerSetMapNodeIndex (TreeIndex nuKeys nuVals) mempty
+           then hsmTakeWhile $ vals V.! 0
+           else HitchhikerSetMapNodeIndex (TreeIndex nuKeys nuVals) mempty
 
       HitchhikerSetMapNodeLeaf l ->
         HitchhikerSetMapNodeLeaf $ M.takeWhileAntitone fun l
+
+
+-- TODO: Debug dropWhileAntitone. This is wrong. There is a bug in the
+-- following that breaks during quickcheck.
+
+dropWhileAntitone :: forall k v
+                   . (Show k, Show v, Ord k, Ord v)
+                  => (k -> Bool)
+                  -> HitchhikerSetMap k v
+                  -> HitchhikerSetMap k v
+dropWhileAntitone fun hsm@(HITCHHIKERSETMAP _ Nothing)     = hsm
+dropWhileAntitone fun (HITCHHIKERSETMAP config (Just top)) =
+  HITCHHIKERSETMAP config newTop
+  where
+    newTop = case hsmDropWhile $ flushDownwards (hhSetMapTF config) top of
+      HitchhikerSetMapNodeLeaf l | M.null l -> Nothing
+      x                                     -> Just x
+
+    hsmDropWhile = \case
+      HitchhikerSetMapNodeIndex (TreeIndex keys vals) _ ->
+        -- The antitone function is run for every value in the index. While
+        -- the function holds, we don't need to recur into the subnodes.
+        if V.null nuKeys
+        then hsmDropWhile $ nuVals V.! 0
+        else HitchhikerSetMapNodeIndex (TreeIndex nuKeys nuVals) mempty
+        where
+          nuKeys = dropWhile fun keys
+          dropCount = length keys - length nuKeys
+          tVals = drop dropCount vals
+          nuVals = case dropCount of
+            0 -> vals V.// [(0, hsmDropWhile (vals V.! 0))]
+            x -> tVals V.// [(0, hsmDropWhile (tVals V.! 0))]
+
+      HitchhikerSetMapNodeLeaf l ->
+        HitchhikerSetMapNodeLeaf $ M.dropWhileAntitone fun l

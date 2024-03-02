@@ -1,4 +1,4 @@
-module HitchhikerSetMapTests (tests) where
+module HitchhikerSetMapTests where -- (tests) where
 
 import           ClassyPrelude
 
@@ -103,6 +103,23 @@ prop_setmap_take_antitone raw = go raw (S.empty)
     emp = SM.empty twoThreeConfig
     asItems = map toTup raw
 
+prop_setmap_drop_antitone :: [TestPair] -> Bool
+prop_setmap_drop_antitone raw = go raw (S.empty)
+  where
+    go ((TestPair k v):xs) m =
+      go xs (S.insert k v m)
+    go [] m = case doShuffle raw of
+      [] -> True -- empty list, ok.
+      ((TestPair k _): _) ->
+        let !hm = SM.insertMany asItems emp
+            !smA = HS.toSet $ SM.toKeySet $ SM.dropWhileAntitone (< k) hm
+            !sA = M.keysSet $ M.dropWhileAntitone (< k) $ S.toMap m
+        in trace ("k: " <> show k <> ", smA: " <> show smA <> ", sA: " <> show sA) $
+           smA == sA
+
+    emp = SM.empty twoThreeConfig
+    asItems = map toTup raw
+
 
 tests :: TestTree
 tests =
@@ -111,5 +128,6 @@ tests =
     testProperty "Mass insert equivalence" prop_map_insertmany_eq,
     -- testProperty "Delete equivalence" prop_setmap_delete_eq
 
-    testProperty "Taken antitone equivalence" prop_setmap_take_antitone
+    testProperty "Take antitone equivalence" prop_setmap_take_antitone,
+    testProperty "Drop antitone equivalence" prop_setmap_drop_antitone
     ]

@@ -4,6 +4,7 @@ import           ClassyPrelude
 
 import           Query.HitchhikerDatomStore
 import           Query.NaiveEvaluator
+import           Query.PlanEvaluator
 import           Query.Planner
 import           Query.Types
 
@@ -149,3 +150,5 @@ countPlan = mkPlan
   [DataPattern (LC_XAZ (VAR "?e") (ATTR ":has") (VAR "?amount")),
    BiPredicateExpression B_GT (ARG_CONST (VAL_INT 100)) (ARG_VAR (VAR "?amount"))]
   (S.singleton (VAR "?amount"))
+
+countOut = evalPlan [] countdb countPlan
