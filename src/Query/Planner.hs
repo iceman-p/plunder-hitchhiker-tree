@@ -38,7 +38,7 @@ mkPlan bindingInputs clauses target =
     go :: [PlanHolder] -> [Clause] -> [PlanHolder]
     go ph [] = ph
     go inputs (c:cs) =
-      trace ("Step: c=" <> show c <> ", cs=" <> show cs <> ", inputs=" <> show inputs) $
+--      trace ("Step: c=" <> show c <> ", cs=" <> show cs <> ", inputs=" <> show inputs) $
       let past = pastProvides inputs
           future = futureNeeds cs
       in case c of
@@ -230,7 +230,9 @@ joinAll f (x:xs) = joinOuter x xs []
       Just new -> Just (new, reverse prev ++ ys)
 
 rhJoin :: Set Variable -> PlanHolder -> PlanHolder -> Maybe PlanHolder
-rhJoin future l r = trace ("Join: l=" <> show l <> ", r=" <> show r <> ", out=" <> show out) $ out
+rhJoin future l r =
+--  trace ("Join: l=" <> show l <> ", r=" <> show r <> ", out=" <> show out) $
+  out
   where
     out = case (l, r) of
       (PH_SET lhs lhv, PH_SET rhs rhv)
@@ -285,141 +287,3 @@ rhJoin future l r = trace ("Join: l=" <> show l <> ", r=" <> show r <> ", out=" 
                      <> show b
 
     inFuture = flip S.member future
-
-
-
-
-
-
-
-
-
-
--- This is the integrated planner.
-
--- So we're back here again: we have a bunch of clauses and we have to build a
--- plan out of them.
-
-
--- I'm really building a dependency graph here.
-
--- (db/q '[:find ?derpid ?thumburl
---         :in $ [?tag ...] ?amount
---         :where
---         [?e :derp/tag ?tag]
---         [?e :derp/upvotes ?upvotes]
---         [(> ?upvotes ?amount)]
---         [?e :derp/id ?derpid]
---         [?e :derp/thumburl ?thumburl]]
---        db
---        ["twilight sparkle" "cute"] 100)
-
-
--- A quick chatgpt q suggests that starting from :in is how most database query
--- engines work (and only then do a second pass optimization starting from the
--- results).
---
--- This implies that last weeks' work was probably mostly ok?
-
-
--- The entire idea around finding promotable predicates is actually rather
--- difficult to handle in all cases. You need to make the
-
--- The above is an input graph, a sort of edge list. How do you
-
--- ?amount ---------------------------------------------v
--- [?tag] -> :derp/tag -> [?e ?tag] -> :derp/upvotes (pred) ->
-
-
--- The current structure of mkPlan in the old Planner.hs implementation goes
--- one clause at a time, and then tries to joinAll repeatedly. That kind of
--- works? But not really.
-
-
--- The repeated join is actually not the way to structure this because it can't
--- do middle joins.
-
-
--- Imagine you are trying to write a
---
--- What performs the unification?
-
--- mkPlanSketch :: [PlanHolder] -> [Clause] -> Set Variable -> [PlanHolder]
--- mkPlanSketch startingInputs clauses targets = go startingInputs clauses
---   where
-
---     go :: [PlanHolder] -> [Clause] -> [PlanHolder]
---     go ph [] = undefined
---     go inputs (c:cs) =
---       -- We want to build around a different pattern here. Previously, going to
---       -- the
---       case c of
---         (BiPredicateExpression pred lhs rhs) ->
---           -- We now know that we're a predicate. We have to determine from the
---           -- args what the inputs we need to bind with are.
---           undefined
-
--- How do you determine how to bind this? In the below, it's obvious that since
--- ?amount is a single item, it's easy to
-
--- Truth table:
---
--- Everything with rows becomes rows. (TODO: is that right? Are there limited
--- cases with limited need variables where it'd be more efficient to output the
--- other?)
---
--- (PH_ROWS ...) (PH_ROWS ...) -> ROWS
--- (PH_ROWS ...) (PH_SCALAR ) -> ROWS
--- (PH_ROWS ...) (PH_SET ..) -> ROWS
-
---
--- (PH_SET ...) (PH_SET ...) -> ROWS
-
-
-
--- (PH_TAB _ value) (PH_SCALAR ...) -> PH_TAB
-
--- -- OK, let's JUST write this case.
--- reworkTabScalar
---   :: BuiltinPred
---   -> Variable
---   -> Variable
---   -> PlanHolder -> PlanHolder -> PlanHolder
--- reworkTabScalar pred l r (PH_TAB from to planTab) (PH_SCALAR var scalar) =
---   case planTab of
---     lt@(LoadTab _ _ _ _) ->
---       -- We can't directly modify a load, so wrap it in a filter afterwards.
---       undefined
---     trk@(TabRestrictKeys _ _)
---       | l == to && r == var ->
---           (FilterValsTabRestrictKeys
---             (PrepareLHSBiPred
-
---       -- We want to rewrite this restriction so that
-
-
---
--- predPlan = mkPlanSketch
---   [PH_TAB (VAR "?e") (VAR "?upvotes") $ TabRestrictKeys
---    (LoadTab USE_AEV (VAL_ATTR (ATTR ":derp/upvotes")) (VAR "?e") (VAR "?upvotes"))
---    (TabSetUnionVals (InputSet (VAR "?tag") 0)
---     (LoadTab USE_AVE (VAL_ATTR (ATTR ":derp/tag")) (VAR "?tag") (VAR "?e"))),
-
---    PH_SCALAR (VAR "?amount") $ InputScalar (VAR "?amount") 1
---   ]
---   [BiPredicateExpression B_GT
---                          (ARG_VAR (VAR "?upvotes"))
---                          (ARG_VAR (VAR "?amount"))]
---   (S.fromList [(VAR "?e")])
-
--- The tree transformation that we want is the above to equal
-
-
-
-
--- What's the main loop for this? What do you do?
---
---
-
-
--- Finally, removes relations that just don't build towards the future.
