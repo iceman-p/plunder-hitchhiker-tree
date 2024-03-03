@@ -260,9 +260,11 @@ restrictKeys (HITCHHIKERSET sConfig (Just a))
     as = getLeafList HS.hhSetTF a
     bs = getLeafList (hhSetMapTF mConfig) b
 
+-- Given a predicate function which takes the key and set of values, restricts
+-- all keys to
 restrictKeysWithPred :: forall k v
                       . (Show k, Show v, Ord k, Ord v)
-                     => (k -> HitchhikerSet v -> Bool)
+                     => (k -> HitchhikerSet v -> Maybe (HitchhikerSet v))
                      -> HitchhikerSet k
                      -> HitchhikerSetMap k v
                      -> HitchhikerSetMap k v
@@ -278,7 +280,7 @@ restrictKeysWithPred func (HITCHHIKERSET sConfig (Just a))
     as = getLeafList HS.hhSetTF a
     bs = getLeafList (hhSetMapTF mConfig) b
 
-    convertFunc k (NAKEDSET n) = func k (HITCHHIKERSET sConfig n)
+    convertFunc k (NAKEDSET n) = strip <$> func k (HITCHHIKERSET sConfig n)
 
 toKeySet :: forall k v
           . (Show k, Show v, Ord k, Ord v)
@@ -325,10 +327,7 @@ takeWhileAntitone fun (HITCHHIKERSETMAP config (Just top)) =
       HitchhikerSetMapNodeLeaf l ->
         HitchhikerSetMapNodeLeaf $ M.takeWhileAntitone fun l
 
-
--- TODO: Debug dropWhileAntitone. This is wrong. There is a bug in the
--- following that breaks during quickcheck.
-
+-- TODO: Doesn't deal with balancing at the ends at all.
 dropWhileAntitone :: forall k v
                    . (Show k, Show v, Ord k, Ord v)
                   => (k -> Bool)

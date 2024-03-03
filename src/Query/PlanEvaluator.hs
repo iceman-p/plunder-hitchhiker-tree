@@ -28,6 +28,11 @@ printableLookupToFunc USE_AEV = aev
 printableLookupToFunc USE_AVE = ave
 printableLookupToFunc USE_VAE = vae
 
+data EvalBiPred
+  = EBP_LEFT Value BuiltinPred
+  | EBP_RIGHT BuiltinPred Value
+  deriving (Show)
+
 evalPlan :: [Relation] -> Database -> PlanHolder -> Relation
 evalPlan inputs db = runFromPlanHolder
   where
@@ -87,14 +92,35 @@ evalPlan inputs db = runFromPlanHolder
         B_GTE -> HSM.takeWhileAntitone (val >=) tab
         B_GT  -> HSM.takeWhileAntitone (val >) tab
 
-    -- go (FilterValsTabRestrictKeys ppred ptab pset) =
-    --   let (RTAB from to tab) = go ptab
-    --       (RSET sym set) = go pset
-    --       (PUPRED predvars predfunc) = go ppred
-    --   -- OK, pred has to be some sort of plan that we also evaluate here. We
-    --   -- have to take
+    -- TODO: FilterPredTabKeysR, with the above flipped in direction.
 
-    --   in RTAB from to $ undefined "TODO"  -- HSM.restrictKeys set tab
+    --
+    go (TabRestrictKeysVals from to ppreds ptab pset) =
+      let (RTAB _ _ tab) = go ptab
+          (RSET _ set) = go pset
+          preds = map evalBiPred ppreds
+
+          vsetAsMaybe vset = if HS.null vset
+                             then Nothing
+                             else Just vset
+          filterFunc [] _ vset                     = vsetAsMaybe vset
+          filterFunc ((EBP_LEFT s pred):ps) k vset =
+            filterFunc ps k $ case pred of
+              B_LT  -> HS.takeWhileAntitone (s <) vset
+              B_LTE -> HS.takeWhileAntitone (s <=) vset
+              B_EQ  -> undefined
+              B_GTE -> HS.dropWhileAntitone (s >=) vset
+              B_GT  -> HS.dropWhileAntitone (s >) vset
+          filterFunc ((EBP_RIGHT pred s):ps) k vset =
+            filterFunc ps k $ case pred of
+              B_LT  -> HS.dropWhileAntitone (< s) vset
+              B_LTE -> HS.dropWhileAntitone (<= s) vset
+              B_EQ  -> undefined
+              B_GTE -> HS.takeWhileAntitone (>= s) vset
+              B_GT  -> HS.takeWhileAntitone (> s) vset
+
+          outtab = HSM.restrictKeysWithPred (filterFunc preds) set tab
+      in RTAB from to outtab
 
     go (SetJoin _key pa pb) =
       let ea = go pa
@@ -125,6 +151,13 @@ evalPlan inputs db = runFromPlanHolder
       let (RSET sym set) = go pset
       in ROWS [sym] [sym] $ map V.singleton $ HS.toList set
 
+    evalBiPred :: PlanBiPred -> EvalBiPred
+    evalBiPred (PBP_LEFT pscalar pred)  =
+      let (RSCALAR _ val) = go pscalar
+      in EBP_LEFT val pred
+    evalBiPred (PBP_RIGHT pred pscalar) =
+      let (RSCALAR _ val) = go pscalar
+      in EBP_RIGHT pred val
 
 -- -----------------------------------------------------------------------
 

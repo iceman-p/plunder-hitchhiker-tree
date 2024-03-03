@@ -288,7 +288,7 @@ setlistMaplistIntersect partial ao@(a:as) bo@(b:bs) =
 
 setlistMaplistIntersectWithPred :: forall k v
          . (Show k, Ord k, Show v)
-        => (k -> v -> Bool)
+        => (k -> v -> Maybe v)
         -> [ArraySet k]
         -> [ArraySet k]
         -> [Map k v]
@@ -305,7 +305,7 @@ setlistMaplistIntersectWithPred func partial ao@(a:as) bo@(b:bs) =
         filteredBy s rest = let f = M.restrictKeys b s
                             in if M.null f
                                then rest
-                               else let ff = M.filterWithKey func f
+                               else let ff = M.mapMaybeWithKey func f
                                     in if M.null ff
                                        then rest
                                        else ff:rest

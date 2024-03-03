@@ -20,6 +20,8 @@ module HitchhikerSet ( empty
                      , consolidate
                      , hhSetTF
                      , HitchhikerSet.toList
+                     , HitchhikerSet.takeWhileAntitone
+                     , HitchhikerSet.dropWhileAntitone
                      ) where
 
 import           ClassyPrelude   hiding (delete, empty, intersection, member,
@@ -332,3 +334,63 @@ toList :: (Show k, Ord k) => HitchhikerSet k -> [k]
 toList (HITCHHIKERSET _ Nothing) = []
 toList (HITCHHIKERSET _ (Just a)) = concat $ map ssetToAscList $ getLeafList hhSetTF a
 
+takeWhileAntitone :: forall k
+                   . (Show k, Ord k)
+                  => (k -> Bool)
+                  -> HitchhikerSet k
+                  -> HitchhikerSet k
+takeWhileAntitone fun hsm@(HITCHHIKERSET _ Nothing) = hsm
+takeWhileAntitone fun (HITCHHIKERSET config (Just top)) =
+  (HITCHHIKERSET config newTop)
+  where
+    newTop = case hsmTakeWhile $ flushDownwards hhSetTF top of
+      HitchhikerSetNodeLeaf l | ssetIsEmpty l -> Nothing
+      x                                       -> Just x
+
+    hsmTakeWhile = \case
+      HitchhikerSetNodeIndex (TreeIndex keys vals) _ ->
+        -- The antitone function is run for every value in the index. While
+        -- the function holds, we don't need to recur into the subnodes.
+        let nuKeys = takeWhile fun keys
+            tVals = take (length nuKeys + 1) vals
+            lastItem = length tVals - 1
+            nuVals = tVals V.//
+                     [(lastItem, hsmTakeWhile (tVals V.! lastItem))]
+        in if V.null nuKeys
+           then hsmTakeWhile $ vals V.! 0
+           else HitchhikerSetNodeIndex (TreeIndex nuKeys nuVals) mempty
+
+      HitchhikerSetNodeLeaf l ->
+        HitchhikerSetNodeLeaf $ ssetTakeWhileAntitone fun l
+
+-- TODO: Doesn't deal with balancing at the ends at all.
+dropWhileAntitone :: forall k
+                   . (Show k, Ord k)
+                  => (k -> Bool)
+                  -> HitchhikerSet k
+                  -> HitchhikerSet k
+dropWhileAntitone fun hsm@(HITCHHIKERSET _ Nothing)     = hsm
+dropWhileAntitone fun (HITCHHIKERSET config (Just top)) =
+  HITCHHIKERSET config newTop
+  where
+    newTop = case hsmDropWhile $ flushDownwards hhSetTF top of
+      HitchhikerSetNodeLeaf l | ssetIsEmpty l -> Nothing
+      x                                       -> Just x
+
+    hsmDropWhile = \case
+      HitchhikerSetNodeIndex (TreeIndex keys vals) _ ->
+        -- The antitone function is run for every value in the index. While
+        -- the function holds, we don't need to recur into the subnodes.
+        if V.null nuKeys
+        then hsmDropWhile $ nuVals V.! 0
+        else HitchhikerSetNodeIndex (TreeIndex nuKeys nuVals) mempty
+        where
+          nuKeys = dropWhile fun keys
+          dropCount = length keys - length nuKeys
+          tVals = drop dropCount vals
+          nuVals = case dropCount of
+            0 -> vals V.// [(0, hsmDropWhile (vals V.! 0))]
+            x -> tVals V.// [(0, hsmDropWhile (tVals V.! 0))]
+
+      HitchhikerSetNodeLeaf l ->
+        HitchhikerSetNodeLeaf $ ssetDropWhileAntitone fun l

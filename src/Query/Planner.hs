@@ -113,6 +113,9 @@ mkPlan bindingInputs clauses target =
     applyPredL pred const1 var2 = \case
       (PH_SET s val)
         | s == var2 -> PH_SET s $ applyPredLToPlan val
+      (PH_TAB from to val)
+        | from == var2 -> PH_TAB from to $ applyPredLToPlan val
+        | to == var2 -> PH_TAB from to $ applyPredLToPlan val
       ph | not $ S.member var2 $ planHolderBinds ph -> ph
          | otherwise -> undefined {- fallback case -}
       where
@@ -128,51 +131,55 @@ mkPlan bindingInputs clauses target =
           (TabKeySet from to tab)
             | var2 == from -> (TabKeySet from to $ applyPredLToPlan tab)
 
+          (TabRestrictKeys from to tab set)
+            | var2 == from -> TabRestrictKeys from to (applyPredLToPlan tab)
+                                                      (applyPredLToPlan set)
+            | var2 == to ->
+              TabRestrictKeysVals from to [PBP_LEFT const1 pred] tab set
+
+          (TabRestrictKeysVals from to ps tab set)
+            | var2 == from ->
+              TabRestrictKeysVals from to ps (applyPredLToPlan tab)
+                                             (applyPredLToPlan set)
+            | var2 == to ->
+              TabRestrictKeysVals from to ((PBP_LEFT const1 pred):ps) tab set
+
     -- TODO: The VC case is basically undone right now and is just here to
     applyPredR :: BuiltinPred -> Variable -> Plan RelScalar -> PlanHolder
                -> PlanHolder
     applyPredR pred var1 const2 = \case
-      -- (PH_SET s val)
-      --   | s == var2 -> PH_SET s $ applyPredRToPlan val
-      -- ph | not $ S.member var2 $ planHolderBinds ph -> ph
-      --    | otherwise -> undefined {- fallback case -}
-      ph -> ph
---       where
---         applyPredRToPlan :: Plan a -> Plan a
---         applyPredRToPlan = \case
---           (TabKeySet from to tab)
---             | var1 == from -> (TabKeySet from to $ applyPredCVToPlan tab)
+      (PH_SET s val)
+        | s == var1 -> PH_SET s $ applyPredRToPlan val
+      (PH_TAB from to val)
+        | from == var1 -> PH_TAB from to $ applyPredRToPlan val
+        | to == var1 -> PH_TAB from to $ applyPredRToPlan val
+      ph | not $ S.member var1 $ planHolderBinds ph -> ph
+         | otherwise -> trace ("Fallback: " <> show ph) undefined {- fallback case -}
+      where
+        applyPredRToPlan :: Plan a -> Plan a
+        applyPredRToPlan = \case
+          lt@(LoadTab _ _ from to)
+            | var1 == from -> (FilterPredTabKeysR lt pred const2)
 
+          sj@(SetJoin from lhs rhs)
+            | var1 == from -> SetJoin from (applyPredRToPlan lhs)
+                                           (applyPredRToPlan rhs)
 
+          (TabKeySet from to tab)
+            | var1 == from -> (TabKeySet from to $ applyPredRToPlan tab)
 
--- --          elsecase -> (FilterPredTabKeysL const1 pred elsecase)
+          (TabRestrictKeys from to tab set)
+            | var1 == from -> TabRestrictKeys from to (applyPredRToPlan tab)
+                                                      (applyPredRToPlan set)
+            | var1 == to ->
+              TabRestrictKeysVals from to [PBP_RIGHT pred const2] tab set
 
---     ph
---       | not $ S.member var2 $ planHolderBinds ph = ph
---       | otherwise = case ph of
---           -- TODO: this isn't general, this is to support one very specific
---           -- query.
-
---           --
---           -- TODO: Continue here once I've made th
-
--- --          (PH_SET s (TabKeySet tab)) -> (PH_SET s (TabKeySet $ filter
-
---           -- TODO: Finish here!
---           --
---           -- (PH_SET s (SetJoin lhs rhs))
---           --   | s == var2 -> PH_SET s (SetJoin
---           --                           -- TODO: Can't recur like this because
---           --                           -- these are the actual sets. Damn.
---           --                            (applyPredCV pred const1 var2 lhs)
---           --                            (applyPredCV pred const1 var2 rhs))
---           _               -> undefined
-
-    -- applyPredToPlanSet :: BuiltinPred -> Value -> Variable
-    --                    -> Plan RelSet
-    --                    -> Plan RelSet
-    -- applyPredToPlanSet pred const1 var2 (TabKeySet ptab) =
-
+          (TabRestrictKeysVals from to ps tab set)
+            | var1 == from ->
+              TabRestrictKeysVals from to ps (applyPredRToPlan tab)
+                                             (applyPredRToPlan set)
+            | var1 == to ->
+              TabRestrictKeysVals from to ((PBP_RIGHT pred const2):ps) tab set
 
     startingInputs = map bindToPlan $ zip [0..] bindingInputs
 

@@ -284,6 +284,11 @@ data RulePack
 
 -- -----------------------------------------------------------------------
 
+data PlanBiPred
+  = PBP_LEFT (Plan RelScalar) BuiltinPred
+  | PBP_RIGHT BuiltinPred (Plan RelScalar)
+  deriving (Show)
+
 -- Plan the steps to evaluate the query. This is the intermediate form of a
 -- query: it's dumpable to the console for debugging.
 data Plan :: Data.Kind.Type -> Data.Kind.Type where
@@ -299,6 +304,13 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
                   -> Variable -> Plan RelTab -> Plan RelSet
   TabRestrictKeys :: Variable -> Variable
                   -> Plan RelTab -> Plan RelSet -> Plan RelTab
+
+  -- The big hammer. Given a list of key preds and value preds, while
+  -- performing the iteration to restrict a tab by a set of keys, also perform
+  -- the following predicates.
+  TabRestrictKeysVals :: Variable -> Variable
+                      -> [PlanBiPred] {- filter vals -}
+                      -> Plan RelTab -> Plan RelSet -> Plan RelTab
 
   -- TabRestrictKeysValPred :: Variable -> Variable
   --                        -
@@ -320,17 +332,6 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
   -- Sometimes, you can't do anything but fallback to stupid rows.
   SetToRows :: Variable -> Plan RelSet -> Plan Rows
 
-  -- Imagine you are the
-
--- (FilterValsTabRestrictKeys
---    (PrepareLHSBiPred
---       (VAR "?upvotes")
---       (InputScalar (VAR "?amount") 1)
---       (<))
---    (
-
-
-
 instance Show (Plan a) where
   show (InputScalar sym int) = "InputScalar " <> show sym <> " " <> show int
   show (InputSet sym int) = "InputSet " <> show sym <> " " <> show int
@@ -347,6 +348,10 @@ instance Show (Plan a) where
     show tab <> ") (" <> show set <> ")"
   show (TabKeySet from to tab) = "TabKeySet (" <> show from <> ") (" <>
     show to <> ") (" <> show tab <> ")"
+
+  show (TabRestrictKeysVals from to preds tab set) = "TabRestrictKeysVals (" <>
+    show from <> ") (" <> show preds <> ") (" <>
+    show to <> ") (" <> show tab <> ") (" <> show set <> ")"
 
   -- :: Value -> BuiltinPred -> Plan RelTab -> Plan RelTab
   show (FilterPredTabKeysL lConst pred rTab) =
