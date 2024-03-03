@@ -38,6 +38,7 @@ mkPlan bindingInputs clauses target =
     go :: [PlanHolder] -> [Clause] -> [PlanHolder]
     go ph [] = ph
     go inputs (c:cs) =
+      trace ("Step: c=" <> show c <> ", cs=" <> show cs <> ", inputs=" <> show inputs) $
       let past = pastProvides inputs
           future = futureNeeds cs
       in case c of
@@ -61,7 +62,7 @@ mkPlan bindingInputs clauses target =
                        $ TabKeySet vSymb eSymb
                        $ LoadTab USE_AVE (VAL_ATTR attr) vSymb eSymb
               in go (joinAll (rhJoin future) (load:inputs)) cs
-            IRRELEVANT -> go inputs cs
+            IRRELEVANT -> trace ("Irrelevant!?") $ go inputs cs
         (BiPredicateExpression pred arg1 arg2) ->
           -- We're a predicate. We look at the current state of the tree to try
           -- to transform that tree into a structure with specialized predicate
@@ -229,50 +230,60 @@ joinAll f (x:xs) = joinOuter x xs []
       Just new -> Just (new, reverse prev ++ ys)
 
 rhJoin :: Set Variable -> PlanHolder -> PlanHolder -> Maybe PlanHolder
-rhJoin future l r = case (l, r) of
-  (PH_SET lhs lhv, PH_SET rhs rhv)
-    | lhs == rhs -> Just $ PH_SET lhs $ SetJoin lhs lhv rhv
-    | otherwise  -> Nothing
-
-  (lhs@(PH_SCALAR _ _), rhs@(PH_SET _ _)) -> rhJoin future rhs lhs
-  (PH_SET lhs lhv, PH_SCALAR rhs rhv)
-    | lhs == rhs -> Just $ PH_SET lhs $ SetScalarJoin lhv rhv
-    | otherwise -> Nothing
-
-  (lhs@(PH_SET _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
-  (PH_TAB lhFrom lhTo lht, PH_SET rhSymb rhv)
-    | lhFrom == rhSymb && inFuture lhFrom && inFuture lhTo ->
-        Just $ PH_TAB lhFrom lhTo $ TabRestrictKeys lhFrom lhTo lht rhv
-    | lhFrom == rhSymb && inFuture lhFrom ->
-        Just $ PH_SET lhFrom $ SetJoin lhFrom (TabKeySet lhFrom lhTo lht) rhv
-    | lhFrom == rhSymb && inFuture lhTo ->
-        Just $ PH_SET lhTo $ TabSetUnionVals lhFrom rhv lhTo lht
-    | lhFrom == rhSymb -> error "wtf is this case"
-    | otherwise -> error "Handle all the lhTo cases."
-
-  (lhs@(PH_SCALAR _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
-  (PH_TAB lhFrom lhTo lhTab, PH_SCALAR rhSymb rhv)
-    | rhSymb == lhFrom ->
-      Just $ PH_SET lhTo $ TabScalarLookup rhSymb rhv lhTo lhTab
-    | rhSymb == lhTo -> error "Handle backwards scalar table matching."
-    | otherwise -> Nothing
-
-  (PH_TAB lhFrom lhTo lht, PH_TAB rhFrom rhTo rht)
-    | lhFrom == rhFrom -> Just $ PH_MULTITAB lhFrom [lhTo, rhTo]
-                               $ MkMultiTab lht rht
-    | otherwise -> error "Handle all the cases before adding Nothing at end"
-
-  (lhs@(PH_SCALAR _ _), rhs@(PH_MULTITAB _ _ _)) -> rhJoin future rhs lhs
-  (PH_MULTITAB keySymb valSymbs mt, PH_SCALAR rhSymb rhv)
-    | keySymb == rhSymb -> error "Handle multitab/scalar same"
-    | elem rhSymb valSymbs -> error "Handle multitab value scalar"
-    | otherwise -> Nothing
-
-  (PH_ROWS lSymb lSort lRows, PH_ROWS rSymb rSort rRows) -> undefined
-
-  (a, b) -> error $ "TODO: Unhandled rhJoin case: " <> show a <> " <--> "
-                 <> show b
+rhJoin future l r = trace ("Join: l=" <> show l <> ", r=" <> show r <> ", out=" <> show out) $ out
   where
+    out = case (l, r) of
+      (PH_SET lhs lhv, PH_SET rhs rhv)
+        | lhs == rhs -> Just $ PH_SET lhs $ SetJoin lhs lhv rhv
+        | otherwise  -> Nothing
+
+      (lhs@(PH_SCALAR _ _), rhs@(PH_SET _ _)) -> rhJoin future rhs lhs
+      (PH_SET lhs lhv, PH_SCALAR rhs rhv)
+        | lhs == rhs -> Just $ PH_SET lhs $ SetScalarJoin lhv rhv
+        | otherwise -> Nothing
+
+      (lhs@(PH_SET _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
+      (PH_TAB lhFrom lhTo lht, PH_SET rhSymb rhv)
+        | lhFrom == rhSymb && inFuture lhFrom && inFuture lhTo ->
+            Just $ PH_TAB lhFrom lhTo $ TabRestrictKeys lhFrom lhTo lht rhv
+        | lhFrom == rhSymb && inFuture lhFrom ->
+            Just $ PH_SET lhFrom $ SetJoin lhFrom (TabKeySet lhFrom lhTo lht) rhv
+        | lhFrom == rhSymb && inFuture lhTo ->
+            Just $ PH_SET lhTo $ TabSetUnionVals lhFrom rhv lhTo lht
+        | lhFrom == rhSymb -> error "wtf is this case"
+        | otherwise -> error "Handle all the lhTo cases."
+
+      (lhs@(PH_SCALAR _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
+      (PH_TAB lhFrom lhTo lhTab, PH_SCALAR rhSymb rhv)
+        | rhSymb == lhFrom ->
+          Just $ PH_SET lhTo $ TabScalarLookup rhSymb rhv lhTo lhTab
+        | rhSymb == lhTo -> error "Handle backwards scalar table matching."
+        | otherwise -> Nothing
+
+      (PH_TAB lhFrom lhTo lht, PH_TAB rhFrom rhTo rht)
+        | lhFrom == rhFrom && inFuture lhTo && inFuture rhTo ->
+          Just $ PH_MULTITAB lhFrom [lhTo, rhTo] $ MkMultiTab lht rht
+        | lhFrom == rhFrom && inFuture lhTo ->
+          Just $ PH_TAB lhFrom lhTo
+               $ TabRestrictKeys lhFrom lhTo lht
+               $ TabKeySet rhFrom rhTo rht
+        | lhFrom == rhFrom && inFuture rhTo ->
+          Just $ PH_TAB rhFrom rhTo
+               $ TabRestrictKeys rhFrom rhTo rht
+               $ TabKeySet lhFrom rhTo lht
+        | otherwise -> error "Handle all the cases before adding Nothing at end"
+
+      (lhs@(PH_SCALAR _ _), rhs@(PH_MULTITAB _ _ _)) -> rhJoin future rhs lhs
+      (PH_MULTITAB keySymb valSymbs mt, PH_SCALAR rhSymb rhv)
+        | keySymb == rhSymb -> error "Handle multitab/scalar same"
+        | elem rhSymb valSymbs -> error "Handle multitab value scalar"
+        | otherwise -> Nothing
+
+      (PH_ROWS lSymb lSort lRows, PH_ROWS rSymb rSort rRows) -> undefined
+
+      (a, b) -> error $ "TODO: Unhandled rhJoin case: " <> show a <> " <--> "
+                     <> show b
+
     inFuture = flip S.member future
 
 

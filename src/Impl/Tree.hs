@@ -248,6 +248,10 @@ mergeNodes config tf@TreeFun{..} left middleKey right =
     (Right leftLeaf, Right rightLeaf)                  ->
       splitLeafMany tf (maxLeafItems config) (leafMerge leftLeaf rightLeaf)
 
+
+asToSet :: Ord k => [ArraySet k] -> Set k
+asToSet = foldl' S.union S.empty . map (S.fromList . ssetToAscList)
+
 -- We walk the as and bs list in parallel. When the current a overlaps with
 -- the current b, we put a into a list of partial mapping sets and keep
 -- accumulating those until we don't have a
@@ -259,6 +263,11 @@ setlistMaplistIntersect :: forall k v
         -> [Map k v]
 setlistMaplistIntersect _ a []                = []
 setlistMaplistIntersect [] [] b                = []
+setlistMaplistIntersect partial [] (b:bs) =
+  let f = M.restrictKeys b $ asToSet partial
+  in if M.null f
+     then []
+     else f:[]
 setlistMaplistIntersect partial ao@(a:as) bo@(b:bs) =
     let aMin = ssetFindMin a
         aMax = ssetFindMax a
@@ -270,9 +279,6 @@ setlistMaplistIntersect partial ao@(a:as) bo@(b:bs) =
                             in if M.null f then rest
                                            else f:rest
 
-        toSet :: [ArraySet k] -> Set k
-        toSet = foldl' S.union S.empty . map (S.fromList . ssetToAscList)
-
     in case (partial, overlap) of
          ([], False)
            | aMax > bMax -> setlistMaplistIntersect [] ao bs
@@ -280,11 +286,13 @@ setlistMaplistIntersect partial ao@(a:as) bo@(b:bs) =
          (partial, False) -> error "Should be impossible"
          (partial, True)
            | aMax == bMax ->
-               filteredBy (toSet (a:partial)) $ setlistMaplistIntersect [] as bs
+               filteredBy (asToSet (a:partial)) $
+               setlistMaplistIntersect [] as bs
            | aMax < bMax ->
                setlistMaplistIntersect (a:partial) as bo
            | otherwise ->
-               filteredBy (toSet (a:partial)) $ setlistMaplistIntersect [] ao bs
+               filteredBy (asToSet (a:partial)) $
+               setlistMaplistIntersect [] ao bs
 
 setlistMaplistIntersectWithPred :: forall k v
          . (Show k, Ord k, Show v)

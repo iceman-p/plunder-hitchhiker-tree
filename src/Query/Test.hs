@@ -113,7 +113,7 @@ fullDerpNaiveResult =
 fullDerpPlan = mkPlan
   [B_COLLECTION (VAR "?tag"), B_SCALAR (VAR "?amount")]
   fullDerpClauses
-  (S.fromList [VAR "?derpid", VAR "?thumbnurl"])
+  (S.fromList [VAR "?derpid", VAR "?thumburl"])
 
 fullDerpOut = evalPlan
   [REL_SET $ RSET (VAR "?tag")
