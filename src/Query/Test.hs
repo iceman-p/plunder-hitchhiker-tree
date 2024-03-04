@@ -113,7 +113,7 @@ fullDerpNaiveResult =
 fullDerpPlan = mkPlan
   [B_COLLECTION (VAR "?tag"), B_SCALAR (VAR "?amount")]
   fullDerpClauses
-  (S.fromList [VAR "?derpid", VAR "?thumburl"])
+  [VAR "?derpid", VAR "?thumburl"]
 
 fullDerpOut = evalPlan
   [REL_SET $ RSET (VAR "?tag")
@@ -163,7 +163,7 @@ countPlan = mkPlan
   [DataPattern (LC_XAZ (VAR "?e") (ATTR ":has") (VAR "?amount")),
    BiPredicateExpression B_GT (ARG_VAR (VAR "?min")) (ARG_VAR (VAR "?amount"))]
 --   BiPredicateExpression B_GT (ARG_CONST (VAL_INT 100)) (ARG_VAR (VAR "?amount"))]
-  (S.singleton (VAR "?amount"))
+  [VAR "?amount"]
 
 countOut = evalPlan
   [REL_SCALAR $ RSCALAR (VAR "?min") (VAL_INT 100)]

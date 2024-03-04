@@ -5,6 +5,7 @@ import           ClassyPrelude
 import           Data.List                  (foldl1')
 
 import           Query.HitchhikerDatomStore
+import           Query.Rows
 import           Query.Types
 import           Types
 
@@ -33,12 +34,13 @@ data EvalBiPred
   | EBP_RIGHT BuiltinPred Value
   deriving (Show)
 
-evalPlan :: [Relation] -> Database -> PlanHolder -> Relation
-evalPlan inputs db = runFromPlanHolder
+evalPlan :: [Relation] -> Database -> PlanHolder -> Rows
+evalPlan inputs db = relationToRows . runFromPlanHolder
   where
     runFromPlanHolder (PH_SCALAR _ s)     = REL_SCALAR $ go s
     runFromPlanHolder (PH_SET _ s)        = REL_SET $ go s
     runFromPlanHolder (PH_TAB _ _ t)      = REL_TAB $ go t
+    runFromPlanHolder (PH_ROWS _ _ r)     = REL_ROWS $ go r
     runFromPlanHolder (PH_MULTITAB _ _ m) = REL_MULTITAB $ go m
 
     go :: Plan a -> a
@@ -151,6 +153,10 @@ evalPlan inputs db = runFromPlanHolder
       let (RSET sym set) = go pset
       in ROWS [sym] [sym] $ map V.singleton $ HS.toList set
 
+    go (MultiTabToRows req pmtab) =
+      let (RMTAB key vals mtab) = go pmtab
+      in multiTabToRows req key vals mtab
+
     evalBiPred :: PlanBiPred -> EvalBiPred
     evalBiPred (PBP_LEFT pscalar pred)  =
       let (RSCALAR _ val) = go pscalar
@@ -181,16 +187,16 @@ sortRowsBy allVars reqSortOrder rows
       EQ -> doSort xs a b
       x  -> x
 
-multiTabToRows :: Variable
-               -> [Variable]
-               -> HitchhikerMap Value (Vector (HitchhikerSet Value))
-               -> Rows
-multiTabToRows key vals hhmap = ROWS vars vars rowData
-  where
-    vars = key:vals
-    rowData = concat $ map step $ HM.toList hhmap
+-- multiTabToRows :: Variable
+--                -> [Variable]
+--                -> HitchhikerMap Value (Vector (HitchhikerSet Value))
+--                -> Rows
+-- multiTabToRows key vals hhmap = ROWS vars vars rowData
+--   where
+--     vars = key:vals
+--     rowData = concat $ map step $ HM.toList hhmap
 
-    step :: (Value, Vector (HitchhikerSet Value)) -> [Vector Value]
-    step (k, tops) = V.toList $ V.sequence $
-      V.cons (V.singleton k) (map (V.fromList . HS.toList) tops)
+--     step :: (Value, Vector (HitchhikerSet Value)) -> [Vector Value]
+--     step (k, tops) = V.toList $ V.sequence $
+--       V.cons (V.singleton k) (map (V.fromList . HS.toList) tops)
 

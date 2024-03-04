@@ -185,7 +185,7 @@ data Rows = ROWS
   , sortOrder :: [Variable]
   , values    :: [Vector Value]
   }
-  deriving (Show)
+  deriving (Show, Eq)
 
 -- The more specific relation storage types:
 data RelScalar = RSCALAR { sym :: Variable, val :: Value }
@@ -329,8 +329,12 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
 
   MkMultiTab :: Plan RelTab -> Plan RelTab -> Plan RelMultiTab
 
-  -- Sometimes, you can't do anything but fallback to stupid rows.
+  -- Sometimes, you can't do anything but fallback to stupid rows...including
+  -- in output.
   SetToRows :: Variable -> Plan RelSet -> Plan Rows
+  TabToRows :: Variable -> Variable -> Plan RelTab -> Plan Rows
+
+  MultiTabToRows :: [Variable] -> Plan RelMultiTab -> Plan Rows
 
 instance Show (Plan a) where
   show (InputScalar sym int) = "InputScalar " <> show sym <> " " <> show int
@@ -364,6 +368,14 @@ instance Show (Plan a) where
   show (SetScalarJoin a b) = "SetScalarJoin (" <> show a <> ") (" <> show b <>
                              ")"
   show (MkMultiTab a b) = "MkMultiTab (" <> show a <> ") (" <> show b <> ")"
+
+  show (SetToRows key s) = "SetToRows (" <> show key <> ") (" <> show s <> ")"
+  show (TabToRows key val t) = "TabToRows (" <> show key <> ") (" <> show val
+                            <> ") (" <> show t <> ")"
+
+  show (MultiTabToRows req mtab) = "MultiTabToRows ("
+                                <> show req <> ") ("
+                                <> show mtab <> ")"
 
 -- Type to hold the different possible Plan types while maintaining what the
 -- set of variables this plan operates under.

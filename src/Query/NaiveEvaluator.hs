@@ -3,6 +3,7 @@ module Query.NaiveEvaluator (naiveEvaluator) where
 import           ClassyPrelude
 
 import           Query.HitchhikerDatomStore
+import           Query.Rows
 import           Query.Types
 
 import           Types
@@ -47,14 +48,14 @@ naiveEvaluator db inputs rulePacks clauses target = go inputs clauses
     evalWith r (c:cs) = case c of
       DataPattern (LC_XAZ eVar attr vVar) ->
         let t = partialLookup (VAL_ATTR attr) (aev db)
-            newR = tabToRow eVar vVar t
+            newR = tabToRows eVar vVar t
         in evalWith (naiveRowJoin r newR) cs
 
       BiPredicateExpression builtin pLeft pRight ->
         evalWith (runBuiltinPredicate builtin pLeft pRight r) cs
 
 projectRows :: [Variable] -> Rows -> Rows
-projectRows target (ROWS vars _ rows) = ROWS target [] $ L.nub $ map change rows
+projectRows target (ROWS vars _ rows) = ROWS target target $ L.nub $ map change rows
   where
     idxes = map (\a -> fromJust $ L.elemIndex a vars) target
     change r = V.fromList $ map (r V.!) idxes
@@ -74,14 +75,6 @@ runBuiltinPredicate pred a b (ROWS vars _ rows) =
       run pred val (getVariable argvar vars row)
 
     run pred lhs rhs = (builtinPredToCompare pred) lhs rhs
-
-tabToRow :: Variable -> Variable -> HitchhikerSetMap Value Value -> Rows
-tabToRow from to setmap = ROWS [from, to] [] asRows
-  where
-    asRows = concat $ map step $ HM.toList $ HSM.toHitchhikerMap setmap
-
-    step :: (Value, HitchhikerSet Value) -> [Vector Value]
-    step (k, tops) = map (\a -> V.fromList [k, a]) $ HS.toList tops
 
 -- Perform join by just exploding the cartesian products of tables in the most
 -- naive way you can think of

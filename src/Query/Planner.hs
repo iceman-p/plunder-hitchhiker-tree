@@ -20,12 +20,14 @@ data Direction
   | RIGHT_ONLY
   | IRRELEVANT
 
-mkPlan :: [Binding] -> [Clause] -> Set Variable -> PlanHolder
+mkPlan :: [Binding] -> [Clause] -> [Variable] -> PlanHolder
 mkPlan bindingInputs clauses target =
   converge $ filter targetNeeds $ go startingInputs clauses
   where
+    targetSet = S.fromList target
+
     converge :: [PlanHolder] -> PlanHolder
-    converge [r] = r
+    converge [r] = constrainTo target r
     -- TODO: Since we've filtered out any irrelevant relations, this should be
     -- turned into a Cartesian product of the remaining relations projected
     -- into the target set.
@@ -33,7 +35,7 @@ mkPlan bindingInputs clauses target =
                            <> show inputs
 
     targetNeeds :: PlanHolder -> Bool
-    targetNeeds ph = (S.intersection (planHolderBinds ph) target) /= S.empty
+    targetNeeds ph = (S.intersection (planHolderBinds ph) targetSet) /= S.empty
 
     go :: [PlanHolder] -> [Clause] -> [PlanHolder]
     go ph [] = ph
@@ -206,7 +208,7 @@ mkPlan bindingInputs clauses target =
     pastProvides rs = S.unions (map planHolderBinds rs)
 
     futureNeeds :: [Clause] -> Set Variable
-    futureNeeds cs = S.unions (target:(map clauseUses cs))
+    futureNeeds cs = S.unions (targetSet:(map clauseUses cs))
 
 -- -----------------------------------------------------------------------
 
@@ -230,9 +232,7 @@ joinAll f (x:xs) = joinOuter x xs []
       Just new -> Just (new, reverse prev ++ ys)
 
 rhJoin :: Set Variable -> PlanHolder -> PlanHolder -> Maybe PlanHolder
-rhJoin future l r =
---  trace ("Join: l=" <> show l <> ", r=" <> show r <> ", out=" <> show out) $
-  out
+rhJoin future l r = out
   where
     out = case (l, r) of
       (PH_SET lhs lhv, PH_SET rhs rhv)
@@ -287,3 +287,26 @@ rhJoin future l r =
                      <> show b
 
     inFuture = flip S.member future
+
+-- constrainTo is temporary and should be renamed when we have full :find.
+--
+-- :find actually has a bunch of complex knobs you can turn which let it output
+-- statistics like average, std.div, etc. So "just" constraining to rows is
+-- wrong, and this should have a full :find
+--
+-- BUT FOR NOW, this will add output constraints into the resulting Plan, so
+-- that in cases where we have to constrain values
+constrainTo :: [Variable] -> PlanHolder -> PlanHolder
+constrainTo _ p@(PH_SCALAR _ _) = p
+constrainTo _ p@(PH_SET _ _) = p
+constrainTo vars p@(PH_TAB from to plan)
+  | S.member from varSet && S.member to varSet =
+    PH_ROWS [from, to] [from, to] (TabToRows from to plan)
+  | S.member from varSet =
+    PH_ROWS [from] [from] (SetToRows from (TabKeySet from to plan))
+  | S.member to varSet = error "Implement tab vals constrainTo"
+  | otherwise = error "Useless plan"
+  where
+    varSet = S.fromList vars
+constrainTo vars p@(PH_MULTITAB from tos mt) =
+  PH_ROWS vars vars $ MultiTabToRows vars mt
