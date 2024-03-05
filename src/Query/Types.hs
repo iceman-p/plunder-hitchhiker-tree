@@ -59,7 +59,7 @@ data EAVRows e a v tx = EAVROWS {
   config :: TreeConfig,
   root   :: Maybe (EDatomRow e a v tx)
   }
-  deriving (Show)
+  deriving (Show, Generic, NFData)
 
 
 type EAVStore = EAVRows Int Int Value Int
@@ -76,23 +76,23 @@ data Database = DATABASE {
   -- ave :: EAVRows Attr Value Int Int,
   -- vae :: EAVRows Value Attr Int Int
   }
-  deriving (Show)
+  deriving (Show, Generic, NFData)
 
 -- -----------------------------------------------------------------------
 
 newtype EntityId = ENTID Int
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic, NFData)
 
 -- The attribute type
 newtype Attr = ATTR Text
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic, NFData)
 
 data Value
   = VAL_ATTR Attr
   | VAL_ENTID EntityId
   | VAL_INT Int
   | VAL_STR String
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic, NFData)
 
 instance IsString Value where
   fromString = VAL_STR

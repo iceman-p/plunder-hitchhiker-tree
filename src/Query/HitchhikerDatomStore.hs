@@ -370,10 +370,10 @@ partialLookup e (EAVROWS config (Just top)) = lookInENode mempty top
 
 emptyDB :: Database
 emptyDB = DATABASE {
-  eav = emptyRows twoThreeConfig,
-  aev = emptyRows twoThreeConfig,
-  ave = emptyRows twoThreeConfig,
-  vae = emptyRows twoThreeConfig
+  eav = emptyRows largeConfig,
+  aev = emptyRows largeConfig,
+  ave = emptyRows largeConfig,
+  vae = emptyRows largeConfig
   }
 
 learn :: (Value, Value, Value, Int, Bool)
