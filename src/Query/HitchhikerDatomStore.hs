@@ -369,35 +369,32 @@ partialLookup e (EAVROWS config (Just top)) = lookInENode (ALeaf mempty) top
       ERowIndex index hitchhikers ->
         lookInENode (mergeADatomRows config hh $ matchHitchhikers hitchhikers) $
         findSubnodeByKey e index
-      ELeaf items -> case M.lookup e items of
-        Nothing     -> error "TODO: shut up ghcid, come back later"
-          -- undefined --HS.fromArraySet config $ applyLog mempty txs
-        Just anodes -> aNodeTo hh anodes
+      ELeaf items -> case (M.lookup e items, hh) of
+        (Nothing, ALeaf leaf)
+          | M.null leaf -> HSM.empty config
+        (Nothing, hh) -> aNodeTo hh
+        (Just anodes, ALeaf leaf)
+          | M.null leaf -> aNodeTo anodes
+        (Just anodes, hh) -> aNodeTo $ mergeADatomRows config hh anodes
 
     matchHitchhikers :: Map e (ADatomRow a v tx) -> ADatomRow a v tx
     matchHitchhikers hh = fromMaybe (ALeaf mempty) (M.lookup e hh)
 
-    aNodeTo :: ADatomRow a v tx
-            -> ADatomRow a v tx
-            -> HitchhikerSetMap a v
-    aNodeTo hh anodes =
-      let arow = flushDownwards (hhADatomRowTF config)
-               $ mergeADatomRows config hh anodes
+    aNodeTo :: ADatomRow a v tx -> HitchhikerSetMap a v
+    aNodeTo anodes = HITCHHIKERSETMAP config $ Just $ translate arow
+      where
+        arow = flushDownwards (hhADatomRowTF config) anodes
+        translate = \case
+          ARowIndex tree hh ->
+            HitchhikerSetMapNodeIndex (mapIndex translate tree) mempty
+          ALeaf leafMap ->
+            HitchhikerSetMapNodeLeaf $ M.mapMaybe translateLeaf leafMap
 
-          translate = \case
-            ARowIndex tree hh ->
-              HitchhikerSetMapNodeIndex (mapIndex translate tree) mempty
-            ALeaf leafMap ->
-              HitchhikerSetMapNodeLeaf $ M.mapMaybe translateLeaf leafMap
-
-          translateLeaf = \case
-            VSimple x _ ->
-              Just $ NAKEDSET (Just (HitchhikerSetNodeLeaf $ ssetSingleton x))
-            VStorage Nothing _ -> Nothing
-            VStorage x _ -> Just $ NAKEDSET x
-
-      in trace ("e: " <> show e <> ", arow: " <> show arow) $
-        HITCHHIKERSETMAP config $ Just $ translate arow
+        translateLeaf = \case
+          VSimple x _ ->
+            Just $ NAKEDSET (Just (HitchhikerSetNodeLeaf $ ssetSingleton x))
+          VStorage Nothing _ -> Nothing
+          VStorage x _ -> Just $ NAKEDSET x
 
 -- -----------------------------------------------------------------------
 
