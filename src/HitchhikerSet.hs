@@ -22,6 +22,8 @@ module HitchhikerSet ( empty
                      , HitchhikerSet.toList
                      , HitchhikerSet.takeWhileAntitone
                      , HitchhikerSet.dropWhileAntitone
+                     , HitchhikerSet.findMin
+                     , HitchhikerSet.findMax
                      ) where
 
 import           ClassyPrelude   hiding (delete, empty, intersection, member,
@@ -394,3 +396,25 @@ dropWhileAntitone fun (HITCHHIKERSET config (Just top)) =
 
       HitchhikerSetNodeLeaf l ->
         HitchhikerSetNodeLeaf $ ssetDropWhileAntitone fun l
+
+findMin :: forall k
+         . (Show k, Ord k)
+        => HitchhikerSet k
+        -> k
+findMin (HITCHHIKERSET _ Nothing) = error "HitchhikerSet.findMin: empty set"
+findMin (HITCHHIKERSET _ (Just top)) = go $ flushDownwards hhSetTF top
+  where
+    go = \case
+      HitchhikerSetNodeIndex (TreeIndex _ vals) _ -> go $ V.head vals
+      HitchhikerSetNodeLeaf l -> ssetFindMin l
+
+findMax :: forall k
+         . (Show k, Ord k)
+        => HitchhikerSet k
+        -> k
+findMax (HITCHHIKERSET _ Nothing) = error "HitchhikerSet.findMax: empty set"
+findMax (HITCHHIKERSET _ (Just top)) = go $ flushDownwards hhSetTF top
+  where
+    go = \case
+      HitchhikerSetNodeIndex (TreeIndex _ vals) _ -> go $ V.last vals
+      HitchhikerSetNodeLeaf l -> ssetFindMax l

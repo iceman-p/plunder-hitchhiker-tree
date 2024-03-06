@@ -358,3 +358,19 @@ dropWhileAntitone fun (HITCHHIKERSETMAP config (Just top)) =
 
       HitchhikerSetMapNodeLeaf l ->
         HitchhikerSetMapNodeLeaf $ M.dropWhileAntitone fun l
+
+toList :: forall k v
+        . (Show k, Show v, Ord k, Ord v)
+       => HitchhikerSetMap k v
+       -> [(k, v)]
+toList (HITCHHIKERSETMAP _ Nothing) = []
+toList (HITCHHIKERSETMAP config (Just top)) =
+  go $ flushDownwards (hhSetMapTF config) top
+  where
+    go = \case
+      HitchhikerSetMapNodeIndex (TreeIndex keys vals) _ ->
+        concat $ map go vals
+      HitchhikerSetMapNodeLeaf l -> concat $ map mkItems $ M.toList l
+
+    mkItems :: (k, NakedHitchhikerSet v) -> [(k, v)]
+    mkItems (k, hhs) = map (k,) $ HS.toList $ weave config hhs

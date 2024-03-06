@@ -33,7 +33,7 @@ import qualified Data.Set         as S
 
 data EDatomRow e a v tx
   = ERowIndex (TreeIndex e (EDatomRow e a v tx))
-              (Map e (ArraySet (a, v, tx, Bool)))
+              (Map e (ADatomRow a v tx))
   | ELeaf (Map e (ADatomRow a v tx))
   deriving (Show, Generic, NFData)
 
@@ -41,7 +41,7 @@ data EDatomRow e a v tx
 -- means that vs aren't stored next to each other when doing a simple a scan.
 data ADatomRow a v tx
   = ARowIndex (TreeIndex a (ADatomRow a v tx))
-              (Map a (ArraySet (v, tx, Bool)))
+              (Map a (VStorage v tx))
   | ALeaf (Map a (VStorage v tx))
   deriving (Show, Generic, NFData)
 
@@ -51,9 +51,16 @@ data VStorage v tx
   -- Many values are going to be a single value that doesn't change; don't
   -- allocate two hitchhiker trees to deal with them, just inline.
   = VSimple v tx
-  -- We have multiple
+  -- We have had multiple transactions which have asserted or redacted values.
+  -- Keep track of the current set, plus a historical log of all assertions or
+  -- redactions that can be replayed.
   | VStorage (Maybe (HitchhikerSetNode v)) (HitchhikerSetMapNode tx (v, Bool))
   deriving (Show, Generic, NFData)
+
+-- TODO: Redo how VStorage works. Do you actually need random random access to
+-- the
+
+
 
 data EAVRows e a v tx = EAVROWS {
   config :: TreeConfig,
