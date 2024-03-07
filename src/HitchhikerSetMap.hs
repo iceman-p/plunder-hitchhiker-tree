@@ -290,13 +290,14 @@ toKeySet (HITCHHIKERSETMAP config Nothing) = (HITCHHIKERSET config Nothing)
 toKeySet (HITCHHIKERSETMAP config (Just top)) =
     (HITCHHIKERSET config newTop)
   where
-    newTop = Just $ translate $ flushDownwards (hhSetMapTF config) top
+    newTop = Just $ translate top
 
+    -- TODO: ssetFromList $ M.keys -> tabKeysSet.
     translate = \case
-      HitchhikerSetMapNodeIndex idx _ ->
-        HitchhikerSetNodeIndex (mapIndex translate idx) mempty
+      HitchhikerSetMapNodeIndex idx hh ->
+        HitchhikerSetNodeIndex (mapIndex translate idx) (ssetFromDistinctAscList $ M.keys hh)
       HitchhikerSetMapNodeLeaf l ->
-        HitchhikerSetNodeLeaf $ ssetFromList $ M.keys l
+        HitchhikerSetNodeLeaf $ ssetFromDistinctAscList $ M.keys l
 
 takeWhileAntitone :: forall k v
                    . (Show k, Show v, Ord k, Ord v)

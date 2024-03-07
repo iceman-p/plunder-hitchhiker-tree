@@ -157,6 +157,11 @@ mergeADatomRows config (ALeaf leaf) main@(ARowIndex _ _)
   | M.null leaf = main
   | otherwise = arowInsertMany config leaf main
 
+mergeADatomRows config left right =
+  -- This is maybe bad. We probably want to have some sort of merge union.
+  foldl' (\a m -> arowInsertMany config m a) left $
+  getLeafList (hhADatomRowTF config) right
+
 -- mergeADatomRows config (ARowIndex tree
 
 unwrapHSM :: HitchhikerSetMap k v -> HitchhikerSetMapNode k v
