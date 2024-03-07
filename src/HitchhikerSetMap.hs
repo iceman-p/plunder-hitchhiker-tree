@@ -253,8 +253,8 @@ restrictKeys _ orig@(HITCHHIKERSETMAP _ Nothing) = orig
 restrictKeys (HITCHHIKERSET _ Nothing) (HITCHHIKERSETMAP config _) =
   HitchhikerSetMap.empty config
 
-restrictKeys (HITCHHIKERSET sConfig (Just a))
-             (HITCHHIKERSETMAP mConfig (Just b)) =
+restrictKeys s@(HITCHHIKERSET sConfig (Just a))
+             sm@(HITCHHIKERSETMAP mConfig (Just b)) =
   fromLeafMaps mConfig $ setlistMaplistIntersect [] as bs
   where
     as = getLeafList HS.hhSetTF a

@@ -89,7 +89,7 @@ datomsToTree config ds = go mempty ds
     go :: Map e (ADatomRow a v tx) -> [(e, a, v, tx, Bool)]
        -> Map e (ADatomRow a v tx)
     go acc []                     = acc
-    go acc (d@(e, _, _, _, _):ds) = M.alter (injectE d) e acc
+    go acc (d@(e, _, _, _, _):ds) = go (M.alter (injectE d) e acc) ds
 
     injectE :: (e, a, v, tx, Bool) -> Maybe (ADatomRow a v tx)
             -> Maybe (ADatomRow a v tx)
@@ -144,6 +144,7 @@ mergeADatomRows :: (Show a, Show v, Show tx, Ord a, Ord v, Ord tx)
                 => TreeConfig
                 -> ADatomRow a v tx -> ADatomRow a v tx -> ADatomRow a v tx
 mergeADatomRows config (ALeaf leftMap) (ALeaf rightMap) =
+--  trace ("MERGE : " <> show leftMap <> ", " <> show rightMap) $
   fixUp config (hhADatomRowTF config) $
   splitLeafMany (hhADatomRowTF config) (maxLeafItems config) $
   M.unionWith (mergeVStorage config) leftMap rightMap
@@ -361,21 +362,26 @@ partialLookup :: forall e a v tx
               => e -> EAVRows e a v tx -> HitchhikerSetMap a v
 partialLookup _ (EAVROWS config Nothing)    = HSM.empty config
 
-partialLookup e (EAVROWS config (Just top)) = lookInENode (ALeaf mempty) top
+partialLookup e (EAVROWS config (Just top)) =
+  -- trace ("LOOKUP " <> show e <> " in " <> show top) $
+  lookInENode (ALeaf mempty) top
   where
     lookInENode :: ADatomRow a v tx -> EDatomRow e a v tx
                 -> HitchhikerSetMap a v
     lookInENode hh = \case
       ERowIndex index hitchhikers ->
+        -- trace ("HH KEYS: " <> (show $ M.keys hitchhikers)) $
         lookInENode (mergeADatomRows config hh $ matchHitchhikers hitchhikers) $
         findSubnodeByKey e index
-      ELeaf items -> case (M.lookup e items, hh) of
-        (Nothing, ALeaf leaf)
-          | M.null leaf -> HSM.empty config
-        (Nothing, hh) -> aNodeTo hh
-        (Just anodes, ALeaf leaf)
-          | M.null leaf -> aNodeTo anodes
-        (Just anodes, hh) -> aNodeTo $ mergeADatomRows config hh anodes
+      ELeaf items ->
+        trace ("ITEMS: " <> (show $ M.keys items)) $
+        case (M.lookup e items, hh) of
+          (Nothing, ALeaf leaf)
+            | M.null leaf -> trace ("Nothing, ALeaf null") $ HSM.empty config
+          (Nothing, hh) -> trace ("hh") $ aNodeTo hh
+          (Just anodes, ALeaf leaf)
+            | M.null leaf -> trace ("just anodes") $ aNodeTo anodes
+          (Just anodes, hh) -> trace ("full merge") $ aNodeTo $ mergeADatomRows config hh anodes
 
     matchHitchhikers :: Map e (ADatomRow a v tx) -> ADatomRow a v tx
     matchHitchhikers hh = fromMaybe (ALeaf mempty) (M.lookup e hh)

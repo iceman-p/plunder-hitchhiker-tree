@@ -52,9 +52,11 @@ evalPlan inputs db = relationToRows . runFromPlanHolder
       Just (REL_SET rs) -> rs
       _                 -> error "Input doesn't match plan in InputSet"
 
+    -- All loads are failing. Why?!
     go (LoadTab which lookupVal from to) =
       let val = partialLookup lookupVal (printableLookupToFunc which $ db)
-      in RTAB {from,to,val}
+      in --trace ("LoadTab " <> show lookupVal <> " " <> show from <> " " <> show to <> " " <> show val) $
+         RTAB {from,to,val}
 
     go (TabScalarLookup _from pscalar _to ptab) =
       let (RSCALAR sym val) = go pscalar
@@ -73,12 +75,15 @@ evalPlan inputs db = relationToRows . runFromPlanHolder
             []  -> HS.empty $ HS.getConfig set
             [x] -> x
             xs  -> foldl1' HS.union xs
-      in RSET to asSet
+      in --trace ("TabSetUnionVals: " <> show asSet) $
+         RSET to asSet
 
     go (TabRestrictKeys _from _to ptab pset) =
       let (RTAB from to tab) = go ptab
           (RSET sym set) = go pset
-      in RTAB from to $ HSM.restrictKeys set tab
+          restricted = HSM.restrictKeys set tab
+      in --trace ("TabRestrictKeys: " <> show tab <> " " <> show set) $
+         RTAB from to $ restricted
 
     go (TabKeySet _from _to ptab) =
       let (RTAB from _ tab) = go ptab

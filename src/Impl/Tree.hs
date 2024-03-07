@@ -283,7 +283,8 @@ setlistMaplistIntersect partial ao@(a:as) bo@(b:bs) =
          ([], False)
            | aMax > bMax -> setlistMaplistIntersect [] ao bs
            | otherwise   -> setlistMaplistIntersect [] as bo
-         (partial, False) -> error "Should be impossible"
+         (partial, False) ->
+             filteredBy (asToSet partial) $ setlistMaplistIntersect [] ao bs
          (partial, True)
            | aMax == bMax ->
                filteredBy (asToSet (a:partial)) $
@@ -333,7 +334,9 @@ setlistMaplistIntersectWithPred func partial ao@(a:as) bo@(b:bs) =
          ([], False)
            | aMax > bMax -> setlistMaplistIntersectWithPred func [] ao bs
            | otherwise   -> setlistMaplistIntersectWithPred func [] as bo
-         (partial, False) -> error "Should be impossible"
+         (partial, False) ->
+             filteredBy (asToSet partial) $
+             setlistMaplistIntersectWithPred func [] ao bs
          (partial, True)
            | aMax == bMax ->
                filteredBy (toSet (a:partial)) $

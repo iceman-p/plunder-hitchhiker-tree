@@ -108,16 +108,19 @@ insertRaw config !k root =
   fixUp config hhSetTF $ insertRec config hhSetTF (ssetSingleton k) root
 
 
-insertMany :: (Show k, Ord k) => ArraySet k -> HitchhikerSet k -> HitchhikerSet k
-insertMany !items !(HITCHHIKERSET config Nothing) =
-  HITCHHIKERSET config $ Just $
-  fixUp config hhSetTF $
-  splitLeafMany hhSetTF (maxLeafItems config) items
+insertMany :: (Show k, Ord k)
+           => ArraySet k -> HitchhikerSet k -> HitchhikerSet k
+insertMany !items hhset@(HITCHHIKERSET config Nothing)
+  | ssetIsEmpty items = hhset
+  | otherwise = HITCHHIKERSET config $ Just $
+                fixUp config hhSetTF $
+                splitLeafMany hhSetTF (maxLeafItems config) items
 
-insertMany !items !(HITCHHIKERSET config (Just top)) =
-  HITCHHIKERSET config $ Just $
-  fixUp config hhSetTF $
-  insertRec config hhSetTF items top
+insertMany !items hhset@(HITCHHIKERSET config (Just top))
+  | ssetIsEmpty items = hhset
+  | otherwise = HITCHHIKERSET config $ Just $
+                fixUp config hhSetTF $
+                insertRec config hhSetTF items top
 
 insertManyRaw :: (Show k, Ord k)
               => TreeConfig

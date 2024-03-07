@@ -39,15 +39,17 @@ insertRaw config !k !v root =
 insertMany :: (Show k, Show v, Ord k)
            => Map k v -> HitchhikerMap k v -> HitchhikerMap k v
 
-insertMany !items !(HITCHHIKERMAP config Nothing) =
-  HITCHHIKERMAP config $ Just $
-  fixUp config hhMapTF $
-  splitLeafMany hhMapTF (maxLeafItems config) items
+insertMany !items hhmap@(HITCHHIKERMAP config Nothing)
+  | M.null items = hhmap
+  | otherwise = HITCHHIKERMAP config $ Just $
+                fixUp config hhMapTF $
+                splitLeafMany hhMapTF (maxLeafItems config) items
 
-insertMany !items !(HITCHHIKERMAP config (Just root)) =
-  HITCHHIKERMAP config $ Just $
-  fixUp config hhMapTF $
-  insertRec config hhMapTF items root
+insertMany !items hhmap@(HITCHHIKERMAP config (Just root))
+  | M.null items = hhmap
+  | otherwise = HITCHHIKERMAP config $ Just $
+                fixUp config hhMapTF $
+                insertRec config hhMapTF items root
 
 -- Takes a list of leaves and make a valid set
 fromLeafMaps :: (Show k, Show v, Ord k)
@@ -163,6 +165,7 @@ restrictKeys (HITCHHIKERSET _ Nothing) (HITCHHIKERMAP config _) =
 
 restrictKeys (HITCHHIKERSET sConfig (Just a))
              (HITCHHIKERMAP mConfig (Just b)) =
+  trace ("restrictKeys: " <> show a <> ", " <> show b) $
   fromLeafMaps mConfig $ setlistMaplistIntersect [] as bs
   where
     as = getLeafList HS.hhSetTF a

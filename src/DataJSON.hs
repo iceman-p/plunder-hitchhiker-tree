@@ -124,5 +124,3 @@ addEntry item = do
   put BASE{ nextEid = eid + 1
           , nextTx = tx + 1
           , database = learns datoms db}
-
--- TODO: Continue here, I'm done for the day.

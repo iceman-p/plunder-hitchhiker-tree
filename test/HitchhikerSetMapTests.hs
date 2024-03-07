@@ -17,53 +17,53 @@ import qualified Data.SetMap           as S
 import qualified HitchhikerSet         as HS
 import qualified HitchhikerSetMap      as SM
 
-data TestPair = TestPair Int String
+data SMTestPair = SMTestPair Int String
   deriving Show
 
-toTup :: TestPair -> (Int, String)
-toTup (TestPair i s) = (i, s)
+toTup :: SMTestPair -> (Int, String)
+toTup (SMTestPair i s) = (i, s)
 
-instance Arbitrary TestPair where
-  arbitrary = TestPair <$> choose (0, 256) <*> (listOf $ elements ['a'..'z'])
+instance Arbitrary SMTestPair where
+  arbitrary = SMTestPair <$> choose (0, 256) <*> (listOf $ elements ['a'..'z'])
 
 -- TODO: This doesn't compile yet. Make it.
-prop_setmap_fulltree_eq :: [TestPair] -> Bool
+prop_setmap_fulltree_eq :: [SMTestPair] -> Bool
 prop_setmap_fulltree_eq raw =
   go raw (SM.empty twoThreeConfig) (S.empty)
   where
-    go ((TestPair k v):xs) ft m =
+    go ((SMTestPair k v):xs) ft m =
       let ft' = force $ SM.insert k v ft
       in go xs ft' (S.insert k v m)
     go [] ft m = case doShuffle raw of
       []                 -> True -- empty list, ok.
-      ((TestPair k _):_) ->
+      ((SMTestPair k _):_) ->
         (HS.toSet $ SM.lookup k ft) == S.lookup k m
 
 -- Mass insert results in an equivalent map.
-prop_map_insertmany_eq :: [TestPair] -> Bool
+prop_map_insertmany_eq :: [SMTestPair] -> Bool
 prop_map_insertmany_eq raw = go raw (S.empty)
   where
-    go ((TestPair k v):xs) m =
+    go ((SMTestPair k v):xs) m =
       go xs (S.insert k v m)
     go [] m = case doShuffle raw of
       [] -> True -- empty list, ok.
-      ((TestPair k _): _) ->
+      ((SMTestPair k _): _) ->
         let hm = SM.insertMany asItems emp
         in (HS.toSet $ SM.lookup k hm) == S.lookup k m
 
     emp = SM.empty twoThreeConfig
     asItems = map toTup raw
 
--- prop_setmap_delete_eq :: [TestPair] -> Bool
+-- prop_setmap_delete_eq :: [SMTestPair] -> Bool
 -- prop_setmap_delete_eq raw =
 --   go raw (SM.empty twoThreeConfig) (S.empty)
 --   where
---     go ((TestPair k v):xs) ft m =
+--     go ((SMTestPair k v):xs) ft m =
 --       let ft' = force $ SM.insert k v ft
 --       in go xs ft' (S.insert k v m)
 --     go [] ft m = case doShuffle raw of
 --       []                 -> True -- empty list, ok.
---       ((TestPair k v):_) ->
+--       ((SMTestPair k v):_) ->
 --         let dft = SM.delete k v ft
 --             dm = doUpstreamSetMapDelete k v m
 --             isGone = not $ HS.member v $ SM.lookup k dft
@@ -87,14 +87,14 @@ doUpstreamSetMapDelete k v s =
   in Set.foldl (\s v -> S.insert k v s) del readd
 
 
-prop_setmap_take_antitone :: [TestPair] -> Bool
+prop_setmap_take_antitone :: [SMTestPair] -> Bool
 prop_setmap_take_antitone raw = go raw (S.empty)
   where
-    go ((TestPair k v):xs) m =
+    go ((SMTestPair k v):xs) m =
       go xs (S.insert k v m)
     go [] m = case doShuffle raw of
       [] -> True -- empty list, ok.
-      ((TestPair k _): _) ->
+      ((SMTestPair k _): _) ->
         let hm = SM.insertMany asItems emp
             !smA = HS.toSet $ SM.toKeySet $ SM.takeWhileAntitone (< k) hm
             sA = M.keysSet $ M.takeWhileAntitone (< k) $ S.toMap m
@@ -103,19 +103,18 @@ prop_setmap_take_antitone raw = go raw (S.empty)
     emp = SM.empty twoThreeConfig
     asItems = map toTup raw
 
-prop_setmap_drop_antitone :: [TestPair] -> Bool
+prop_setmap_drop_antitone :: [SMTestPair] -> Bool
 prop_setmap_drop_antitone raw = go raw (S.empty)
   where
-    go ((TestPair k v):xs) m =
+    go ((SMTestPair k v):xs) m =
       go xs (S.insert k v m)
     go [] m = case doShuffle raw of
       [] -> True -- empty list, ok.
-      ((TestPair k _): _) ->
+      ((SMTestPair k _): _) ->
         let !hm = SM.insertMany asItems emp
             !smA = HS.toSet $ SM.toKeySet $ SM.dropWhileAntitone (< k) hm
             !sA = M.keysSet $ M.dropWhileAntitone (< k) $ S.toMap m
-        in trace ("k: " <> show k <> ", smA: " <> show smA <> ", sA: " <> show sA) $
-           smA == sA
+        in smA == sA
 
     emp = SM.empty twoThreeConfig
     asItems = map toTup raw
