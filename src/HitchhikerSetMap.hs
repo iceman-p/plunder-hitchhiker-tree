@@ -374,3 +374,47 @@ toList (HITCHHIKERSETMAP config (Just top)) =
 
     mkItems :: (k, NakedHitchhikerSet v) -> [(k, v)]
     mkItems (k, hhs) = map (k,) $ HS.toList $ weave config hhs
+
+findMinKey :: forall k v
+            . (Show k, Show v, Ord k, Ord v)
+           => HitchhikerSetMap k v
+           -> k
+findMinKey (HITCHHIKERSETMAP _ Nothing) =
+  error "HitchhikerSetMap.findMinKey: emptySet"
+findMinKey (HITCHHIKERSETMAP _ (Just top)) = go Nothing top
+  where
+    go curMin = \case
+      HitchhikerSetMapNodeIndex (TreeIndex _ vals) hh ->
+        go (check curMin hh) $ V.head vals
+      HitchhikerSetMapNodeLeaf l -> case check curMin l of
+        Nothing -> error "HitchhikerSetMap.findMinKey: empty leaf"
+        Just x  -> x
+
+    check Nothing hh
+      | M.null hh = Nothing
+      | otherwise = Just $ fst $ M.findMin hh
+    check j@(Just x) hh
+      | M.null hh = j
+      | otherwise = Just $ min x $ fst $ M.findMin hh
+
+findMaxKey :: forall k v
+            . (Show k, Show v, Ord k, Ord v)
+           => HitchhikerSetMap k v
+           -> k
+findMaxKey (HITCHHIKERSETMAP _ Nothing) =
+  error "HitchhikerSetMap.findMaxKey: emptySet"
+findMaxKey (HITCHHIKERSETMAP _ (Just top)) = go Nothing top
+  where
+    go curMax = \case
+      HitchhikerSetMapNodeIndex (TreeIndex _ vals) hh ->
+        go (check curMax hh) $ V.head vals
+      HitchhikerSetMapNodeLeaf l -> case check curMax l of
+        Nothing -> error "HitchhikerSetMap.findMaxKey: empty leaf"
+        Just x  -> x
+
+    check Nothing hh
+      | M.null hh = Nothing
+      | otherwise = Just $ fst $ M.findMax hh
+    check j@(Just x) hh
+      | M.null hh = j
+      | otherwise = Just $ max x $ fst $ M.findMax hh

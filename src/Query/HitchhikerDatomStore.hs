@@ -180,14 +180,12 @@ mergeVStorage config l@(VStorage ln lh) r@(VStorage rn rh)
   -- transactions on top of the older ones.
   | lhMax < rhMin = vstorageInsertMany config l $ toTxList rh
   | rhMax < lhMin = vstorageInsertMany config r $ toTxList lh
-  | otherwise = error "Handle the hard case"
+  | otherwise = error "Handle the hard overlapping case"
   where
-    lhKeys = HSM.toKeySet $ mkNode lh
-    rhKeys = HSM.toKeySet $ mkNode rh
-    lhMin = HS.findMin lhKeys
-    lhMax = HS.findMax lhKeys
-    rhMin = HS.findMin rhKeys
-    rhMax = HS.findMax rhKeys
+    lhMin = HSM.findMinKey $ mkNode lh
+    lhMax = HSM.findMaxKey $ mkNode lh
+    rhMin = HSM.findMinKey $ mkNode rh
+    rhMax = HSM.findMaxKey $ mkNode rh
 
     toTxList = map change . HSM.toList . mkNode
     change (a, (b, c)) = (a, b, c)
