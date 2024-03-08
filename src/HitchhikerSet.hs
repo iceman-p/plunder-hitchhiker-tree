@@ -67,20 +67,21 @@ singleton config k
 fromSet :: (Show k, Ord k) => TreeConfig -> Set k -> HitchhikerSet k
 fromSet config ks
   | S.null ks = empty config
-  | otherwise = insertMany (ssetFromList $ S.toList ks) $ empty config
+  | otherwise = insertMany (S.toList ks) $ empty config
 
 fromArraySet :: (Show k, Ord k) => TreeConfig -> ArraySet k -> HitchhikerSet k
 fromArraySet config ks
   | ssetIsEmpty ks = empty config
-  | otherwise = insertMany ks $ empty config
+  | otherwise = insertMany (ssetToAscList ks) $ empty config
 
+-- TODO: The runtime of this seems stupidly heavyweight.
 toSet :: (Show k, Ord k) => HitchhikerSet k -> Set k
 toSet (HITCHHIKERSET config Nothing) = S.empty
 toSet (HITCHHIKERSET config (Just root)) = collect root
   where
     collect = \case
       HitchhikerSetNodeIndex (TreeIndex _ nodes) hh ->
-        foldl' (<>) (mkSet hh) $ fmap collect nodes
+        foldl' (<>) (S.fromList $ snd hh) $ fmap collect nodes
       HitchhikerSetNodeLeaf l -> mkSet l
 
     mkSet = S.fromList . F.toList
@@ -105,31 +106,30 @@ insertRaw :: (Show k, Ord k)
           => TreeConfig -> k -> HitchhikerSetNode k
           -> HitchhikerSetNode k
 insertRaw config !k root =
-  fixUp config hhSetTF $ insertRec config hhSetTF (ssetSingleton k) root
-
+  fixUp config hhSetTF $ insertRec config hhSetTF (1, [k]) root
 
 insertMany :: (Show k, Ord k)
-           => ArraySet k -> HitchhikerSet k -> HitchhikerSet k
+           => [k] -> HitchhikerSet k -> HitchhikerSet k
 insertMany !items hhset@(HITCHHIKERSET config Nothing)
-  | ssetIsEmpty items = hhset
+  | L.null items = hhset
   | otherwise = HITCHHIKERSET config $ Just $
                 fixUp config hhSetTF $
-                splitLeafMany hhSetTF (maxLeafItems config) items
+                splitLeafMany hhSetTF (maxLeafItems config) $ ssetFromList items
 
 insertMany !items hhset@(HITCHHIKERSET config (Just top))
-  | ssetIsEmpty items = hhset
+  | L.null items = hhset
   | otherwise = HITCHHIKERSET config $ Just $
                 fixUp config hhSetTF $
-                insertRec config hhSetTF items top
+                insertRec config hhSetTF (length items, items) top
 
 insertManyRaw :: (Show k, Ord k)
               => TreeConfig
-              -> ArraySet k
+              -> [k]
               -> HitchhikerSetNode k
               -> HitchhikerSetNode k
 insertManyRaw config !items top =
   fixUp config hhSetTF $
-  insertRec config hhSetTF items top
+  insertRec config hhSetTF (length items, items) top
 
 delete :: (Show k, Ord k)
        => k -> HitchhikerSet k -> HitchhikerSet k
@@ -144,15 +144,15 @@ deleteRaw config !k root =
   case deleteRec config hhSetTF k Nothing root of
     HitchhikerSetNodeIndex index hitchhikers
       | Just childNode <- fromSingletonIndex index ->
-          if ssetIsEmpty hitchhikers then Just childNode
-          else Just $ insertManyRaw config hitchhikers childNode
+          if L.null hitchhikers then Just childNode
+          else Just $ insertManyRaw config (snd hitchhikers) childNode
     HitchhikerSetNodeLeaf items
       | ssetIsEmpty items -> Nothing
     newRootNode -> Just newRootNode
 
 -- -----------------------------------------------------------------------
 
-hhSetTF :: Ord k => TreeFun k v (HitchhikerSetNode k) (ArraySet k) (ArraySet k)
+hhSetTF :: Ord k => TreeFun k v (HitchhikerSetNode k) (Int, [k]) (ArraySet k)
 hhSetTF = TreeFun {
   mkNode = HitchhikerSetNodeIndex,
   mkLeaf = HitchhikerSetNodeLeaf,
@@ -160,7 +160,7 @@ hhSetTF = TreeFun {
       HitchhikerSetNodeIndex a b -> Left (a, b)
       HitchhikerSetNodeLeaf l    -> Right l,
 
-  leafInsert = ssetUnion,
+  leafInsert = hhSetLeafInsert,
   leafMerge = (<>),
   leafLength = ssetSize,
   leafSplitAt = ssetSplitAt,
@@ -170,17 +170,23 @@ hhSetTF = TreeFun {
       Nothing -> ssetDelete k s
       Just _  -> error "Can't delete specific values in set",
 
-  hhMerge = ssetUnion,
-  hhLength = ssetSize,
+  hhMerge = countListMerge,
+  hhLength = fst,
   hhSplit = splitImpl,
-  hhEmpty = mempty,
-  hhDelete = \k mybV s -> case mybV of
-      Nothing -> ssetDelete k s
+  hhEmpty = (0, []),
+  hhDelete = \k mybV (_, s) -> case mybV of
+      Nothing -> let nu = filter (/= k) s
+                 in (length nu, nu)
       Just _  -> error "Can't delete specific values in set"
   }
 
-splitImpl :: Ord k => k -> ArraySet k -> (ArraySet k, ArraySet k)
-splitImpl k s = ssetSpanAntitone (< k) s
+hhSetLeafInsert :: Ord k => ArraySet k -> (Int, [k]) -> ArraySet k
+hhSetLeafInsert as (_, items) = ssetUnion as $ ssetFromList items
+
+splitImpl :: Ord k => k -> (Int, [k]) -> ((Int, [k]), (Int, [k]))
+splitImpl k s = splitCountList check k s
+  where
+    check e k = k < e
 
 -- -----------------------------------------------------------------------
 
@@ -190,7 +196,7 @@ member key (HITCHHIKERSET _ (Just top)) = lookInNode top
   where
     lookInNode = \case
       HitchhikerSetNodeIndex index hitchhikers ->
-        case ssetMember key hitchhikers of
+        case elem key (snd hitchhikers) of
           True  -> True
           False -> lookInNode $ findSubnodeByKey key index
       HitchhikerSetNodeLeaf items -> ssetMember key items
@@ -222,7 +228,7 @@ data AdvanceOp
 getLeftmostValue :: HitchhikerSetNode k -> k
 getLeftmostValue (HitchhikerSetNodeLeaf s)       = ssetFindMin s
 getLeftmostValue (HitchhikerSetNodeIndex (TreeIndex _ vals) hh)
-  | not $ ssetIsEmpty hh = error "Hitchhikers in set intersection"
+  | not $ L.null hh = error "Hitchhikers in set intersection"
   | otherwise = getLeftmostValue $ V.head vals
 
 consolidate :: Ord k => Int -> [ArraySet k] -> [ArraySet k]
@@ -329,7 +335,7 @@ intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
                       case length vals of
                         0 -> error "Invalid"
                         1 -> ((leaves, mempty), vals ! 0, Nothing)
-                        _ -> (splitImpl (keys ! 0) leaves,
+                        _ -> (ssetSpanAntitone (< (keys ! 0)) leaves,
                               vals ! 0,
                               Just $ TreeIndex (V.tail keys) (V.tail vals))
                     result = checkSetAgainst tryLeaves subNode
@@ -363,7 +369,7 @@ takeWhileAntitone fun (HITCHHIKERSET config (Just top)) =
                      [(lastItem, hsmTakeWhile (tVals V.! lastItem))]
         in if V.null nuKeys
            then hsmTakeWhile $ vals V.! 0
-           else HitchhikerSetNodeIndex (TreeIndex nuKeys nuVals) mempty
+           else HitchhikerSetNodeIndex (TreeIndex nuKeys nuVals) (0, [])
 
       HitchhikerSetNodeLeaf l ->
         HitchhikerSetNodeLeaf $ ssetTakeWhileAntitone fun l
@@ -388,7 +394,7 @@ dropWhileAntitone fun (HITCHHIKERSET config (Just top)) =
         -- the function holds, we don't need to recur into the subnodes.
         if V.null nuKeys
         then hsmDropWhile $ nuVals V.! 0
-        else HitchhikerSetNodeIndex (TreeIndex nuKeys nuVals) mempty
+        else HitchhikerSetNodeIndex (TreeIndex nuKeys nuVals) (0, [])
         where
           nuKeys = dropWhile fun keys
           dropCount = length keys - length nuKeys

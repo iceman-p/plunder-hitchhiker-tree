@@ -15,6 +15,7 @@ import           Types
 
 import           Data.Sorted
 
+import qualified Data.List     as L
 import qualified Data.Set      as S
 import qualified Data.Vector   as V
 
@@ -98,7 +99,7 @@ partitionSetNodes :: [HitchhikerSetNode k]
 partitionSetNodes = partitionWith match
   where
     match (HitchhikerSetNodeIndex ti hh)
-      | ssetIsEmpty hh = Left ti
+      | L.null hh = Left ti
       | otherwise = error "Can't work with hitchhikers"
     match (HitchhikerSetNodeLeaf s)     = Right s
 

@@ -95,7 +95,7 @@ prop_map_restrict_keys_eq rawPair rawSet = golden == testResult
     golden = M.restrictKeys haskellMap haskellSet
 
     hhMap = HM.insertMany haskellMap $ HM.empty twoThreeConfig
-    hhSet = HS.insertMany (ssetFromList rawSet) $ HS.empty twoThreeConfig
+    hhSet = HS.insertMany rawSet $ HS.empty twoThreeConfig
     hhRestricted = HM.restrictKeys hhSet hhMap
     testResult = M.fromList $ HM.toList hhRestricted
 

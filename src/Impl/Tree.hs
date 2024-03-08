@@ -393,3 +393,15 @@ maplistMaplistIntersect fun partial ao@(a:as) bo@(b:bs) =
            | otherwise ->
                filteredBy (toMap (a:partial)) $ maplistMaplistIntersect fun [] ao bs
 
+
+countListMerge :: Monoid a => (Int, a) -> (Int, a) -> (Int, a)
+countListMerge (lc, l) (rc, r) = (lc + rc, l ++ r)
+
+
+splitCountList :: Ord e
+               => (e -> a -> Bool)
+               -> e -> (Int, [a]) -> ((Int, [a]), (Int, [a]))
+splitCountList fun e (_, i) = ((length left, left), (length right, right))
+  where
+    (left, right) = partition (fun e) i
+

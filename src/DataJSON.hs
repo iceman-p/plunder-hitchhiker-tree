@@ -104,15 +104,15 @@ mkDatoms !item rawEid tx =
     (":derp/id", VAL_INT $ item.idNum),
     (":derp/thumbURL", VAL_STR $ item.thumb),
     (":derp/imgURL", VAL_STR $ item.img),
-    (":derp/downvotes", VAL_INT $ item.downvotes),
-    (":derp/upvotes", VAL_INT $ item.upvotes),
-    (":derp/score", VAL_INT $ item.score),
-    (":derp/faves", VAL_INT $ item.faves),
-    (":derp/description", VAL_STR $ item.description),
-    (":derp/firstSeenAt", VAL_INT $ timeStringToEpoch item.firstSeenAt),
-    (":derp/updatedAt", VAL_INT $ timeStringToEpoch item.updatedAt),
-    (":derp/width", VAL_INT $ item.width),
-    (":derp/height", VAL_INT $ item.height)
+    -- (":derp/downvotes", VAL_INT $ item.downvotes),
+    (":derp/upvotes", VAL_INT $ item.upvotes)
+    -- (":derp/score", VAL_INT $ item.score),
+    -- (":derp/faves", VAL_INT $ item.faves),
+    -- (":derp/description", VAL_STR $ item.description),
+    -- (":derp/firstSeenAt", VAL_INT $ timeStringToEpoch item.firstSeenAt),
+    -- (":derp/updatedAt", VAL_INT $ timeStringToEpoch item.updatedAt),
+    -- (":derp/width", VAL_INT $ item.width),
+    -- (":derp/height", VAL_INT $ item.height)
     ]
 
 addEntry :: MonadIO m => Item -> StateT Base m ()

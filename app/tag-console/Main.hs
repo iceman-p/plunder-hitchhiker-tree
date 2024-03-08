@@ -35,7 +35,7 @@ main = do
       jsondir = datadir </> "json"
 
 --  files :: [FilePath] <- take 10000 <$> listDirectory jsondir
-  files :: [FilePath] <- take 1 <$> listDirectory jsondir
+  files :: [FilePath] <- take 250 <$> listDirectory jsondir
 
   let z = zip [1..] files
       l = show $ length files
@@ -53,7 +53,7 @@ main = do
 
       modifying' #tags force
 
-    repl
+    -- repl
 
 delim = do
   many (char ' ')

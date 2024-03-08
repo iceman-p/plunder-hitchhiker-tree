@@ -80,7 +80,7 @@ step hl@(HitchhikerSetNodeLeaf leaf) a continuation = loop a
 
 
 exampleTree :: HitchhikerSetNode Int
-exampleTree = HitchhikerSetNodeIndex (TreeIndex keys vals) mempty
+exampleTree = HitchhikerSetNodeIndex (TreeIndex keys vals) (0, [])
   where
     keys = V.fromList [5, 9]
     vals = V.fromList [

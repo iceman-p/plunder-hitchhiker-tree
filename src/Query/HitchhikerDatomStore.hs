@@ -109,7 +109,7 @@ hhEDatomRowTF config = TreeFun {
       ELeaf l       -> Right l,
 
   -- leafMap -> hhMap -> leafMap
-  leafInsert = edatomLeafInsert config, -- M.unionWith (mergeADatomRows config),
+  leafInsert = edatomLeafInsert config,
   leafMerge = error "eLeafInsert only required for deletion",
   leafLength = M.size,
   leafSplitAt = M.splitAt,
@@ -117,7 +117,7 @@ hhEDatomRowTF config = TreeFun {
   leafEmpty = M.empty,
   leafDelete = error "Pure deletion has to be handled otherwise",
 
-  hhMerge = edatomHHMerge,
+  hhMerge = countListMerge,
   hhLength = fst,
   hhSplit = edatomHHSplit,
   hhEmpty = (0, []),
@@ -144,21 +144,12 @@ edatomLeafInsert config map (count, insertions) = go map $ reverse insertions
         -- implementation works, move on at this join point to make adatom work.
         Just ad -> Just $ arowInsertMany config [(a, v, tx, op)] ad
 
-edatomHHMerge :: (Int, [(e, a, v, tx, Bool)])
-              -> (Int, [(e, a, v, tx, Bool)])
-              -> (Int, [(e, a, v, tx, Bool)])
-edatomHHMerge (oldCount, oldList) (newCount, newList) =
-  (oldCount + newCount, newList ++ oldList)
-
 edatomHHSplit :: Ord e
               => e -> (Int, [(e, a, v, tx, Bool)])
               -> ((Int, [(e, a, v, tx, Bool)]), (Int, [(e, a, v, tx, Bool)]))
-edatomHHSplit e (_, i) = ((length left, left), (length right, right))
+edatomHHSplit e list = splitCountList check e list
   where
-    (left, right) = partition check i
-    check (l, _, _, _, _) = l < e
-
-
+    check e (l, _, _, _, _) = l < e
 
 -- TODO: At the end of the day, I was starting on making a 3rd variant of the
 -- datom store, where the datoms are just lists of items.
@@ -201,7 +192,7 @@ hhADatomRowTF config = TreeFun {
   leafEmpty = M.empty,
   leafDelete = error "Pure deletion has to be handled otherwise",
 
-  hhMerge = adatomHHMerge,
+  hhMerge = countListMerge,
   hhLength = fst,
   hhSplit = adatomHHSplit,
   hhEmpty = (0, []),
@@ -226,14 +217,6 @@ adatomLeafInsert config map (count, insertions) =
       -- implementation works, move on at this join point to make adatom work.
       Just vs -> Just $ vstorageInsertMany config vs [(tx, v, op)]
 
-adatomHHMerge :: (Show a, Show v, Show tx, Ord a, Ord v, Ord tx)
-              => (Int, [(a, v, tx, Bool)])
-              -> (Int, [(a, v, tx, Bool)])
-              -> (Int, [(a, v, tx, Bool)])
-adatomHHMerge (oldCount, oldList) (newCount, newList) =
---  trace ("Merging " <> show oldList <> " and " <> show newList) $
-  (oldCount + newCount, newList ++ oldList)
-
 adatomHHSplit :: Ord a
               => a -> (Int, [(a, v, tx, Bool)])
               -> ((Int, [(a, v, tx, Bool)]), (Int, [(a, v, tx, Bool)]))
@@ -244,10 +227,10 @@ adatomHHSplit a (_, i) = ((length left, left), (length right, right))
 
 -- -----------------------------------------------------------------------
 
-mkSingletonTxMap (tx, v, op) =
-  HitchhikerSetMapNodeLeaf $
-  M.singleton tx $
-  NAKEDSET $ Just $ HitchhikerSetNodeLeaf $ ssetSingleton (v, op)
+mkSingletonTxMap (tx, v, op) = TxHistory tx [(tx, v, op)]
+
+insertTxMap :: TxHistory v tx -> (tx, v, Bool) -> TxHistory v tx
+insertTxMap (TxHistory origTx txs) newTx = TxHistory origTx (newTx:txs)
 
 vstorageSingleton :: (tx, v, Bool) -> VStorage v tx
 vstorageSingleton (tx, v, True)   = VSimple v tx
@@ -266,16 +249,11 @@ vstorageInsert config (VSimple pv ptx) newFact =
                            (mkSingletonTxMap (ptx, pv, True)))
                  newFact
 
-vstorageInsert config (VStorage curSet txMap) (tx, v, op) =
-  VStorage valSet newTxMap
+vstorageInsert config (VStorage curSet txMap) newTx =
+  VStorage newSet newTxMap
   where
-    valSet = case (curSet, op) of
-      (Nothing, True)   -> Just $ HitchhikerSetNodeLeaf $ ssetSingleton v
-      (Nothing, False)  -> Nothing
-      (Just set, True)  -> Just $ HS.insertRaw config v set
-      (Just set, False) -> HS.deleteRaw config v set
-
-    newTxMap = HSM.insertRaw config tx (v, op) txMap
+    newSet = insertToValSet config curSet newTx
+    newTxMap = insertTxMap txMap newTx
 
 vstorageInsertMany :: (Show v, Show tx, Ord v, Ord tx)
                    => TreeConfig
@@ -284,6 +262,16 @@ vstorageInsertMany :: (Show v, Show tx, Ord v, Ord tx)
                    -> VStorage v tx
 vstorageInsertMany config storage as =
   foldl' (vstorageInsert config) storage as
+
+insertToValSet :: (Show v, Ord v)
+               => TreeConfig
+               -> Maybe (HitchhikerSetNode v) -> (tx, v, Bool)
+               -> Maybe (HitchhikerSetNode v)
+insertToValSet config curSet (tx, v, op) = case (curSet, op) of
+      (Nothing, True)   -> Just $ HitchhikerSetNodeLeaf $ ssetSingleton v
+      (Nothing, False)  -> Nothing
+      (Just set, True)  -> Just $ HS.insertRaw config v set
+      (Just set, False) -> HS.deleteRaw config v set
 
 -- -----------------------------------------------------------------------
 

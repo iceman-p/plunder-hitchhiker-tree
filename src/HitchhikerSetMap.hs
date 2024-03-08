@@ -122,7 +122,9 @@ leafInsertImpl config leaf hh = foldl' merge leaf (M.toList hh)
         -> Maybe (NakedHitchhikerSet v)
         -> Maybe (NakedHitchhikerSet v)
     alt new Nothing    = Just (strip $ HS.fromArraySet config new)
-    alt new (Just old) = Just (strip $ HS.insertMany new (weave config old))
+    alt new (Just old) =
+      -- TODO: Change the type here to use the new representation.
+      Just (strip $ HS.insertMany (ssetToAscList new) (weave config old))
 
 leafMergeImpl :: forall k v
                . (Show k, Show v, Ord k, Ord v)
@@ -234,7 +236,8 @@ lookup key (HITCHHIKERSETMAP config (Just top)) = lookInNode mempty top
     -- final list.
     buildSetFrom leaves hh = case M.lookup key leaves of
       Nothing  -> HS.fromArraySet config hh
-      Just ret -> HS.insertMany hh (weave config ret)
+      -- TODO: Use the new representation.
+      Just ret -> HS.insertMany (ssetToAscList hh) (weave config ret)
 
 -- TODO: This isn't the best performing implementation, but it's Good Enough
 -- for now. This is an attempt at using something like the
@@ -295,7 +298,8 @@ toKeySet (HITCHHIKERSETMAP config (Just top)) =
     -- TODO: ssetFromList $ M.keys -> tabKeysSet.
     translate = \case
       HitchhikerSetMapNodeIndex idx hh ->
-        HitchhikerSetNodeIndex (mapIndex translate idx) (ssetFromDistinctAscList $ M.keys hh)
+        let ks = M.keys hh
+        in HitchhikerSetNodeIndex (mapIndex translate idx) (length ks, ks)
       HitchhikerSetMapNodeLeaf l ->
         HitchhikerSetNodeLeaf $ ssetFromDistinctAscList $ M.keys l
 

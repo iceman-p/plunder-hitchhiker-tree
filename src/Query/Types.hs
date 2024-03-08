@@ -45,6 +45,11 @@ data ADatomRow a v tx
   | ALeaf !(Map a (VStorage v tx))
   deriving (Show, Generic, NFData)
 
+-- An append only, backwards list that keeps track of the first transaction
+-- number (the terminal item of the list)
+data TxHistory v tx = TxHistory tx [(tx, v, Bool)]
+  deriving (Show, Generic, NFData)
+
 -- At the end is VStorage: a set copy of the current existing values, and a
 -- separate log of transactions.
 data VStorage v tx
@@ -54,7 +59,7 @@ data VStorage v tx
   -- We have had multiple transactions which have asserted or redacted values.
   -- Keep track of the current set, plus a historical log of all assertions or
   -- redactions that can be replayed.
-  | VStorage (Maybe (HitchhikerSetNode v)) (HitchhikerSetMapNode tx (v, Bool))
+  | VStorage (Maybe (HitchhikerSetNode v)) (TxHistory v tx)
   deriving (Show, Generic, NFData)
 
 -- TODO: Redo how VStorage works. Do you actually need random random access to
