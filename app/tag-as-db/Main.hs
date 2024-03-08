@@ -54,16 +54,16 @@ main = do
       bs <- liftIO $ BS.readFile path
       case eitherDecode bs of
         Left err                 -> putStrLn $ pack err
-        Right (ImagesJSON items) -> do
+        Right (ImagesJSON !items) -> do
           mapM addEntry items
           pure ()
 
       modify' force
 
---    (BASE _ _ db) <- get
---    pPrint $ (eav db)
+    -- (BASE _ _ db) <- get
+    -- pPrint $ (eav db)
 
---    repl
+    -- repl
 
 delim = do
   many (char ' ')
@@ -131,9 +131,3 @@ fullDerpPlan = mkPlan
   [B_COLLECTION (VAR "?tags"), B_SCALAR (VAR "?amount")]
   fullDerpClauses
   [VAR "?derpid", VAR "?thumburl"]
-
-
--- OK, what do we know about this?
---
--- When I print the incoming set in `partialLookup`, it looks like it ONLY has
--- `tags` data in it. Wat?

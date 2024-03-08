@@ -20,6 +20,7 @@ import           Text.Parsec
 import           Query.HitchhikerDatomStore
 import           Query.Types
 
+import           Text.Pretty.Simple
 
 -- | Converts a time string to the number of seconds since the epoch.
 timeStringToEpoch :: String -> Int
@@ -31,23 +32,23 @@ timeStringToEpoch timeStr =
     in secondsSinceEpoch
 
 -- A single row of data from the
-data Item = Item { idNum       :: Int,
-                   tags        :: [String],
-                   thumb       :: String,
-                   img         :: String,
+data Item = Item { idNum       :: !Int,
+                   tags        :: ![String],
+                   thumb       :: !String,
+                   img         :: !String,
 
-                   downvotes   :: Int,
-                   upvotes     :: Int,
-                   score       :: Int,
-                   faves       :: Int,
+                   downvotes   :: !Int,
+                   upvotes     :: !Int,
+                   score       :: !Int,
+                   faves       :: !Int,
 
-                   description :: String,
+                   description :: !String,
 
-                   firstSeenAt :: String,
-                   updatedAt   :: String,
+                   firstSeenAt :: !String,
+                   updatedAt   :: !String,
 
-                   width       :: Int,
-                   height      :: Int
+                   width       :: !Int,
+                   height      :: !Int
                  }
   deriving (Show)
 
@@ -95,7 +96,7 @@ emptyBase = BASE {
 
 
 -- mkDatoms :: Item -> Int -> Int -> [(Value, Value, Value, Int, Bool)]
-mkDatoms item rawEid tx =
+mkDatoms !item rawEid tx =
   let eid = VAL_ENTID $ ENTID rawEid
       fillRow (a, b) = (eid, VAL_ATTR $ ATTR a, b, tx, True)
       tags = map (\a -> (":derp/tags", VAL_STR a)) item.tags
@@ -103,23 +104,24 @@ mkDatoms item rawEid tx =
     (":derp/id", VAL_INT $ item.idNum),
     (":derp/thumbURL", VAL_STR $ item.thumb),
     (":derp/imgURL", VAL_STR $ item.img),
-    (":derp/downvotes", VAL_INT $ item.downvotes),
-    (":derp/upvotes", VAL_INT $ item.upvotes),
-    (":derp/score", VAL_INT $ item.score),
-    (":derp/faves", VAL_INT $ item.faves),
-    (":derp/description", VAL_STR $ item.description),
-    (":derp/firstSeenAt", VAL_INT $ timeStringToEpoch item.firstSeenAt),
-    (":derp/updatedAt", VAL_INT $ timeStringToEpoch item.updatedAt),
-    (":derp/width", VAL_INT $ item.width),
-    (":derp/height", VAL_INT $ item.height)
+    -- (":derp/downvotes", VAL_INT $ item.downvotes),
+    (":derp/upvotes", VAL_INT $ item.upvotes)
+    --(":derp/score", VAL_INT $ item.score)
+    -- (":derp/faves", VAL_INT $ item.faves),
+    -- (":derp/description", VAL_STR $ item.description),
+    -- (":derp/firstSeenAt", VAL_INT $ timeStringToEpoch item.firstSeenAt),
+    -- (":derp/updatedAt", VAL_INT $ timeStringToEpoch item.updatedAt),
+    -- (":derp/width", VAL_INT $ item.width),
+    -- (":derp/height", VAL_INT $ item.height)
     ]
 
-addEntry :: Monad m => Item -> StateT Base m ()
+addEntry :: MonadIO m => Item -> StateT Base m ()
 addEntry item = do
   (BASE eid tx db) <- get
 
   let datoms = mkDatoms item eid tx
---  traceM $ "D: " <> show datoms
+  -- pPrint "D: "
+  -- pPrint datoms
 
   put BASE{ nextEid = eid + 1
           , nextTx = tx + 1

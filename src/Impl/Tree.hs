@@ -190,6 +190,12 @@ flushDownwards tf@TreeFun{..} = go hhEmpty
           let (toAdd, rest) = hhSplit key hh
           in Just (go toAdd node, (idx + 1, i, rest))
 
+-- -- Distribute all hitchhikers down to the leaves without making any
+-- -- intermediate new
+-- nocopyFlushDownwards :: Ord k => TreeFun k v a hh lt -> a -> a
+-- nocopyFlushDownwards tf@TreeFun{..} = go []
+--   where
+--     go hh node =
 
 -- Deletion
 

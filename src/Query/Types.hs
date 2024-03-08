@@ -32,17 +32,17 @@ import qualified Data.Set         as S
 -- too.
 
 data EDatomRow e a v tx
-  = ERowIndex (TreeIndex e (EDatomRow e a v tx))
-              (Map e (ADatomRow a v tx))
-  | ELeaf (Map e (ADatomRow a v tx))
+  = ERowIndex !(TreeIndex e (EDatomRow e a v tx))
+              (Int, [(e, a, v, tx, Bool)])
+  | ELeaf !(Map e (ADatomRow a v tx))
   deriving (Show, Generic, NFData)
 
 -- TODO: Think about data locality. A lot. Right now VStorage's indirection
 -- means that vs aren't stored next to each other when doing a simple a scan.
 data ADatomRow a v tx
-  = ARowIndex (TreeIndex a (ADatomRow a v tx))
-              (Map a (VStorage v tx))
-  | ALeaf (Map a (VStorage v tx))
+  = ARowIndex !(TreeIndex a (ADatomRow a v tx))
+              (Int, [(a, v, tx, Bool)])
+  | ALeaf !(Map a (VStorage v tx))
   deriving (Show, Generic, NFData)
 
 -- At the end is VStorage: a set copy of the current existing values, and a
@@ -73,10 +73,10 @@ type EAVStore = EAVRows Int Int Value Int
 
 data Database = DATABASE {
   -- TODO: More restricted types.
-  eav :: EAVRows Value Value Value Int,
-  aev :: EAVRows Value Value Value Int,
-  ave :: EAVRows Value Value Value Int,
-  vae :: EAVRows Value Value Value Int
+  eav :: !(EAVRows Value Value Value Int),
+  aev :: !(EAVRows Value Value Value Int),
+  ave :: !(EAVRows Value Value Value Int),
+  vae :: !(EAVRows Value Value Value Int)
 
   -- eav :: EAVRows Int Attr Value Int,
   -- aev :: EAVRows Attr Int Value Int,

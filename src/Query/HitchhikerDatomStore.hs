@@ -43,20 +43,13 @@ addDatom (!e, !a, !v, !tx, !o) (EAVROWS config Nothing) =
   ALeaf $ M.singleton a $
   vstorageSingleton (tx, v, o)
 
-addDatom (!e, !a, !v, !tx, !o) (EAVROWS config (Just root)) =
+addDatom datom@(!e, !a, !v, !tx, !o) (EAVROWS config (Just root)) =
   EAVROWS config $ Just $
   fixUp config (hhEDatomRowTF config) $
   insertRec config
             (hhEDatomRowTF config)
-            (M.singleton e (ALeaf $ M.singleton a
-                            (if o
-                             then VSimple v tx
-                             else VStorage Nothing historySet)))
+            (1, [datom])
             root
-  where
-    historySet =
-      HitchhikerSetMapNodeLeaf $
-      M.singleton tx (HSM.strip $ HS.singleton config (v, o))
 
 -- Given a list of datoms, build out a
 addDatoms :: forall e a v tx
@@ -73,7 +66,7 @@ addDatoms ds (EAVROWS config Nothing) =
 addDatoms ds (EAVROWS config (Just top)) =
   EAVROWS config $ Just $
   fixUp config (hhEDatomRowTF config) $
-  insertRec config (hhEDatomRowTF config) (datomsToTree config ds) top
+  insertRec config (hhEDatomRowTF config) (length ds, ds) top
 
 
 -- Given a list of individual datoms, put all of them in a hitchhiker
@@ -93,12 +86,11 @@ datomsToTree config ds = go mempty ds
 
     injectE :: (e, a, v, tx, Bool) -> Maybe (ADatomRow a v tx)
             -> Maybe (ADatomRow a v tx)
-    injectE (_, a, v, tx, op) Nothing =
+    injectE x@(_, a, v, tx, op) Nothing =
+--      trace ("inject singleton " <> show x) $
       Just $ ALeaf $ M.singleton a $ vstorageSingleton (tx, v, op)
     injectE (_, a, v, tx, op) (Just adatoms) =
-      Just $ arowInsertMany config
-                            (M.singleton a $ vstorageSingleton (tx, v, op))
-                            adatoms
+      Just $ arowInsertMany config [(a, v, tx, op)] adatoms
 
 
 hhEDatomRowTF :: (Show e, Show a, Show v, Show tx,
@@ -107,7 +99,7 @@ hhEDatomRowTF :: (Show e, Show a, Show v, Show tx,
               -> TreeFun e
                          (a, v, tx, Bool)
                          (EDatomRow e a v tx)
-                         (Map e (ADatomRow a v tx))
+                         (Int, [(e, a, v, tx, Bool)])
                          (Map e (ADatomRow a v tx))
 hhEDatomRowTF config = TreeFun {
   mkNode = ERowIndex,
@@ -117,7 +109,7 @@ hhEDatomRowTF config = TreeFun {
       ELeaf l       -> Right l,
 
   -- leafMap -> hhMap -> leafMap
-  leafInsert = M.unionWith (mergeADatomRows config),
+  leafInsert = edatomLeafInsert config, -- M.unionWith (mergeADatomRows config),
   leafMerge = error "eLeafInsert only required for deletion",
   leafLength = M.size,
   leafSplitAt = M.splitAt,
@@ -125,92 +117,73 @@ hhEDatomRowTF config = TreeFun {
   leafEmpty = M.empty,
   leafDelete = error "Pure deletion has to be handled otherwise",
 
-  hhMerge = M.unionWith (mergeADatomRows config),
-  -- If we just continue to collect attributes until we make some pins, that's
-  -- actually fine.
-  --
-  -- TODO: The point of hhLength is to determine how much "stuff" we can store
-  -- in a pin. We should actually recursively descend into ADatomRow, but stop
-  -- recursive descent when we encounter a pin.
-  hhLength = M.size,
-  hhSplit = \k m -> M.spanAntitone (< k) m,
-  hhEmpty = M.empty,
+  hhMerge = edatomHHMerge,
+  hhLength = fst,
+  hhSplit = edatomHHSplit,
+  hhEmpty = (0, []),
   hhDelete = error "Pure deletion has to be handled otherwise"
   }
 
 -- -----------------------------------------------------------------------
 
-mergeADatomRows :: (Show a, Show v, Show tx, Ord a, Ord v, Ord tx)
-                => TreeConfig
-                -> ADatomRow a v tx -> ADatomRow a v tx -> ADatomRow a v tx
-mergeADatomRows config (ALeaf leftMap) (ALeaf rightMap) =
---  trace ("MERGE : " <> show leftMap <> ", " <> show rightMap) $
-  fixUp config (hhADatomRowTF config) $
-  splitLeafMany (hhADatomRowTF config) (maxLeafItems config) $
-  M.unionWith (mergeVStorage config) leftMap rightMap
+edatomLeafInsert :: (Show e, Show a, Show v, Show tx, Ord e, Ord a, Ord v, Ord tx)
+                 => TreeConfig
+                 -> Map e (ADatomRow a v tx)
+                 -> (Int, [(e, a, v, tx, Bool)])
+                 -> Map e (ADatomRow a v tx)
+edatomLeafInsert config map (count, insertions) = go map $ reverse insertions
+  where
+    go map []                           = map
+    go map (tuple@(e, a, v, tx, op):is) = go (M.alter (merge tuple) e map) is
 
-mergeADatomRows config main@(ARowIndex _ _) (ALeaf leaf)
-  | M.null leaf = main
-  | otherwise = arowInsertMany config leaf main
+    merge orig@(e, a, v, tx, op) c =
+--      trace ("edatom insert " <> show orig) $
+      case c of
+        Nothing -> Just $ ALeaf $ M.singleton a (vstorageSingleton (tx, v, op))
+        -- TODO: Once you've confirmed that the new edatom list based
+        -- implementation works, move on at this join point to make adatom work.
+        Just ad -> Just $ arowInsertMany config [(a, v, tx, op)] ad
 
-mergeADatomRows config (ALeaf leaf) main@(ARowIndex _ _)
-  | M.null leaf = main
-  | otherwise = arowInsertMany config leaf main
+edatomHHMerge :: (Int, [(e, a, v, tx, Bool)])
+              -> (Int, [(e, a, v, tx, Bool)])
+              -> (Int, [(e, a, v, tx, Bool)])
+edatomHHMerge (oldCount, oldList) (newCount, newList) =
+  (oldCount + newCount, newList ++ oldList)
 
-mergeADatomRows config left right =
-  -- This is maybe bad. We probably want to have some sort of merge union.
-  foldl' (\a m -> arowInsertMany config m a) left $
-  getLeafList (hhADatomRowTF config) right
+edatomHHSplit :: Ord e
+              => e -> (Int, [(e, a, v, tx, Bool)])
+              -> ((Int, [(e, a, v, tx, Bool)]), (Int, [(e, a, v, tx, Bool)]))
+edatomHHSplit e (_, i) = ((length left, left), (length right, right))
+  where
+    (left, right) = partition check i
+    check (l, _, _, _, _) = l < e
+
+
+
+-- TODO: At the end of the day, I was starting on making a 3rd variant of the
+-- datom store, where the datoms are just lists of items.
+
 
 -- mergeADatomRows config (ARowIndex tree
 
 unwrapHSM :: HitchhikerSetMap k v -> HitchhikerSetMapNode k v
 unwrapHSM (HITCHHIKERSETMAP _ (Just x)) = x
 
-mergeVStorage :: (Show v, Show tx, Ord v, Ord tx)
-              => TreeConfig -> VStorage v tx -> VStorage v tx -> VStorage v tx
-mergeVStorage config (VSimple lv ltx) (VSimple rv rtx) =
-  VStorage (Just (HitchhikerSetNodeLeaf $ ssetFromList [lv, rv]))
-           (unwrapHSM $
-            HSM.insertMany [(ltx, (lv, True)), (rtx, (rv, True))] $
-            HSM.empty config)
-
-mergeVStorage config (VSimple lv ltx) vs@(VStorage _ _) =
-  vstorageInsert config vs (ltx, lv, True)
-mergeVStorage config vs@(VStorage _ _) (VSimple rv rtx) =
-  vstorageInsert config vs (rtx, rv, True)
-
-mergeVStorage config l@(VStorage ln lh) r@(VStorage rn rh)
-  -- If one set of history happens purely after the other, replay the newer
-  -- transactions on top of the older ones.
-  | lhMax < rhMin = vstorageInsertMany config l $ toTxList rh
-  | rhMax < lhMin = vstorageInsertMany config r $ toTxList lh
-  | otherwise = error "Handle the hard overlapping case"
-  where
-    lhMin = HSM.findMinKey $ mkNode lh
-    lhMax = HSM.findMaxKey $ mkNode lh
-    rhMin = HSM.findMinKey $ mkNode rh
-    rhMax = HSM.findMaxKey $ mkNode rh
-
-    toTxList = map change . HSM.toList . mkNode
-    change (a, (b, c)) = (a, b, c)
-    mkNode x = HITCHHIKERSETMAP config (Just x)
-
 arowInsertMany :: (Show a, Show v, Show tx, Ord a, Ord v, Ord tx)
                => TreeConfig
-               -> Map a (VStorage v tx)
+               -> [(a, v, tx, Bool)]
                -> ADatomRow a v tx
                -> ADatomRow a v tx
 arowInsertMany config !items top =
   fixUp config (hhADatomRowTF config) $
-  insertRec config (hhADatomRowTF config) items top
+  insertRec config (hhADatomRowTF config) (length items, items) top
 
 hhADatomRowTF :: (Show a, Show v, Show tx, Ord a, Ord v, Ord tx)
               => TreeConfig
               -> TreeFun a
                          (v, tx, Bool)
                          (ADatomRow a v tx)
-                         (Map a (VStorage v tx))
+                         (Int, [(a, v, tx, Bool)])
                          (Map a (VStorage v tx))
 hhADatomRowTF config = TreeFun {
   mkNode = ARowIndex,
@@ -220,7 +193,7 @@ hhADatomRowTF config = TreeFun {
       ALeaf l       -> Right l,
 
   -- -- leafMap -> hhMap -> leafMap
-  leafInsert = M.unionWith (mergeVStorage config),
+  leafInsert = adatomLeafInsert config, --   M.unionWith (mergeVStorage config),
   leafMerge = error "eLeafInsert only required for deletion",
   leafLength = M.size,
   leafSplitAt = M.splitAt,
@@ -228,14 +201,46 @@ hhADatomRowTF config = TreeFun {
   leafEmpty = M.empty,
   leafDelete = error "Pure deletion has to be handled otherwise",
 
-  -- M.unionWith ssetUnion,
-  hhMerge = M.unionWith (mergeVStorage config),
-  -- TODO: Figure out policy around splitting here.
-  hhLength =  M.size, -- sum . map length . M.elems,
-  hhSplit = \k m -> M.spanAntitone (< k) m,
-  hhEmpty = M.empty,
+  hhMerge = adatomHHMerge,
+  hhLength = fst,
+  hhSplit = adatomHHSplit,
+  hhEmpty = (0, []),
   hhDelete = error "Pure deletion has to be handled otherwise"
   }
+
+adatomLeafInsert :: (Show a, Show v, Show tx, Ord a, Ord v, Ord tx)
+                 => TreeConfig
+                 -> Map a (VStorage v tx)
+                 -> (Int, [(a, v, tx, Bool)])
+                 -> Map a (VStorage v tx)
+adatomLeafInsert config map (count, insertions) =
+--  trace ("adatomLeafInsert " <> show insertions) $
+  go map $ reverse insertions
+  where
+    go map []                        = map
+    go map (tuple@(a, v, tx, op):is) = M.alter (merge tuple) a map
+
+    merge (_, v, tx, op) = \case
+      Nothing -> Just $ vstorageSingleton (tx, v, op)
+      -- TODO: Once you've confirmed that the new edatom list based
+      -- implementation works, move on at this join point to make adatom work.
+      Just vs -> Just $ vstorageInsertMany config vs [(tx, v, op)]
+
+adatomHHMerge :: (Show a, Show v, Show tx, Ord a, Ord v, Ord tx)
+              => (Int, [(a, v, tx, Bool)])
+              -> (Int, [(a, v, tx, Bool)])
+              -> (Int, [(a, v, tx, Bool)])
+adatomHHMerge (oldCount, oldList) (newCount, newList) =
+--  trace ("Merging " <> show oldList <> " and " <> show newList) $
+  (oldCount + newCount, newList ++ oldList)
+
+adatomHHSplit :: Ord a
+              => a -> (Int, [(a, v, tx, Bool)])
+              -> ((Int, [(a, v, tx, Bool)]), (Int, [(a, v, tx, Bool)]))
+adatomHHSplit a (_, i) = ((length left, left), (length right, right))
+  where
+    (left, right) = partition check i
+    check (l, _, _, _) = l < a
 
 -- -----------------------------------------------------------------------
 
@@ -360,34 +365,42 @@ vstorageInsertMany config storage as =
 -- OK, with the new data structures, how do we rewrite partialLookup? Because
 -- we now need something with
 
+-- TODO: Reenable partialLookup once this is done
+
 partialLookup :: forall e a v tx
                . (Show e, Show a, Show v, Show tx, Ord e, Ord a, Ord v, Ord tx)
               => e -> EAVRows e a v tx -> HitchhikerSetMap a v
 partialLookup _ (EAVROWS config Nothing)    = HSM.empty config
 
 partialLookup e (EAVROWS config (Just top)) =
-  -- trace ("LOOKUP " <> show e <> " in " <> show top) $
-  lookInENode (ALeaf mempty) top
+--  trace ("LOOKUP " <> show e <> " in " <> show top) $
+  lookInENode mempty top
   where
-    lookInENode :: ADatomRow a v tx -> EDatomRow e a v tx
+    lookInENode :: [(a, v, tx, Bool)]
+                -> EDatomRow e a v tx
                 -> HitchhikerSetMap a v
     lookInENode hh = \case
       ERowIndex index hitchhikers ->
-        -- trace ("HH KEYS: " <> (show $ M.keys hitchhikers)) $
-        lookInENode (mergeADatomRows config hh $ matchHitchhikers hitchhikers) $
+--        trace ("HH KEYS: " <> (show hitchhikers)) $
+        lookInENode (hh <> matchHitchhikers hitchhikers) $
         findSubnodeByKey e index
       ELeaf items ->
-        trace ("ITEMS: " <> (show $ M.keys items)) $
-        case (M.lookup e items, hh) of
-          (Nothing, ALeaf leaf)
-            | M.null leaf -> trace ("Nothing, ALeaf null") $ HSM.empty config
-          (Nothing, hh) -> trace ("hh") $ aNodeTo hh
-          (Just anodes, ALeaf leaf)
-            | M.null leaf -> trace ("just anodes") $ aNodeTo anodes
-          (Just anodes, hh) -> trace ("full merge") $ aNodeTo $ mergeADatomRows config hh anodes
+        case M.lookup e items of
+          Nothing
+            | null hh -> HSM.empty config
+            | otherwise -> aNodeTo $ arowInsertMany config hh $ ALeaf mempty
+          Just anodes
+            | null hh -> trace ("just anodes") $ aNodeTo anodes
+            | otherwise -> trace ("full merge") $ aNodeTo $
+                arowInsertMany config hh anodes
 
-    matchHitchhikers :: Map e (ADatomRow a v tx) -> ADatomRow a v tx
-    matchHitchhikers hh = fromMaybe (ALeaf mempty) (M.lookup e hh)
+    matchHitchhikers :: (Int, [(e, a, v, tx, op)]) -> [(a, v, tx, op)]
+    matchHitchhikers (_, rows) = go rows
+      where
+        go [] = []
+        go ((cure, a, v, tx, op):ds) = if e == cure
+                                       then (a,v, tx, op):(go ds)
+                                       else go ds
 
     aNodeTo :: ADatomRow a v tx -> HitchhikerSetMap a v
     aNodeTo anodes = HITCHHIKERSETMAP config $ Just $ translate arow
@@ -421,8 +434,8 @@ learn :: (Value, Value, Value, Int, Bool)
 learn (e, a, v, tx, op) db@DATABASE{..} = db {
   eav = addDatom (e, a, v, tx, op) eav,
   aev = addDatom (a, e, v, tx, op) aev,
-  ave = addDatom (a, v, e, tx, op) ave,
-  vae = addDatom (v, a, e, tx, op) vae
+  ave = addDatom (a, v, e, tx, op) ave --,
+--  vae = addDatom (v, a, e, tx, op) vae
   }
 
 learns :: [(Value, Value, Value, Int, Bool)]
@@ -431,8 +444,8 @@ learns :: [(Value, Value, Value, Int, Bool)]
 learns ds db@DATABASE{..} = db {
   eav = addDatoms ds eav,
   aev = addDatoms (map eavToAev ds) aev,
-  ave = addDatoms (map eavToAve ds) ave,
-  vae = addDatoms (map eavToVae ds) vae
+  ave = addDatoms (map eavToAve ds) ave --,
+--  vae = addDatoms (map eavToVae ds) vae
   }
 
 eavToAev (e, a, v, tx, op) = (a, e, v, tx, op)
