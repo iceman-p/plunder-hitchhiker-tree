@@ -65,54 +65,6 @@ insertRec config tf@TreeFun{..} toAdd node =
     Right items                  ->
       splitLeafMany tf (maxLeafItems config) $ leafInsert items toAdd
 
-{-
--- Given a list of hitchhikers, try to distribute each downward to the next
--- level. This function is responsible for sending the right output to
--- indexRec, and parsing that return value back into a coherent index.
-distributeDownwards
-  :: forall k v a hh lt
-   . (Show k, Show a, Show hh, Show lt, Ord k)
-  => TreeConfig
-  -> TreeFun k v a hh lt
-  -> hh
-  -> TreeIndex k a
-  -> TreeIndex k a
-distributeDownwards config tf@TreeFun{..} inHitchhikers (TreeIndex keys vals) =
-  build $ L.unfoldr go (0, inHitchhikers)
-  where
-    build :: [(Vector k, Vector a)] -> TreeIndex k a
-    build a = uncurry TreeIndex $ concatUnzip a
-
-    go :: (Int, hh) -> Maybe ((Vector k, Vector a), (Int, hh))
-    go (idx, hh) = case (keys V.!? idx, vals V.!? idx) of
-      (Nothing, Nothing)    -> Nothing
-      (Just _, Nothing)     -> error "Completely broken tree structure."
-      (Nothing, Just node)  ->
-        case hhLength hh of
-          0 ->
-            -- There are no hitchhikers, running insertRec will just break the
-            -- node structure.
-            Just ((V.empty, V.singleton node), (idx + 1, hhEmpty))
-          _ ->
-            -- This is when we're in a singleton val index or in the rightmost
-            -- entry.
-            let (TreeIndex oKeys oVals) = insertRec config tf hh node
-            in Just ((oKeys, oVals), (idx + 1, hhEmpty))
-      (Just key, Just node) ->
-        let (toAdd, rest) = hhSplit key hh
-        in case hhLength toAdd of
-             0 ->
-               -- There's nothing here to distribute downwards, so copy the
-               -- input
-               Just ((V.singleton key, V.singleton node),
-                     (idx + 1, hh))
-             _ ->
-               let (TreeIndex subKeys subHashes) =
-                     insertRec config tf toAdd node
-               in Just ((V.snoc subKeys key, subHashes),
-                        (idx + 1, rest))
--}
-
 -- Given a list of hitchhikers, try to distribute each downward, but written as
 -- a map.
 distributeDownwards
@@ -129,16 +81,11 @@ distributeDownwards config tf@TreeFun{..} inHH treeIn@(TreeIndex keys vals)
 
   | otherwise =
       let keyList    = V.toList keys
-          splitHH    = split keyList inHH
+          splitHH    = hhWholeSplit keyList inHH
           indexList  = map push $ zip splitHH (V.toList vals)
           (newKeys, newVals) = joinIndex keyList indexList
       in TreeIndex (V.fromList newKeys) (V.concat newVals)
   where
-    split :: [k] -> hh -> [hh]
-    split [] hh = [hh]
-    split (key:keys) hh = let (toAdd, rest) = hhSplit key hh
-                          in (toAdd:(split keys rest))
-
     push :: (hh, a) -> TreeIndex k a
     push (hh, node)
       | hhLength hh == 0 = singletonIndex node
@@ -159,17 +106,11 @@ getLeafList tf@TreeFun{..} = go hhEmpty
   where
     go hh node = case caseNode node of
       Right leaves                 -> [leafInsert leaves hh]
-      Left (children, hitchhikers) ->
-        join $ L.unfoldr distribute (0, children, hhMerge hitchhikers hh)
-
-    distribute (idx, i@(TreeIndex keys vals), hh) =
-      case (keys V.!? idx, vals V.!? idx) of
-        (Nothing, Nothing) -> Nothing
-        (Just _, Nothing) -> error "Completely broken tree structure."
-        (Nothing, Just node) -> Just (go hh node, (idx + 1, i, hhEmpty))
-        (Just key, Just node) ->
-          let (toAdd, rest) = hhSplit key hh
-          in Just (go toAdd node, (idx + 1, i, rest))
+      Left (TreeIndex keys vals, hitchhikers) ->
+        let perValHH = hhWholeSplit (V.toList keys)
+                     $ hhMerge hitchhikers hh
+            par = zipWith go perValHH (V.toList vals)
+        in join $ par
 
 -- Given a node, ensure that all hitchhikers have been pushed down to leaves.
 flushDownwards :: Ord k => TreeFun k v a hh lt -> a -> a
@@ -178,24 +119,12 @@ flushDownwards tf@TreeFun{..} = go hhEmpty
     go hh node = case caseNode node of
       Right leaves                 -> mkLeaf $ leafInsert leaves hh
       Left (children@(TreeIndex keys vals), hitchhikers) ->
-        let newVals = V.unfoldr distribute (0, children, hhMerge hitchhikers hh)
-        in mkNode (TreeIndex keys newVals) hhEmpty
+        let perValHH = V.fromList
+                     $ hhWholeSplit (V.toList keys)
+                     $ hhMerge hitchhikers hh
+            zipNewVals = V.zipWith go perValHH vals
+        in mkNode (TreeIndex keys zipNewVals) hhEmpty
 
-    distribute (idx, i@(TreeIndex keys vals), hh) =
-      case (keys V.!? idx, vals V.!? idx) of
-        (Nothing, Nothing) -> Nothing
-        (Just _, Nothing) -> error "Completely broken tree structure."
-        (Nothing, Just node) -> Just (go hh node, (idx + 1, i, hhEmpty))
-        (Just key, Just node) ->
-          let (toAdd, rest) = hhSplit key hh
-          in Just (go toAdd node, (idx + 1, i, rest))
-
--- -- Distribute all hitchhikers down to the leaves without making any
--- -- intermediate new
--- nocopyFlushDownwards :: Ord k => TreeFun k v a hh lt -> a -> a
--- nocopyFlushDownwards tf@TreeFun{..} = go []
---   where
---     go hh node =
 
 -- Deletion
 
@@ -404,4 +333,20 @@ splitCountList :: Ord e
 splitCountList fun e (_, i) = ((length left, left), (length right, right))
   where
     (left, right) = partition (fun e) i
+
+doWholeSplit :: Ord item
+             => (e -> item -> Bool)
+             -> [e] -> (Int, [item])
+             -> [(Int, [item])]
+doWholeSplit func keys (_, hh) = out
+  where
+    sortedHH = sort hh
+    (pieces, finalPiece) = foldl' checkspan ([], sortedHH) keys
+    out = map addLen (reverse $ (finalPiece:pieces))
+
+    checkspan (prev, remaining) k = (lhs:prev, rhs)
+      where
+        (lhs, rhs) = span (func k) remaining
+
+    addLen l = (length l, l)
 

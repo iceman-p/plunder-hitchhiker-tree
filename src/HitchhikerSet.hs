@@ -172,7 +172,7 @@ hhSetTF = TreeFun {
 
   hhMerge = countListMerge,
   hhLength = fst,
-  hhSplit = splitImpl,
+  hhWholeSplit = setHHWholeSplit,
   hhEmpty = (0, []),
   hhDelete = \k mybV (_, s) -> case mybV of
       Nothing -> let nu = filter (/= k) s
@@ -183,10 +183,13 @@ hhSetTF = TreeFun {
 hhSetLeafInsert :: Ord k => ArraySet k -> (Int, [k]) -> ArraySet k
 hhSetLeafInsert as (_, items) = ssetUnion as $ ssetFromList items
 
-splitImpl :: Ord k => k -> (Int, [k]) -> ((Int, [k]), (Int, [k]))
-splitImpl k s = splitCountList check k s
+setHHWholeSplit :: Ord k
+                => [k] -> (Int, [k])
+                -> [(Int, [k])]
+setHHWholeSplit = doWholeSplit altk
   where
-    check e k = k < e
+    altk k x = x < k
+
 
 -- -----------------------------------------------------------------------
 

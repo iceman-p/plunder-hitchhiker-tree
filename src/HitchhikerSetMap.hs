@@ -95,7 +95,7 @@ hhSetMapTF setConfig = TreeFun {
   -- For the hitchhikers, we count the number of all items in a set instead of
   -- the number of keys.
   hhLength = sum . map ssetSize . M.elems,
-  hhSplit = splitImpl,
+  hhWholeSplit = hhDefaultWholeSplit splitImpl,
   hhEmpty = M.empty,
   hhDelete = \k mybV sm -> case mybV of
       Just v  -> M.update (Just . ssetDelete v) k sm

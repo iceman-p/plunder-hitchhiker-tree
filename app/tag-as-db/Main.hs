@@ -63,7 +63,7 @@ main = do
     -- (BASE _ _ db) <- get
     -- pPrint $ (eav db)
 
-    repl
+    -- repl
 
 delim = do
   many (char ' ')

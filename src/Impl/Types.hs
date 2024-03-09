@@ -35,7 +35,15 @@ data TreeFun key value subnode hhMap leafMap = TreeFun {
   -- Hitchhiker storage options.
   hhMerge      :: hhMap -> hhMap -> hhMap,
   hhLength     :: hhMap -> Int,
-  hhSplit      :: key -> hhMap -> (hhMap, hhMap),
+  hhWholeSplit :: [key] -> hhMap -> [hhMap],
   hhEmpty      :: hhMap,
   hhDelete     :: key -> Maybe value -> hhMap -> hhMap
   };
+
+-- Default implementation of wholeSplit, which is passed in the legacy
+-- implementation.
+hhDefaultWholeSplit :: (k -> hh -> (hh, hh)) -> [k] -> hh -> [hh]
+hhDefaultWholeSplit _ [] hh = [hh]
+hhDefaultWholeSplit hhSplit (key:keys) hh =
+  let (toAdd, rest) = hhSplit key hh
+  in (toAdd:(hhDefaultWholeSplit hhSplit keys rest))

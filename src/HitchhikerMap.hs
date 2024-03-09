@@ -104,7 +104,7 @@ hhMapTF = TreeFun {
 
   hhMerge = M.unionWith (\a b -> b),
   hhLength = M.size,
-  hhSplit = splitImpl,
+  hhWholeSplit = hhDefaultWholeSplit splitImpl,
   hhEmpty = M.empty,
   hhDelete = \k mybV m -> case mybV of
       Nothing -> M.delete k m
@@ -165,7 +165,7 @@ restrictKeys (HITCHHIKERSET _ Nothing) (HITCHHIKERMAP config _) =
 
 restrictKeys (HITCHHIKERSET sConfig (Just a))
              (HITCHHIKERMAP mConfig (Just b)) =
-  trace ("restrictKeys: " <> show a <> ", " <> show b) $
+  -- trace ("restrictKeys: " <> show a <> ", " <> show b) $
   fromLeafMaps mConfig $ setlistMaplistIntersect [] as bs
   where
     as = getLeafList HS.hhSetTF a

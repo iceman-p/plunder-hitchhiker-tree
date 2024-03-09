@@ -119,7 +119,7 @@ hhEDatomRowTF config = TreeFun {
 
   hhMerge = countListMerge,
   hhLength = fst,
-  hhSplit = edatomHHSplit,
+  hhWholeSplit = edatomHHWholeSplit,
   hhEmpty = (0, []),
   hhDelete = error "Pure deletion has to be handled otherwise"
   }
@@ -144,18 +144,12 @@ edatomLeafInsert config map (count, insertions) = go map $ reverse insertions
         -- implementation works, move on at this join point to make adatom work.
         Just ad -> Just $ arowInsertMany config [(a, v, tx, op)] ad
 
-edatomHHSplit :: Ord e
-              => e -> (Int, [(e, a, v, tx, Bool)])
-              -> ((Int, [(e, a, v, tx, Bool)]), (Int, [(e, a, v, tx, Bool)]))
-edatomHHSplit e list = splitCountList check e list
+edatomHHWholeSplit :: (Ord e, Ord a, Ord v, Ord tx)
+                   => [e] -> (Int, [(e, a, v, tx, Bool)])
+                   -> [(Int, [(e, a, v, tx, Bool)])]
+edatomHHWholeSplit = doWholeSplit altk
   where
-    check e (l, _, _, _, _) = l < e
-
--- TODO: At the end of the day, I was starting on making a 3rd variant of the
--- datom store, where the datoms are just lists of items.
-
-
--- mergeADatomRows config (ARowIndex tree
+    altk k (e, _, _, _, _) = e < k
 
 unwrapHSM :: HitchhikerSetMap k v -> HitchhikerSetMapNode k v
 unwrapHSM (HITCHHIKERSETMAP _ (Just x)) = x
@@ -194,7 +188,7 @@ hhADatomRowTF config = TreeFun {
 
   hhMerge = countListMerge,
   hhLength = fst,
-  hhSplit = adatomHHSplit,
+  hhWholeSplit = adatomHHWholeSplit,
   hhEmpty = (0, []),
   hhDelete = error "Pure deletion has to be handled otherwise"
   }
@@ -217,13 +211,12 @@ adatomLeafInsert config map (count, insertions) =
       -- implementation works, move on at this join point to make adatom work.
       Just vs -> Just $ vstorageInsertMany config vs [(tx, v, op)]
 
-adatomHHSplit :: Ord a
-              => a -> (Int, [(a, v, tx, Bool)])
-              -> ((Int, [(a, v, tx, Bool)]), (Int, [(a, v, tx, Bool)]))
-adatomHHSplit a (_, i) = ((length left, left), (length right, right))
+adatomHHWholeSplit :: (Show a, Show v, Show tx, Ord a, Ord v, Ord tx)
+                   => [a] -> (Int, [(a, v, tx, Bool)])
+                   -> [(Int, [(a, v, tx, Bool)])]
+adatomHHWholeSplit = doWholeSplit altk
   where
-    (left, right) = partition check i
-    check (l, _, _, _) = l < a
+    altk k (a, _, _, _) = a < k
 
 -- -----------------------------------------------------------------------
 
