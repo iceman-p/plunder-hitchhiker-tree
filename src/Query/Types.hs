@@ -47,24 +47,27 @@ data ADatomRow a v tx
 
 -- An append only, backwards list that keeps track of the first transaction
 -- number (the terminal item of the list)
-data TxHistory v tx = TxHistory tx [(tx, v, Bool)]
-  deriving (Show, Generic, NFData)
+data TxHistory v tx = TxHistory !tx ![(tx, v, Bool)]
+  deriving (Show)
+
+instance NFData (TxHistory v tx) where
+  rnf !_ = ()
 
 -- At the end is VStorage: a set copy of the current existing values, and a
 -- separate log of transactions.
 data VStorage v tx
   -- Many values are going to be a single value that doesn't change; don't
   -- allocate two hitchhiker trees to deal with them, just inline.
-  = VSimple v tx
+  = VSimple !v !tx
   -- We have had multiple transactions which have asserted or redacted values.
   -- Keep track of the current set, plus a historical log of all assertions or
   -- redactions that can be replayed.
-  | VStorage (Maybe (HitchhikerSetNode v)) (TxHistory v tx)
-  deriving (Show, Generic, NFData)
+  | VStorage (Maybe (HitchhikerSetNode v)) !(TxHistory v tx)
+  deriving (Show)
 
--- TODO: Redo how VStorage works. Do you actually need random random access to
--- the
-
+instance (NFData (HitchhikerSetNode v)) => NFData (VStorage v tx) where
+  rnf !(VSimple !v !tx) = ()
+  rnf !(VStorage x !y)  = rnf x
 
 
 data EAVRows e a v tx = EAVROWS {
