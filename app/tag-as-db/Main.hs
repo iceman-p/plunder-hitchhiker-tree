@@ -55,7 +55,8 @@ main = do
       case eitherDecode bs of
         Left err                 -> putStrLn $ pack err
         Right (ImagesJSON !items) -> do
-          mapM addEntry items
+          -- mapM addEntry items
+          addEntries items
           pure ()
 
       modify' force

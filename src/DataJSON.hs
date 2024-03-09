@@ -126,3 +126,17 @@ addEntry item = do
   put BASE{ nextEid = eid + 1
           , nextTx = tx + 1
           , database = learns datoms db}
+
+addEntries :: MonadIO m => [Item] -> StateT Base m ()
+addEntries items = do
+  (BASE eid tx db) <- get
+
+  let datoms = concat
+             $ map (\(id, item) -> mkDatoms item id tx)
+             $ zip [eid..] items
+  -- pPrint "D: "
+  -- pPrint datoms
+
+  put BASE{ nextEid = eid + length items
+          , nextTx = tx + 1
+          , database = learns datoms db}
