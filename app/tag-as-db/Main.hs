@@ -24,6 +24,7 @@ import           Types
 import qualified Data.ByteString.Lazy       as BS
 
 import qualified Data.Set                   as S
+import qualified Data.Vector                as V
 
 import qualified HitchhikerMap              as HM
 import qualified HitchhikerSet              as HS
@@ -41,6 +42,7 @@ main = do
   let datadir = unpack i
       jsondir = datadir </> "json"
 
+--  files :: [FilePath] <- listDirectory jsondir
   files :: [FilePath] <- take 250 <$> listDirectory jsondir
 --  files :: [FilePath] <- take 10000 <$> listDirectory jsondir
 
@@ -64,7 +66,7 @@ main = do
     -- (BASE _ _ db) <- get
     -- pPrint $ (eav db)
 
-    -- repl
+    repl
 
 delim = do
   many (char ' ')
@@ -103,14 +105,26 @@ repl = do
     Right tags -> do
       liftIO $ putStrLn ("TAGS: " ++ tshow tags)
       traceM ("Plan: " <> show fullDerpPlan)
-      let qOut = evalPlan
+      let amount = 500
+      let planOut = evalPlan
             [REL_SET $ RSET (VAR "?tags")
                             (HS.fromSet twoThreeConfig $ S.fromList $
                              map VAL_STR tags),
-             REL_SCALAR $ RSCALAR (VAR "?amount") (VAL_INT 100)]
+             REL_SCALAR $ RSCALAR (VAR "?amount") (VAL_INT amount)]
             db
             fullDerpPlan
-      putStrLn $ "OUT: " <> tshow qOut
+          naiveOut = naiveEvaluator
+            db
+            [ROWS [VAR "?tags"] [] (map toNaiveTag tags),
+             ROWS [VAR "?amount"] [] [V.fromList [VAL_INT amount]]]
+            []
+            fullDerpClauses
+            [VAR "?derpid", VAR "?thumburl"]
+          toNaiveTag t = V.fromList [VAL_STR t]
+      putStrLn $ "OUT: " <> tshow planOut
+      putStrLn $ "NAIVE: " <> tshow naiveOut
+      putStrLn $ "EQ TO NAIVE: " <> tshow (planOut == naiveOut)
+      putStrLn $ "SORTED EQ TO NAIVE: " <> tshow (sort planOut.values == sort naiveOut.values)
       -- s <- search tags
       -- case s of
       --   Left tags -> liftIO $ putStrLn ("INVALID TAGS: " ++ tshow tags)
@@ -123,8 +137,8 @@ repl = do
 fullDerpClauses = [
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/tags") (VAR "?tags")),
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes")),
-  BiPredicateExpression B_GT (ARG_VAR (VAR "?upvotes"))
-                             (ARG_VAR (VAR "?amount")),
+  BiPredicateExpression B_GTE (ARG_VAR (VAR "?upvotes"))
+                              (ARG_VAR (VAR "?amount")),
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumbURL") (VAR "?thumburl"))]
 
