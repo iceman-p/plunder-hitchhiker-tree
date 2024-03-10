@@ -203,7 +203,7 @@ adatomLeafInsert config map (count, insertions) =
   go map $ reverse insertions
   where
     go map []                        = map
-    go map (tuple@(a, v, tx, op):is) = M.alter (merge tuple) a map
+    go map (tuple@(a, v, tx, op):is) = go (M.alter (merge tuple) a map) is
 
     merge (_, v, tx, op) = \case
       Nothing -> Just $ vstorageSingleton (tx, v, op)
