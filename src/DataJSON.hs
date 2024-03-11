@@ -83,14 +83,20 @@ instance FromJSON ImagesJSON where
 -- We have to rework everything here to be built around
 
 data Base = BASE {
-  database        :: !Database,
+  database            :: !Database,
 
   -- Stuff some meta attributes here.
-  derpIdAttr      :: EntityId,
-  derpTagsAttr    :: EntityId,
-  derpThumbAttr   :: EntityId,
-  derpImgAttr     :: EntityId,
-  derpUpvotesAttr :: EntityId
+  derpIdAttr          :: EntityId,
+  derpTagsAttr        :: EntityId,
+  derpThumbAttr       :: EntityId,
+  derpImgAttr         :: EntityId,
+  derpUpvotesAttr     :: EntityId,
+  derpDownvotesAttr   :: EntityId,
+  derpScoreAttr       :: EntityId,
+  derpDescriptionAttr :: EntityId,
+  derpFirstSeenAtAttr :: EntityId,
+  derpWidthAttr       :: EntityId,
+  derpHeightAttr      :: EntityId
   }
   deriving (Generic, NFData)
 
@@ -101,9 +107,15 @@ emptyBase =
   let database =
         learnAttribute ":derp/tags" True MANY VT_STR $
         learnAttribute ":derp/upvotes" False ONE VT_INT $
+        learnAttribute ":derp/downvotes" False ONE VT_INT $
+        learnAttribute ":derp/score" False ONE VT_INT $
         learnAttribute ":derp/id" True ONE VT_INT $
         learnAttribute ":derp/thumbURL" False ONE VT_STR $
         learnAttribute ":derp/imgURL" False ONE VT_STR $
+        learnAttribute ":derp/description" False ONE VT_STR $
+        learnAttribute ":derp/firstSeenAt" False ONE VT_INT $
+        learnAttribute ":derp/width" False ONE VT_INT $
+        learnAttribute ":derp/height" False ONE VT_INT $
         emptyDB
       getAttr x = findWithDefault (ENTID 9999999) x (database.attributes)
   in BASE {
@@ -112,29 +124,34 @@ emptyBase =
     derpTagsAttr = getAttr ":derp/tags",
     derpThumbAttr = getAttr ":derp/thumbURL",
     derpImgAttr = getAttr ":derp/imgURL",
-    derpUpvotesAttr = getAttr ":derp/upvotes"
+    derpUpvotesAttr = getAttr ":derp/upvotes",
+
+    derpDownvotesAttr = getAttr ":derp/downvotes",
+    derpScoreAttr = getAttr ":derp/score",
+    derpDescriptionAttr = getAttr ":derp/description",
+    derpFirstSeenAtAttr = getAttr ":derp/firstSeenAt",
+    derpWidthAttr = getAttr ":derp/width",
+    derpHeightAttr = getAttr ":derp/height"
     }
 
 mkDatoms :: Item -> EntityRef -> Base
          -> [(EntityRef, EntityId, Query.Types.Value, Bool)]
-mkDatoms !item eid
-         BASE{derpTagsAttr,derpIdAttr,derpThumbAttr,derpImgAttr,
-              derpUpvotesAttr} =
+mkDatoms !item eid BASE{..} =
   let fillRow (a, b) = (eid, a, b, True)
       tags = map (\a -> (derpTagsAttr, VAL_STR a)) item.tags
   in map fillRow $ tags ++ [
     (derpIdAttr, VAL_INT $ item.idNum),
     (derpThumbAttr, VAL_STR $ item.thumb),
     (derpImgAttr, VAL_STR $ item.img),
-    -- (":derp/downvotes", VAL_INT $ item.downvotes),
-    (derpUpvotesAttr, VAL_INT $ item.upvotes)
-    -- (":derp/score", VAL_INT $ item.score),
+    (derpDownvotesAttr, VAL_INT $ item.downvotes),
+    (derpUpvotesAttr, VAL_INT $ item.upvotes),
+    (derpScoreAttr, VAL_INT $ item.score),
     -- (":derp/faves", VAL_INT $ item.faves),
-    -- (":derp/description", VAL_STR $ item.description),
-    -- (":derp/firstSeenAt", VAL_INT $ timeStringToEpoch item.firstSeenAt),
+    (derpDescriptionAttr, VAL_STR $ item.description),
+    (derpFirstSeenAtAttr, VAL_INT $ timeStringToEpoch item.firstSeenAt),
     -- (":derp/updatedAt", VAL_INT $ timeStringToEpoch item.updatedAt),
-    -- (":derp/width", VAL_INT $ item.width),
-    -- (":derp/height", VAL_INT $ item.height)
+    (derpWidthAttr, VAL_INT $ item.width),
+    (derpHeightAttr, VAL_INT $ item.height)
     ]
 
 addEntry :: MonadIO m => Item -> StateT Base m ()

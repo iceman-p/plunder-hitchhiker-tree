@@ -110,7 +110,7 @@ repl = do
     Right tags -> do
       liftIO $ putStrLn ("TAGS: " ++ tshow tags)
       traceM ("Plan: " <> show (fullDerpPlan database))
-      let amount = 40
+      let amount = 300
       let planOut = evalPlan
             [REL_SET $ RSET (VAR "?tags")
                             (HS.fromSet twoThreeConfig $ S.fromList $
