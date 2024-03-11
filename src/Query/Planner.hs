@@ -1,11 +1,14 @@
 module Query.Planner where
 
-import           ClassyPrelude
+import           ClassyPrelude              hiding (head)
+
+import           Data.List                  (head)
 
 import           Query.HitchhikerDatomStore
 import           Query.PlanEvaluator
 import           Query.Types
 
+import qualified Data.Map                   as M
 import qualified Data.Set                   as S
 
 -- Planner try 3
@@ -20,8 +23,8 @@ data Direction
   | RIGHT_ONLY
   | IRRELEVANT
 
-mkPlan :: [Binding] -> [Clause] -> [Variable] -> PlanHolder
-mkPlan bindingInputs clauses target =
+mkPlan :: [Database] -> [Binding] -> [Clause] -> [Variable] -> PlanHolder
+mkPlan typeDBs bindingInputs clauses target =
   converge $ filter targetNeeds $ go startingInputs clauses
   where
     targetSet = S.fromList target
@@ -44,27 +47,36 @@ mkPlan bindingInputs clauses target =
       let past = pastProvides inputs
           future = futureNeeds cs
       in case c of
-        (DataPattern (LC_XAZ eSymb attr vSymb)) ->
-          case direction eSymb vSymb past future of
-            FORWARDS  ->
+        (DataPattern (LC_XAZ eSymb attr@(ATTR attrText) vSymb)) ->
+          let attributesMap = attributes $ head typeDBs
+              attributePropMap = attributeProps $ head typeDBs
+              Just rawEntityId = M.lookup attrText attributesMap
+              Just (indexed, _, _) = M.lookup rawEntityId attributePropMap
+              attrEntity = VAL_ENTID $ rawEntityId
+          in case (direction eSymb vSymb past future, indexed) of
+            (FORWARDS, _) ->
               let load = PH_TAB eSymb vSymb
-                       $ LoadTab USE_AEV (VAL_ATTR attr) eSymb vSymb
+                       $ LoadTab USE_AEV attrEntity eSymb vSymb
               in go (joinAll (rhJoin future) (load:inputs)) cs
-            BACKWARDS ->
+            (BACKWARDS, True) ->
               let load = PH_TAB vSymb eSymb
-                       $ LoadTab USE_AVE (VAL_ATTR attr) vSymb eSymb
+                       $ LoadTab USE_AVE attrEntity vSymb eSymb
               in go (joinAll (rhJoin future) (load:inputs)) cs
-            LEFT_ONLY ->
+            (BACKWARDS, False) ->
+              error "Handle backwards loading without an AVE table."
+            (LEFT_ONLY, _) ->
               let load = PH_SET eSymb
                        $ TabKeySet eSymb vSymb
-                       $ LoadTab USE_AEV (VAL_ATTR attr) eSymb vSymb
+                       $ LoadTab USE_AEV attrEntity eSymb vSymb
               in go (joinAll (rhJoin future) (load:inputs)) cs
-            RIGHT_ONLY ->
+            (RIGHT_ONLY, True) ->
               let load = PH_SET vSymb
                        $ TabKeySet vSymb eSymb
-                       $ LoadTab USE_AVE (VAL_ATTR attr) vSymb eSymb
+                       $ LoadTab USE_AVE attrEntity vSymb eSymb
               in go (joinAll (rhJoin future) (load:inputs)) cs
-            IRRELEVANT -> trace ("Irrelevant!?") $ go inputs cs
+            (RIGHT_ONLY, False) ->
+              error "Handle backwards loading without an AVE table"
+            (IRRELEVANT, _) -> trace ("Irrelevant!?") $ go inputs cs
         (BiPredicateExpression pred arg1 arg2) ->
           -- We're a predicate. We look at the current state of the tree to try
           -- to transform that tree into a structure with specialized predicate
@@ -189,7 +201,10 @@ mkPlan bindingInputs clauses target =
     bindToPlan (i, B_SCALAR symb)     = PH_SCALAR symb $ InputScalar symb i
     bindToPlan (i, B_COLLECTION symb) = PH_SET symb $ InputSet symb i
 
-    direction :: Variable -> Variable -> Set Variable -> Set Variable
+    direction :: Variable
+              -> Variable
+              -> Set Variable
+              -> Set Variable
               -> Direction
     direction leftS rightS past future
       | S.member leftS future && S.member rightS future =

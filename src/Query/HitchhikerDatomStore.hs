@@ -399,36 +399,147 @@ partialLookup e (EAVROWS config (Just top)) =
           VStorage Nothing _ -> Nothing
           VStorage x _ -> Just $ NAKEDSET x
 
+
 -- -----------------------------------------------------------------------
 
 emptyDB :: Database
-emptyDB = DATABASE {
-  eav = emptyRows largeConfig,
-  aev = emptyRows largeConfig,
-  ave = emptyRows largeConfig,
-  vae = emptyRows largeConfig
-  }
+emptyDB = learns prelude startingVal
+  where
+    baseTx = 2^16 + 1
 
-learn :: (Value, Value, Value, Int, Bool)
-      -> Database
-      -> Database
-learn (e, a, v, tx, op) db@DATABASE{..} = db {
-  eav = addDatom (e, a, v, tx, op) eav,
-  aev = addDatom (a, e, v, tx, op) aev,
-  ave = addDatom (a, v, e, tx, op) ave --,
---  vae = addDatom (v, a, e, tx, op) vae
-  }
+    -- Keep this synchronized with `attributes` below!
+    prelude = map (\(a,b,c) -> (ENTREF $ ENTID a, ENTID b, c, True)) $ [
+      (1, 1, VAL_STR ":db/ident"),
+      (1, 2, VAL_ENTID $ ENTID 3), -- cardinality one
+      (1, 5, VAL_ENTID $ ENTID 8), -- type string
+      -- TODO: uniqueness must be set on ident when I add :db/unique.
+      (1, 9, VAL_INT 1), -- should be unique instead of indexed
 
-learns :: [(Value, Value, Value, Int, Bool)]
+      -- Cardinality and its enumerations
+      (2, 1, VAL_STR ":db/cardinality"),
+      (2, 2, VAL_ENTID $ ENTID 3),
+      (2, 5, VAL_ENTID $ ENTID 6),
+      (3, 1, VAL_STR ":db.cardinality/one"),
+      (4, 1, VAL_STR ":db.cardinality/many"),
+
+      -- Value type and its enumerations
+      (5, 1, VAL_STR ":db/valueType"),
+      (5, 3, VAL_ENTID $ ENTID 3),
+      (5, 5, VAL_ENTID $ ENTID 6),
+      (6, 1, VAL_STR ":db.type/ref"),
+      (7, 1, VAL_STR ":db.type/int"),
+      (8, 1, VAL_STR ":db.type/string"),
+
+      -- Index flag (does this value go in the AVE table?)
+      (9, 1, VAL_STR ":db/index"),
+      (9, 5, VAL_ENTID $ ENTID 7) -- should be bool
+      ]
+
+    -- Same data as above, but in the quick lookup format so we can actually
+    -- store the above correctly.
+    attributes = M.fromList [
+      (":db/ident", ENTID 1),
+      (":db/cardinality", ENTID 2),
+      (":db/valueType", ENTID 5),
+      (":db/index", ENTID 9)
+      ]
+    attributeProps = M.fromList [
+      (ENTID 1, (True, ONE, VT_STR)),
+      (ENTID 2, (False, ONE, VT_ENTITY)),
+      (ENTID 5, (False, ONE, VT_ENTITY)),
+      (ENTID 9, (False, ONE, VT_INT))
+      ]
+
+    startingVal = DATABASE {
+      nextTransaction = baseTx,
+      nextEntity = 10,
+      attributes,
+      attributeProps,
+
+      eav = emptyRows largeConfig,
+      aev = emptyRows largeConfig,
+      ave = emptyRows largeConfig,
+      vae = emptyRows largeConfig
+      }
+
+-- Technically, we should be fishing attribute changes out of general `learn`
+-- calls but I don't want to write that data right now.
+learnAttribute :: Text -> Bool -> Cardinality -> ValueType -> Database
+               -> Database
+learnAttribute name indexed cardinality vtype db =
+  let entity = nextEntity db
+  in learns [
+    (ENTREF $ ENTID entity, ENTID 1, VAL_STR $ unpack name, True),
+    (ENTREF $ ENTID entity, ENTID 2,
+     VAL_ENTID $ ENTID $ case cardinality of { ONE -> 3; MANY -> 4 }, True),
+    (ENTREF $ ENTID entity, ENTID 9, VAL_INT $ fromEnum indexed, True)
+    ] $
+    db { nextEntity = (nextEntity db) + 1,
+         nextTransaction = (nextTransaction db) + 1,
+         attributes = M.insert name (ENTID entity) (attributes db),
+         attributeProps =
+           M.insert (ENTID entity) (indexed, cardinality, vtype)
+                    (attributeProps db)
+       }
+
+-- TODO: We have to make learn and learns allocate their own transaction
+-- numbers at this point.
+
+data EntityRef
+  = TMPREF Int  -- Resolved to a new id
+  | ENTREF EntityId
+
+-- learns :: [(EntityRef, EntityId, Value, Bool)]
+--        -> Database
+--        -> Database
+
+-- Given some input
+resolve :: Int
+        -> Int
+        -> [(EntityRef, EntityId, Value, Bool)]
+        -> (Int, [(EntityId, EntityId, Value, Int, Bool)])
+resolve nextEid tx input = pick $ foldl' go (mempty, nextEid, []) input
+  where
+    pick (refmap, nextEid, m) = (nextEid, reverse m)
+
+    go (refmap, nextEid, entities) (TMPREF i, a, v, op)
+      | Just entity <- M.lookup i refmap =
+          (refmap, nextEid, (ENTID entity, a, v, tx, op):entities)
+      | otherwise = ( M.insert i nextEid refmap
+                    , nextEid + 1
+                    , (ENTID nextEid, a, v, tx, op):entities)
+    go (refmap, nextEid, entities) (ENTREF i, a, v, op)
+      = (refmap, nextEid, (i, a, v, tx, op):entities)
+
+-- TODO: Just redo this entire thing to make it easier to ingest data. Each
+-- thing we add here makes it less likely to really work.
+learns :: [(EntityRef, EntityId, Value, Bool)]
        -> Database
        -> Database
-learns ds db@DATABASE{..} = db {
-  eav = addDatoms ds eav,
-  aev = addDatoms (map eavToAev ds) aev,
-  ave = addDatoms (map eavToAve ds) ave --,
---  vae = addDatoms (map eavToVae ds) vae
+learns rawDatoms db@DATABASE{..} =
+  let tx = nextTransaction
+      (newNextEid, resolvedDatoms) = resolve nextEntity tx rawDatoms
+  in db {
+    nextTransaction = nextTransaction + 1,
+    nextEntity = newNextEid,
+    eav = addDatoms (map eavToEav resolvedDatoms) eav,
+    aev = addDatoms (map eavToAev resolvedDatoms) aev,
+    ave = addDatoms (mapMaybe (eavToAve attributeProps) resolvedDatoms) ave,
+    vae = addDatoms (mapMaybe (eavToVae attributeProps) resolvedDatoms) vae
   }
+
+eavToEav (e, a, v, tx, op) = (e, a, v, tx, op)
 
 eavToAev (e, a, v, tx, op) = (a, e, v, tx, op)
-eavToAve (e, a, v, tx, op) = (a, v, e, tx, op)
-eavToVae (e, a, v, tx, op) = (v, a, e, tx, op)
+
+eavToAve attributes (e, a, v, tx, op)
+  | Just (indexed, _, _) <- M.lookup a attributes
+  , indexed
+    = Just (a, v, e, tx, op)
+  | otherwise = Nothing
+
+eavToVae attributes (e, a, v, tx, op)
+  | Just (_, _, valType) <- M.lookup a attributes
+  , valType == VT_ENTITY
+    = Just (v, a, e, tx, op)
+  | otherwise = Nothing

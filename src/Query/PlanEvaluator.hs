@@ -22,13 +22,6 @@ import qualified Data.Vector                as V
 mkTwoVector :: a -> a -> Vector a
 mkTwoVector x y = V.fromList [x, y]
 
-printableLookupToFunc :: RowLookup
-                      -> (Database -> EAVRows Value Value Value Int)
-printableLookupToFunc USE_EAV = eav
-printableLookupToFunc USE_AEV = aev
-printableLookupToFunc USE_AVE = ave
-printableLookupToFunc USE_VAE = vae
-
 data EvalBiPred
   = EBP_LEFT Value BuiltinPred
   | EBP_RIGHT BuiltinPred Value
@@ -52,9 +45,20 @@ evalPlan inputs db = relationToRows . runFromPlanHolder
       Just (REL_SET rs) -> rs
       _                 -> error "Input doesn't match plan in InputSet"
 
-    -- All loads are failing. Why?!
+    -- OK, what do we have to do here? We have to make the
+
     go (LoadTab which lookupVal from to) =
-      let val = partialLookup lookupVal (printableLookupToFunc which $ db)
+      let val = case (which, lookupVal) of
+            (USE_EAV, VAL_ENTID entid) ->
+              HSM.mapKeysMonotonic VAL_ENTID $ partialLookup entid (eav db)
+            (USE_AEV, VAL_ENTID entid) ->
+              HSM.mapKeysMonotonic VAL_ENTID $ partialLookup entid (aev db)
+            (USE_AVE, VAL_ENTID entid) ->
+              HSM.mapValsMonotonic VAL_ENTID $ partialLookup entid (ave db)
+            (USE_VAE, val)             ->
+              HSM.mapKeysMonotonic VAL_ENTID $
+              HSM.mapValsMonotonic VAL_ENTID $
+              partialLookup val (vae db)
       in --trace ("LoadTab " <> show lookupVal <> " " <> show from <> " " <> show to <> " " <> show val) $
          RTAB {from,to,val}
 

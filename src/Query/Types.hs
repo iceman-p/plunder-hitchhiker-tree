@@ -76,20 +76,19 @@ data EAVRows e a v tx = EAVROWS {
   }
   deriving (Show, Generic, NFData)
 
+-- TODO: Making this
 
-type EAVStore = EAVRows Int Int Value Int
 
 data Database = DATABASE {
-  -- TODO: More restricted types.
-  eav :: !(EAVRows Value Value Value Int),
-  aev :: !(EAVRows Value Value Value Int),
-  ave :: !(EAVRows Value Value Value Int),
-  vae :: !(EAVRows Value Value Value Int)
+  nextTransaction :: Int,
+  nextEntity      :: Int,
+  attributes      :: Map Text EntityId,
+  attributeProps  :: Map EntityId (Bool, Cardinality, ValueType),
 
-  -- eav :: EAVRows Int Attr Value Int,
-  -- aev :: EAVRows Attr Int Value Int,
-  -- ave :: EAVRows Attr Value Int Int,
-  -- vae :: EAVRows Value Attr Int Int
+  eav             :: !(EAVRows EntityId EntityId Value Int),
+  aev             :: !(EAVRows EntityId EntityId Value Int),
+  ave             :: !(EAVRows EntityId Value EntityId Int),
+  vae             :: !(EAVRows Value EntityId EntityId Int)
   }
   deriving (Show, Generic, NFData)
 
@@ -98,13 +97,15 @@ data Database = DATABASE {
 newtype EntityId = ENTID Int
   deriving (Show, Eq, Ord)
 
+instance NFData EntityId where
+  rnf !_ = ()
+
 -- The attribute type
 newtype Attr = ATTR Text
   deriving (Show, Eq, Ord)
 
 data Value
-  = VAL_ATTR {-# UNPACK #-} !Attr
-  | VAL_ENTID {-# UNPACK #-} !EntityId
+  = VAL_ENTID {-# UNPACK #-} !EntityId
   | VAL_INT {-# UNPACK #-} !Int
   | VAL_STR {-# UNPACK #-} !String
   deriving (Show, Eq, Ord)
@@ -113,12 +114,19 @@ data Value
 instance NFData Value where
   rnf !_ = ()
 
-
 instance IsString Value where
   fromString = VAL_STR
 
--- instance Num Value where
---   fromInteger = VAL_INT . fromInteger
+data ValueType
+  = VT_ENTITY
+  | VT_INT
+  | VT_STR
+  deriving (Show, Eq, Generic, NFData)
+
+data Cardinality
+  = ONE
+  | MANY
+  deriving (Show, Generic, NFData)
 
 -- -----------------------------------------------------------------------
 

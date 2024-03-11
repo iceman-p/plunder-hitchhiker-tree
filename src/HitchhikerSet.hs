@@ -24,6 +24,7 @@ module HitchhikerSet ( empty
                      , HitchhikerSet.dropWhileAntitone
                      , HitchhikerSet.findMin
                      , HitchhikerSet.findMax
+                     , HitchhikerSet.mapMonotonic
                      ) where
 
 import           ClassyPrelude   hiding (delete, empty, intersection, member,
@@ -430,3 +431,25 @@ findMax (HITCHHIKERSET _ (Just top)) = go $ flushDownwards hhSetTF top
     go = \case
       HitchhikerSetNodeIndex (TreeIndex _ vals) _ -> go $ V.last vals
       HitchhikerSetNodeLeaf l -> ssetFindMax l
+
+mapMonotonic :: forall k a
+              . (Show k, Ord k, Show a, Ord a)
+             => (k -> a)
+             -> HitchhikerSet k
+             -> HitchhikerSet a
+mapMonotonic func (HITCHHIKERSET config Nothing) =
+  HITCHHIKERSET config Nothing
+mapMonotonic func (HITCHHIKERSET config (Just top)) =
+  HITCHHIKERSET config (Just $ go top)
+  where
+    go :: HitchhikerSetNode k -> HitchhikerSetNode a
+    go = \case
+      HitchhikerSetNodeIndex (TreeIndex keys vals) (i, hh) ->
+        HitchhikerSetNodeIndex (TreeIndex mkeys mvals) (i, mhh)
+        where
+          mkeys = map func keys
+          mvals = map go vals
+          mhh = map func hh
+      HitchhikerSetNodeLeaf l ->
+        -- TODO: Make a ssetMapMonotonic instead of just ssetMap.
+        HitchhikerSetNodeLeaf $ ssetMap func l

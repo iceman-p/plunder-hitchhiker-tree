@@ -63,8 +63,13 @@ main = do
 
       modify' force
 
-    -- (BASE _ _ db) <- get
-    -- pPrint $ (eav db)
+    -- BASE{..} <- get
+    -- pPrint $ (eav database)
+    -- putStrLn $ ":derp/id = " <> tshow derpIdAttr
+    -- putStrLn $ ":derp/tags = " <> tshow derpTagsAttr
+    -- putStrLn $ ":derp/thumbURL = " <> tshow derpThumbAttr
+    -- pPrint $ (ave database)
+    -- pPrint $ (vae database)
 
     repl
 
@@ -84,7 +89,7 @@ repl :: StateT Base IO ()
 repl = do
   raw <- read'
 
-  (BASE _ _ db) <- get
+  BASE{database} <- get
   -- Chunk out on comma.
   let c = parse (sepBy (many (noneOf ",")) delim) "" raw
   case c of
@@ -104,17 +109,17 @@ repl = do
       pure ()
     Right tags -> do
       liftIO $ putStrLn ("TAGS: " ++ tshow tags)
-      traceM ("Plan: " <> show fullDerpPlan)
-      let amount = 500
+      traceM ("Plan: " <> show (fullDerpPlan database))
+      let amount = 40
       let planOut = evalPlan
             [REL_SET $ RSET (VAR "?tags")
                             (HS.fromSet twoThreeConfig $ S.fromList $
                              map VAL_STR tags),
              REL_SCALAR $ RSCALAR (VAR "?amount") (VAL_INT amount)]
-            db
-            fullDerpPlan
+            database
+            (fullDerpPlan database)
           naiveOut = naiveEvaluator
-            db
+            database
             [ROWS [VAR "?tags"] [] (map toNaiveTag tags),
              ROWS [VAR "?amount"] [] [V.fromList [VAL_INT amount]]]
             []
@@ -142,7 +147,8 @@ fullDerpClauses = [
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumbURL") (VAR "?thumburl"))]
 
-fullDerpPlan = mkPlan
+fullDerpPlan database = mkPlan
+  [database]
   [B_COLLECTION (VAR "?tags"), B_SCALAR (VAR "?amount")]
   fullDerpClauses
   [VAR "?derpid", VAR "?thumburl"]

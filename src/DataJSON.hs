@@ -80,32 +80,54 @@ instance FromJSON ImagesJSON where
   parseJSON (Object v) = (v .: "images") >>= fmap ImagesJSON . parseJSON
   parseJSON _          = fail "not an object"
 
+-- We have to rework everything here to be built around
 
 data Base = BASE {
-  nextEid  :: Int,
-  nextTx   :: Int,
-  database :: !Database
+  database        :: !Database,
+
+  -- Stuff some meta attributes here.
+  derpIdAttr      :: EntityId,
+  derpTagsAttr    :: EntityId,
+  derpThumbAttr   :: EntityId,
+  derpImgAttr     :: EntityId,
+  derpUpvotesAttr :: EntityId
   }
   deriving (Generic, NFData)
 
-emptyBase = BASE {
-  nextEid = 1,
-  nextTx = 2^16 + 1,
-  database = emptyDB
-  }
 
 
--- mkDatoms :: Item -> Int -> Int -> [(Value, Value, Value, Int, Bool)]
-mkDatoms !item rawEid tx =
-  let eid = VAL_ENTID $ ENTID rawEid
-      fillRow (a, b) = (eid, VAL_ATTR $ ATTR a, b, tx, True)
-      tags = map (\a -> (":derp/tags", VAL_STR a)) item.tags
+
+emptyBase =
+  let database =
+        learnAttribute ":derp/tags" True MANY VT_STR $
+        learnAttribute ":derp/upvotes" False ONE VT_INT $
+        learnAttribute ":derp/id" True ONE VT_INT $
+        learnAttribute ":derp/thumbURL" False ONE VT_STR $
+        learnAttribute ":derp/imgURL" False ONE VT_STR $
+        emptyDB
+      getAttr x = findWithDefault (ENTID 9999999) x (database.attributes)
+  in BASE {
+    database,
+    derpIdAttr = getAttr ":derp/id",
+    derpTagsAttr = getAttr ":derp/tags",
+    derpThumbAttr = getAttr ":derp/thumbURL",
+    derpImgAttr = getAttr ":derp/imgURL",
+    derpUpvotesAttr = getAttr ":derp/upvotes"
+    }
+
+mkDatoms :: Item -> EntityRef -> Base
+         -> [(EntityRef, EntityId, Query.Types.Value, Bool)]
+mkDatoms !item eid
+         BASE{derpTagsAttr,derpIdAttr,derpThumbAttr,derpImgAttr,
+              derpUpvotesAttr} =
+  let fillRow (a, b) = (eid, a, b, True)
+      tags = map (\a -> (derpTagsAttr, VAL_STR a)) item.tags
   in map fillRow $ tags ++ [
-    (":derp/id", VAL_INT $ item.idNum),
-    (":derp/thumbURL", VAL_STR $ item.thumb),
-    (":derp/imgURL", VAL_STR $ item.img),
+    (derpIdAttr, VAL_INT $ item.idNum),
+    (derpThumbAttr, VAL_STR $ item.thumb),
+    (derpImgAttr, VAL_STR $ item.img),
     -- (":derp/downvotes", VAL_INT $ item.downvotes),
-    (":derp/upvotes", VAL_INT $ item.upvotes)
+    (derpUpvotesAttr, VAL_INT $ item.upvotes)
     -- (":derp/score", VAL_INT $ item.score),
     -- (":derp/faves", VAL_INT $ item.faves),
     -- (":derp/description", VAL_STR $ item.description),
@@ -117,26 +139,22 @@ mkDatoms !item rawEid tx =
 
 addEntry :: MonadIO m => Item -> StateT Base m ()
 addEntry item = do
-  (BASE eid tx db) <- get
+  b@BASE{..} <- get
 
-  let datoms = mkDatoms item eid tx
+  let datoms = mkDatoms item (TMPREF 0) b
   -- pPrint "D: "
   -- pPrint datoms
 
-  put BASE{ nextEid = eid + 1
-          , nextTx = tx + 1
-          , database = learns datoms db}
+  put b { database = learns datoms database}
 
 addEntries :: MonadIO m => [Item] -> StateT Base m ()
 addEntries items = do
-  (BASE eid tx db) <- get
+  b@BASE{..} <- get
 
   let datoms = concat
-             $ map (\(id, item) -> mkDatoms item id tx)
-             $ zip [eid..] items
+             $ map (\(id, item) -> mkDatoms item id b)
+             $ zip (map TMPREF [0..]) items
   -- pPrint "D: "
   -- pPrint datoms
 
-  put BASE{ nextEid = eid + length items
-          , nextTx = tx + 1
-          , database = learns datoms db}
+  put b { database = learns datoms database}

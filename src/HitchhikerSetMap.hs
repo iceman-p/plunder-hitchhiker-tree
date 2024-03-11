@@ -423,3 +423,47 @@ findMaxKey (HITCHHIKERSETMAP _ (Just top)) = go Nothing top
     check j@(Just x) hh
       | M.null hh = j
       | otherwise = Just $ max x $ fst $ M.findMax hh
+
+mapKeysMonotonic :: forall k a v
+                  . (Show k, Show a, Show v, Ord k, Ord a, Ord v)
+                 => (k -> a)
+                 -> HitchhikerSetMap k v
+                 -> HitchhikerSetMap a v
+mapKeysMonotonic _ (HITCHHIKERSETMAP config Nothing) =
+  HITCHHIKERSETMAP config Nothing
+mapKeysMonotonic func (HITCHHIKERSETMAP config (Just top)) =
+  (HITCHHIKERSETMAP config (Just $ go top))
+  where
+    go :: HitchhikerSetMapNode k v -> HitchhikerSetMapNode a v
+    go = \case
+      HitchhikerSetMapNodeIndex (TreeIndex keys vals) hh ->
+        HitchhikerSetMapNodeIndex (TreeIndex mkeys mvals) mhh
+        where
+          mkeys = map func keys
+          mvals = map go vals
+          mhh = M.mapKeysMonotonic func hh
+      HitchhikerSetMapNodeLeaf l ->
+        HitchhikerSetMapNodeLeaf $ M.mapKeysMonotonic func l
+
+-- Maps all the values in a HitchhikerSetMap, where the transformation is
+-- monotonic.
+mapValsMonotonic :: forall k v a
+     . (Show k, Show v, Show a, Ord k, Ord v, Ord a)
+    => (v -> a)
+    -> HitchhikerSetMap k v
+    -> HitchhikerSetMap k a
+mapValsMonotonic _ (HITCHHIKERSETMAP config Nothing) =
+  HITCHHIKERSETMAP config Nothing
+mapValsMonotonic func (HITCHHIKERSETMAP config (Just top)) =
+  (HITCHHIKERSETMAP config (Just $ go top))
+  where
+    go :: HitchhikerSetMapNode k v -> HitchhikerSetMapNode k a
+    go = \case
+      HitchhikerSetMapNodeIndex (TreeIndex keys vals) hh ->
+        HitchhikerSetMapNodeIndex (TreeIndex keys mvals) mhh
+        where
+          mvals = map go vals
+          mhh = M.map (ssetMap func) hh
+      HitchhikerSetMapNodeLeaf l ->
+        HitchhikerSetMapNodeLeaf $
+        M.map (strip . HS.mapMonotonic func . weave config) l

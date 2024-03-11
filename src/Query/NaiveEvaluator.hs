@@ -11,6 +11,7 @@ import           Types
 import           Data.Maybe                 (fromJust)
 
 import qualified Data.List                  as L
+import qualified Data.Map                   as M
 import qualified Data.Set                   as S
 import qualified Data.Vector                as V
 
@@ -46,9 +47,18 @@ naiveEvaluator db inputs rulePacks clauses target = go inputs clauses
     evalWith :: Rows -> [Clause] -> Rows
     evalWith r [] = projectRows target r
     evalWith r (c:cs) = case c of
-      DataPattern (LC_XAZ eVar attr vVar) ->
-        let t = partialLookup (VAL_ATTR attr) (aev db)
-            newR = tabToRows eVar vVar t
+      DataPattern (LC_XAZ eVar (ATTR attrText) vVar) ->
+        -- TODO: OK, so we have an "attr" but we have to actually resolve that
+        -- string to the attribute number in the new implementation.
+        --
+        let attributesMap = attributes db
+            attributePropMap = attributeProps db
+            Just rawEntityId = M.lookup attrText attributesMap
+            Just (indexed, _, _) = M.lookup rawEntityId attributePropMap
+            attrEntity = rawEntityId
+            tab = HSM.mapKeysMonotonic VAL_ENTID $
+              partialLookup attrEntity (aev db)
+            newR = tabToRows eVar vVar tab
         in evalWith (naiveRowJoin r newR) cs
 
       BiPredicateExpression builtin pLeft pRight ->
