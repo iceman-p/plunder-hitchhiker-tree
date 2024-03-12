@@ -356,6 +356,7 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
   SetScalarJoin :: Plan RelSet -> Plan RelScalar -> Plan RelSet
 
   MkMultiTab :: Plan RelTab -> Plan RelTab -> Plan RelMultiTab
+  AddToMultiTab :: Plan RelTab -> Plan RelMultiTab -> Plan RelMultiTab
 
   -- Sometimes, you can't do anything but fallback to stupid rows...including
   -- in output.
@@ -396,6 +397,7 @@ instance Show (Plan a) where
   show (SetScalarJoin a b) = "SetScalarJoin (" <> show a <> ") (" <> show b <>
                              ")"
   show (MkMultiTab a b) = "MkMultiTab (" <> show a <> ") (" <> show b <> ")"
+  show (AddToMultiTab a b) = "AddToMultiTab (" <> show a <> ") (" <> show b <> ")"
 
   show (SetToRows key s) = "SetToRows (" <> show key <> ") (" <> show s <> ")"
   show (TabToRows key val t) = "TabToRows (" <> show key <> ") (" <> show val

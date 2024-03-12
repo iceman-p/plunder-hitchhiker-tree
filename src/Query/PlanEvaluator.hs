@@ -22,6 +22,9 @@ import qualified Data.Vector                as V
 mkTwoVector :: a -> a -> Vector a
 mkTwoVector x y = V.fromList [x, y]
 
+pushVector :: a -> Vector a -> Vector a
+pushVector = V.cons
+
 data EvalBiPred
   = EBP_LEFT Value BuiltinPred
   | EBP_RIGHT BuiltinPred Value
@@ -157,6 +160,15 @@ evalPlan inputs db = relationToRows . runFromPlanHolder
       in if elhs.from == erhs.from
          then RMTAB elhs.from [elhs.to, erhs.to] target
          else error "Bad plan: multi-tab join of two different key symbols"
+
+    go (AddToMultiTab plhs prhs) =
+      let elhs = go plhs
+          erhs = go prhs
+          hml = HSM.toHitchhikerMap elhs.val
+          target = HM.intersectionWith pushVector hml erhs.val
+      in if elhs.from == erhs.from
+         then RMTAB elhs.from ((elhs.to):(erhs.to)) target
+         else error "Bad plan: add to multi-tab of two different key symbols"
 
     go (SetToRows _ pset) =
       let (RSET sym set) = go pset

@@ -84,23 +84,6 @@ data HitchhikerMap k v = HITCHHIKERMAP {
 
 -- -----------------------------------------------------------------------
 
--- data HitchhikerAppendMapNode k v
---   -- Inner B+ index with hitchhikers as a (list length, insertion order list).
---   = HitchhikerAppendMapNodeIndex (TreeIndex k (HitchhikerAppendMapNode k v))
---                                  (Int, [(k, v)])
---   -- Sorted list of leaf values. (in sire, rows access is O(1)).
---   | HitchhikerAppendMapNodeLeaf (Map k v)
---   deriving (Show, Generic, NFData)
-
--- -- A Hitchhiker tree where all the links are manual.
--- data HitchhikerAppendMap k v = HITCHHIKERAPPENDMAP {
---   config :: TreeConfig,
---   root   :: Maybe (HitchhikerAppendMapNode k v)
---   }
---   deriving (Show, Generic, NFData)
-
--- -----------------------------------------------------------------------
-
 data HitchhikerSetNode k
   = HitchhikerSetNodeIndex (TreeIndex k (HitchhikerSetNode k)) (Int, [k])
   | HitchhikerSetNodeLeaf (ArraySet k)

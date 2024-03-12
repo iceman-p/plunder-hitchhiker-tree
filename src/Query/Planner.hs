@@ -278,6 +278,7 @@ rhJoin future l r = out
         | otherwise -> Nothing
 
       (PH_TAB lhFrom lhTo lht, PH_TAB rhFrom rhTo rht)
+        -- TODO: Handle from==from && to==to case.
         | lhFrom == rhFrom && inFuture lhTo && inFuture rhTo ->
           Just $ PH_MULTITAB lhFrom [lhTo, rhTo] $ MkMultiTab lht rht
         | lhFrom == rhFrom && inFuture lhTo ->
@@ -295,6 +296,14 @@ rhJoin future l r = out
         | keySymb == rhSymb -> error "Handle multitab/scalar same"
         | elem rhSymb valSymbs -> error "Handle multitab value scalar"
         | otherwise -> Nothing
+
+      (lhs@(PH_MULTITAB _ _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
+      (PH_TAB lhFrom lhTo lht, PH_MULTITAB keySymb valSymbs mt)
+        | lhFrom == keySymb && inFuture lhTo ->
+            Just $ PH_MULTITAB lhFrom (lhTo:valSymbs)
+                 $ AddToMultiTab lht mt
+        | otherwise -> error "Handle all the cases before adding Nothing at end"
+
 
       (PH_ROWS lSymb lSort lRows, PH_ROWS rSymb rSort rRows) -> undefined
 

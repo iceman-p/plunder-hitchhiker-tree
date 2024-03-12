@@ -115,16 +115,16 @@ repl = do
             [REL_SET $ RSET (VAR "?tags")
                             (HS.fromSet twoThreeConfig $ S.fromList $
                              map VAL_STR tags),
-             REL_SCALAR $ RSCALAR (VAR "?amount") (VAL_INT amount)]
+             REL_SCALAR $ RSCALAR (VAR "?min") (VAL_INT amount)]
             database
             (fullDerpPlan database)
           naiveOut = naiveEvaluator
             database
             [ROWS [VAR "?tags"] [] (map toNaiveTag tags),
-             ROWS [VAR "?amount"] [] [V.fromList [VAL_INT amount]]]
+             ROWS [VAR "?min"] [] [V.fromList [VAL_INT amount]]]
             []
             fullDerpClauses
-            [VAR "?derpid", VAR "?thumburl"]
+            [VAR "?derpid", VAR "?score", VAR "?thumburl"]
           toNaiveTag t = V.fromList [VAL_STR t]
       putStrLn $ "OUT: " <> tshow planOut
       putStrLn $ "NAIVE: " <> tshow naiveOut
@@ -141,14 +141,14 @@ repl = do
 
 fullDerpClauses = [
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/tags") (VAR "?tags")),
-  DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes")),
-  BiPredicateExpression B_GTE (ARG_VAR (VAR "?upvotes"))
-                              (ARG_VAR (VAR "?amount")),
+  DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/score") (VAR "?score")),
+  BiPredicateExpression B_GTE (ARG_VAR (VAR "?score"))
+                              (ARG_VAR (VAR "?min")),
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumbURL") (VAR "?thumburl"))]
 
 fullDerpPlan database = mkPlan
   [database]
-  [B_COLLECTION (VAR "?tags"), B_SCALAR (VAR "?amount")]
+  [B_COLLECTION (VAR "?tags"), B_SCALAR (VAR "?min")]
   fullDerpClauses
-  [VAR "?derpid", VAR "?thumburl"]
+  [VAR "?derpid", VAR "?score", VAR "?thumburl"]

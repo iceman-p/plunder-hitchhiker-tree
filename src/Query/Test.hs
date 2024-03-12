@@ -131,13 +131,13 @@ fullDerpNaiveResult =
      ROWS [VAR "?amount"] [] [V.fromList [VAL_INT 100]]]
     []
     fullDerpClauses
-    [VAR "?derpid", VAR "?thumburl"]
+    [VAR "?derpid", VAR "?upvotes", VAR "?thumburl"]
 
 fullDerpPlan = mkPlan
   [derpdb]
   [B_COLLECTION (VAR "?tag"), B_SCALAR (VAR "?amount")]
   fullDerpClauses
-  [VAR "?derpid", VAR "?thumburl"]
+  [VAR "?derpid", VAR "?upvotes", VAR "?thumburl"]
 
 fullDerpOut = evalPlan
   [REL_SET $ RSET (VAR "?tag")
