@@ -121,22 +121,15 @@ derpdb = foldl' add dbWithAttrs records
 --         [?e :derp/id ?derpid]
 --         [?e :derp/thumburl ?thumburl]]
 --        db
---        ["twilight sparkle" "cute"] 100)
+--        ["twilight sparkle" "cute"] 100 500)
 
 -- We want mid images: not too low scoring, not too high scoring:
 fullDerpClauses = [
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/tag") (VAR "?tag")),
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes")),
-  -- BiPredicateExpression B_LT (ARG_VAR (VAR "?min"))
-  --                            (ARG_VAR (VAR "?upvotes")),
-  -- BiPredicateExpression B_LT (ARG_VAR (VAR "?upvotes"))
-  --                            (ARG_VAR (VAR "?max")),
-
-  -- ?min > ?upvotes
-  -- 100 > ?upvotes
-  BiPredicateExpression (ARG_VAR (VAR "?min")) B_GT
+  BiPredicateExpression (ARG_VAR (VAR "?min")) B_LTE
                              (ARG_VAR (VAR "?upvotes")),
-  -- BiPredicateExpression (ARG_VAR (VAR "?upvotes")) B_LT (ARG_VAR (VAR "?max")),
+  BiPredicateExpression (ARG_VAR (VAR "?upvotes")) B_LTE (ARG_VAR (VAR "?max")),
 
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumburl") (VAR "?thumburl"))]

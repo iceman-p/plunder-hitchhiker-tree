@@ -113,8 +113,6 @@ evalPlan inputs db = relationToRows . runFromPlanHolder
       in RTAB from to $ HSM.mapMaybeWithKey
            (applyFilterFuncsToSet preds) tab
 
-    -- TODO: FilterPredTabKeysR, with the above flipped in direction.
-
     --
     go (TabRestrictKeysVals from to ppreds ptab pset) =
       let (RTAB _ _ tab) = go ptab
@@ -201,41 +199,99 @@ applyFilterFuncsToSet :: [EvalBiPred] -> k -> HitchhikerSet Value
 applyFilterFuncsToSet [] _ vset = if HS.null vset
                                   then Nothing
                                   else Just vset
-applyFilterFuncsToSet ((EBP_LEFT s pred):ps) k vset =
-    applyFilterFuncsToSet ps k $
-    let x = case pred of
-              B_LT  -> HS.takeWhileAntitone (s <) vset
-              B_LTE -> HS.takeWhileAntitone (s <=) vset
-              B_EQ  -> if HS.member s vset
-                       then HS.singleton (HS.getConfig vset) s
-                       else HS.empty (HS.getConfig vset)
-              B_GTE -> HS.dropWhileAntitone (s >) vset
-              B_GT  -> HS.dropWhileAntitone (s >=) vset
-    in trace ("Select " <> show s <> " " <> show pred <> " " <> show  vset <> " -> " <> show x) $ x
+applyFilterFuncsToSet ((EBP_LEFT s pred):ps) _key vset =
+    applyFilterFuncsToSet ps _key $ splitSetLeft s pred vset
 applyFilterFuncsToSet ((EBP_RIGHT pred s):ps) k vset =
-    trace ("Select " <> show vset <> " > s") $
-    applyFilterFuncsToSet ps k $ case pred of
-      B_LT  -> HS.dropWhileAntitone (< s) vset
-      B_LTE -> HS.dropWhileAntitone (<= s) vset
-      B_EQ  -> if HS.member s vset
-               then HS.singleton (HS.getConfig vset) s
-               else HS.empty (HS.getConfig vset)
-      B_GTE -> HS.dropWhileAntitone (> s) vset
-      B_GT  -> HS.dropWhileAntitone (>= s) vset
+    applyFilterFuncsToSet ps k $ splitSetRight vset pred s
 
-          -- TODO: I don't think I have a general understanding of when to do
-          -- takeWhileAntitone vs dropWhileAntitone. The above
-          --
-          -- BASE [1,2,3,4,5]
-          --
-          -- LEFT LT 3 <
-          -- LEFT GT 3 >
-          -- RIGHT LT < 3
-          -- RIGHT GT > 3
-          --
-          -- OK, the greater-than-equal cases:
-          --
-          -- LEFT GTE 3 >
+-- Filters a set so all elements are (element `pred` k).
+--
+-- We can implement any check where the set is not the full or empty with one
+-- of the antitone functions, but must handle
+splitSetLeft :: (Show k, Ord k)
+             => k -> BuiltinPred -> HitchhikerSet k -> HitchhikerSet k
+splitSetLeft _ _ (HITCHHIKERSET config Nothing) = HITCHHIKERSET config Nothing
+splitSetLeft k pred full@(HITCHHIKERSET config (Just top)) = case pred of
+  B_LT
+    -- 0 < [1, 2, 3]: all elements match
+    | k < min -> full
+    -- 2 < [1, 2, 3]: some elements match
+    | k < max -> HS.takeWhileAntitone (k <) full
+    -- 3 < [1, 2, 3]: no elements match
+    | otherwise -> emptySet
+  B_LTE
+    -- 0 <= [1, 2, 3]: all elements match
+    | k <= min -> full
+    -- 3 <= [1, 2, 3]: some elements match
+    | k <= max -> HS.takeWhileAntitone (k <=) full
+    -- 4 <= [1, 2, 3]: no elements match
+    | otherwise -> emptySet
+  B_EQ ->
+    -- Only return the search item in a set, if it exists.
+    if HS.member k full
+    then HS.singleton config k
+    else emptySet
+  B_GTE
+    -- 4 >= [1, 2, 3]: all elements match
+    | k >= max -> full
+    -- 2 >= [1, 2, 3]: some elements match
+    | k >= min -> HS.dropWhileAntitone (k >=) full
+    -- 0 >= [1, 2, 3]: no elements match
+    | otherwise -> emptySet
+  B_GT
+    -- 4 > [1, 2, 3]: all elements match
+    | k > max -> full
+    -- 2 > [1, 2, 3]: some elements match
+    | k > min -> HS.dropWhileAntitone (k >) full
+    -- 0 > [1, 2, 3]: no elements match
+    | otherwise -> emptySet
+  where
+    min = HS.findMin full
+    max = HS.findMax full
+    emptySet = HS.empty config
+
+splitSetRight :: (Show k, Ord k)
+              => HitchhikerSet k -> BuiltinPred -> k -> HitchhikerSet k
+splitSetRight (HITCHHIKERSET config Nothing) _ _ = HITCHHIKERSET config Nothing
+splitSetRight full@(HITCHHIKERSET config (Just top)) pred k = case pred of
+  B_LT
+    -- [1, 2, 3] < 0: no elements match
+    | not (min < k) -> emptySet
+    -- [1, 2, 3] < 3: some elements match
+    | not (max < k) -> HS.takeWhileAntitone (< k) full
+    -- [1, 2, 3] < 4: all elements match
+    | otherwise -> full
+  B_LTE
+    -- [1, 2, 3] <= 0: no elements match
+    | not (max <= k) -> emptySet
+    -- [1, 2, 3] <= 2: some elements match
+    | not (min <= k) -> HS.takeWhileAntitone (<= k) full
+    -- [1, 2, 3] <= 3: all elements match
+    | otherwise -> full
+  B_EQ ->
+    -- Only return the search item in a set, if it exists.
+    if HS.member k full
+    then HS.singleton config k
+    else emptySet
+  B_GTE
+    -- [1, 2, 3] >= 4: no elements match
+    | not (max >= k) -> emptySet
+    -- [1, 2, 3] >= 2: some elements match
+    | not (min >= k) -> HS.dropWhileAntitone (>= k) full
+    -- [1, 2, 3] >= 0: all elements match
+    | otherwise -> full
+  B_GT
+    -- [1, 2, 3] > 4: no elements match
+    | not (max > k) -> emptySet
+    -- [1, 2, 3] > 2: some elements match
+    | not (min > k) -> HS.dropWhileAntitone (> k) full
+    -- [1, 2, 3] > 0: all elements match
+    | otherwise -> full
+  where
+    min = HS.findMin full
+    max = HS.findMax full
+    emptySet = HS.empty config
+
 
 
 -- multiTabToRows :: Variable

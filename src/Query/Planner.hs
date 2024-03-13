@@ -178,7 +178,7 @@ mkPlan typeDBs bindingInputs clauses target =
         applyPredRToPlan = \case
           lt@(LoadTab _ _ from to)
             | var1 == from -> FilterPredTabKeys [PBP_RIGHT pred const2] lt
-            | var1 == from -> FilterPredTabVals [PBP_RIGHT pred const2] lt
+            | var1 == to -> FilterPredTabVals [PBP_RIGHT pred const2] lt
 
           sj@(SetJoin from lhs rhs)
             | var1 == from -> SetJoin from (applyPredRToPlan lhs)

@@ -78,13 +78,25 @@ prop_plan_check_filter_lhs_eq vals pred pivot =
       DataPattern (LC_XAZ (VAR "?e") (ATTR ":t/name") (VAR "?name"))
       ]
 
-    -- -- Golden answer arrived at in a simple way.
-    -- naiveFiltered :: Set Int
-    -- naiveFiltered =
-    --   S.filter ((builtinPredToCompare pred) pivot) $ S.fromList $ map snd vals
+prop_plan_check_filter_rhs_eq :: [(String,Int)] -> BuiltinPred -> Int -> Bool
+prop_plan_check_filter_rhs_eq vals pred pivot =
+  equivalentRun valDB bindings input clauses target
+  where
+    valDB = foldl' addToDB testEmptyDB $ map testPairToVals vals
+    bindings = [B_SCALAR (VAR "?pivot")]
+    input = [REL_SCALAR $ RSCALAR (VAR "?pivot") (VAL_INT pivot)]
+    target = [VAR "?name", VAR "?count"]
+
+    clauses = [
+      DataPattern (LC_XAZ (VAR "?e") (ATTR ":t/count") (VAR "?count")),
+      BiPredicateExpression (ARG_VAR (VAR "?count")) pred
+                             (ARG_VAR (VAR "?pivot")),
+      DataPattern (LC_XAZ (VAR "?e") (ATTR ":t/name") (VAR "?name"))
+      ]
 
 tests :: TestTree
 tests =
   testGroup "Plan" [
-    testProperty "Left random predicate" prop_plan_check_filter_lhs_eq
+    testProperty "Left random set predicate" prop_plan_check_filter_lhs_eq,
+    testProperty "Right random set predicate" prop_plan_check_filter_rhs_eq
     ]
