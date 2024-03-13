@@ -142,7 +142,7 @@ repl = do
 fullDerpClauses = [
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/tags") (VAR "?tags")),
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/score") (VAR "?score")),
-  BiPredicateExpression B_GTE (ARG_VAR (VAR "?score"))
+  BiPredicateExpression (ARG_VAR (VAR "?score")) B_GTE
                               (ARG_VAR (VAR "?min")),
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumbURL") (VAR "?thumburl"))]

@@ -77,7 +77,7 @@ mkPlan typeDBs bindingInputs clauses target =
             (RIGHT_ONLY, False) ->
               error "Handle backwards loading without an AVE table"
             (IRRELEVANT, _) -> trace ("Irrelevant!?") $ go inputs cs
-        (BiPredicateExpression pred arg1 arg2) ->
+        (BiPredicateExpression arg1 pred arg2) ->
           -- We're a predicate. We look at the current state of the tree to try
           -- to transform that tree into a structure with specialized predicate
           -- supports, but otherwise will fallback on just making everything
@@ -132,12 +132,13 @@ mkPlan typeDBs bindingInputs clauses target =
         | from == var2 -> PH_TAB from to $ applyPredLToPlan val
         | to == var2 -> PH_TAB from to $ applyPredLToPlan val
       ph | not $ S.member var2 $ planHolderBinds ph -> ph
-         | otherwise -> undefined {- fallback case -}
+         | otherwise -> error $ "WRITE FALLBACK FOR: " <> show ph
       where
         applyPredLToPlan :: Plan a -> Plan a
         applyPredLToPlan = \case
           lt@(LoadTab _ _ from to)
-            | var2 == from -> (FilterPredTabKeysL const1 pred lt)
+            | var2 == from -> FilterPredTabKeys [PBP_LEFT const1 pred] lt
+            | var2 == to -> FilterPredTabVals [PBP_LEFT const1 pred] lt
 
           sj@(SetJoin from lhs rhs)
             | var2 == from -> SetJoin from (applyPredLToPlan lhs)
@@ -159,6 +160,8 @@ mkPlan typeDBs bindingInputs clauses target =
             | var2 == to ->
               TabRestrictKeysVals from to ((PBP_LEFT const1 pred):ps) tab set
 
+          x -> error $ "WRITE PLAN CASE FOR " <> show x
+
     -- TODO: The VC case is basically undone right now and is just here to
     applyPredR :: BuiltinPred -> Variable -> Plan RelScalar -> PlanHolder
                -> PlanHolder
@@ -174,7 +177,8 @@ mkPlan typeDBs bindingInputs clauses target =
         applyPredRToPlan :: Plan a -> Plan a
         applyPredRToPlan = \case
           lt@(LoadTab _ _ from to)
-            | var1 == from -> (FilterPredTabKeysR lt pred const2)
+            | var1 == from -> FilterPredTabKeys [PBP_RIGHT pred const2] lt
+            | var1 == from -> FilterPredTabVals [PBP_RIGHT pred const2] lt
 
           sj@(SetJoin from lhs rhs)
             | var1 == from -> SetJoin from (applyPredRToPlan lhs)
@@ -250,6 +254,10 @@ rhJoin :: Set Variable -> PlanHolder -> PlanHolder -> Maybe PlanHolder
 rhJoin future l r = out
   where
     out = case (l, r) of
+      (PH_SCALAR lhs lhv, PH_SCALAR rhs rhv)
+        | lhs == rhs -> error "This has to be a set, right?"
+        | otherwise -> Nothing
+
       (PH_SET lhs lhv, PH_SET rhs rhv)
         | lhs == rhs -> Just $ PH_SET lhs $ SetJoin lhs lhv rhv
         | otherwise  -> Nothing

@@ -30,6 +30,7 @@ data EvalBiPred
   | EBP_RIGHT BuiltinPred Value
   deriving (Show)
 
+
 evalPlan :: [Relation] -> Database -> PlanHolder -> Rows
 evalPlan inputs db = relationToRows . runFromPlanHolder
   where
@@ -96,15 +97,21 @@ evalPlan inputs db = relationToRows . runFromPlanHolder
       let (RTAB from _ tab) = go ptab
       in RSET from $ HSM.toKeySet tab
 
-    go (FilterPredTabKeysL pconst pred ptab) =
-      let (RSCALAR _ val) = go pconst
-          (RTAB from to tab) = go ptab
-      in RTAB from to $ case pred of
+    go (FilterPredTabKeys ppreds ptab) =
+      let (RTAB from to tab) = go ptab
+          preds = map evalBiPred ppreds
+      in RTAB from to $ error "TODO: Reenable FilterPredTabKeys" {- case pred of
         B_LT  -> HSM.dropWhileAntitone (val <) tab
         B_LTE -> HSM.dropWhileAntitone (val <=) tab
         B_EQ  -> undefined -- Perform lookup, make singleton
         B_GTE -> HSM.takeWhileAntitone (val >=) tab
-        B_GT  -> HSM.takeWhileAntitone (val >) tab
+        B_GT  -> HSM.takeWhileAntitone (val >) tab -}
+
+    go (FilterPredTabVals ppreds ptab) =
+      let (RTAB from to tab) = go ptab
+          preds = map evalBiPred ppreds
+      in RTAB from to $ HSM.mapMaybeWithKey
+           (applyFilterFuncsToSet preds) tab
 
     -- TODO: FilterPredTabKeysR, with the above flipped in direction.
 
@@ -113,27 +120,8 @@ evalPlan inputs db = relationToRows . runFromPlanHolder
       let (RTAB _ _ tab) = go ptab
           (RSET _ set) = go pset
           preds = map evalBiPred ppreds
-
-          vsetAsMaybe vset = if HS.null vset
-                             then Nothing
-                             else Just vset
-          filterFunc [] _ vset                     = vsetAsMaybe vset
-          filterFunc ((EBP_LEFT s pred):ps) k vset =
-            filterFunc ps k $ case pred of
-              B_LT  -> HS.takeWhileAntitone (s <) vset
-              B_LTE -> HS.takeWhileAntitone (s <=) vset
-              B_EQ  -> undefined
-              B_GTE -> HS.dropWhileAntitone (s >=) vset
-              B_GT  -> HS.dropWhileAntitone (s >) vset
-          filterFunc ((EBP_RIGHT pred s):ps) k vset =
-            filterFunc ps k $ case pred of
-              B_LT  -> HS.dropWhileAntitone (< s) vset
-              B_LTE -> HS.dropWhileAntitone (<= s) vset
-              B_EQ  -> undefined
-              B_GTE -> HS.takeWhileAntitone (>= s) vset
-              B_GT  -> HS.takeWhileAntitone (> s) vset
-
-          outtab = HSM.restrictKeysWithPred (filterFunc preds) set tab
+          outtab = HSM.restrictKeysWithPred
+            (applyFilterFuncsToSet preds) set tab
       in RTAB from to outtab
 
     go (SetJoin _key pa pb) =
@@ -207,6 +195,48 @@ sortRowsBy allVars reqSortOrder rows
     doSort (x:xs) a b = case compare a b of
       EQ -> doSort xs a b
       x  -> x
+
+applyFilterFuncsToSet :: [EvalBiPred] -> k -> HitchhikerSet Value
+                      -> Maybe (HitchhikerSet Value)
+applyFilterFuncsToSet [] _ vset = if HS.null vset
+                                  then Nothing
+                                  else Just vset
+applyFilterFuncsToSet ((EBP_LEFT s pred):ps) k vset =
+    applyFilterFuncsToSet ps k $
+    let x = case pred of
+              B_LT  -> HS.takeWhileAntitone (s <) vset
+              B_LTE -> HS.takeWhileAntitone (s <=) vset
+              B_EQ  -> if HS.member s vset
+                       then HS.singleton (HS.getConfig vset) s
+                       else HS.empty (HS.getConfig vset)
+              B_GTE -> HS.dropWhileAntitone (s >) vset
+              B_GT  -> HS.dropWhileAntitone (s >=) vset
+    in trace ("Select " <> show s <> " " <> show pred <> " " <> show  vset <> " -> " <> show x) $ x
+applyFilterFuncsToSet ((EBP_RIGHT pred s):ps) k vset =
+    trace ("Select " <> show vset <> " > s") $
+    applyFilterFuncsToSet ps k $ case pred of
+      B_LT  -> HS.dropWhileAntitone (< s) vset
+      B_LTE -> HS.dropWhileAntitone (<= s) vset
+      B_EQ  -> if HS.member s vset
+               then HS.singleton (HS.getConfig vset) s
+               else HS.empty (HS.getConfig vset)
+      B_GTE -> HS.dropWhileAntitone (> s) vset
+      B_GT  -> HS.dropWhileAntitone (>= s) vset
+
+          -- TODO: I don't think I have a general understanding of when to do
+          -- takeWhileAntitone vs dropWhileAntitone. The above
+          --
+          -- BASE [1,2,3,4,5]
+          --
+          -- LEFT LT 3 <
+          -- LEFT GT 3 >
+          -- RIGHT LT < 3
+          -- RIGHT GT > 3
+          --
+          -- OK, the greater-than-equal cases:
+          --
+          -- LEFT GTE 3 >
+
 
 -- multiTabToRows :: Variable
 --                -> [Variable]

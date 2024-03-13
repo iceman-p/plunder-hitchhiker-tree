@@ -53,14 +53,17 @@ fromLeafMaps :: (Show k, Show v, Ord k, Ord v)
              -> [Map k (NakedHitchhikerSet v)]
              -> HitchhikerSetMap k v
 fromLeafMaps config []   = HitchhikerSetMap.empty config
-fromLeafMaps config [m]  = HITCHHIKERSETMAP config $ Just
-                         $ HitchhikerSetMapNodeLeaf m
+fromLeafMaps config [m]
+  | M.null m = HitchhikerSetMap.empty config
+  | otherwise = HITCHHIKERSETMAP config $ Just
+              $ HitchhikerSetMapNodeLeaf m
 fromLeafMaps config rawMaps = HITCHHIKERSETMAP config $ Just node
   where
     node = fixUp config (hhSetMapTF config) treeIndex
     treeIndex = indexFromList idxV vals
     idxV = V.fromList $ tailSafe $ map (fst . M.findMin) rawMaps
-    vals = V.fromList $ map HitchhikerSetMapNodeLeaf rawMaps
+    vals = V.fromList $ map HitchhikerSetMapNodeLeaf
+                      $ filter (not . M.null) rawMaps
 
 -- SetMap is the complicated one, because we use two different representations:
 -- one for the leafs (where we use HitchhikerSets to collect the mass keys) and
@@ -467,3 +470,21 @@ mapValsMonotonic func (HITCHHIKERSETMAP config (Just top)) =
       HitchhikerSetMapNodeLeaf l ->
         HitchhikerSetMapNodeLeaf $
         M.map (strip . HS.mapMonotonic func . weave config) l
+
+-- TODO: Both Claude and ChatGPT suggest that performing inner rebalancing
+-- usually isn't worth it, especially when you end up filtering out large parts
+-- of the tree. This implementation just does the obvious thing.
+--
+-- Consider either going through all the other functions that tried to do
+-- something smarter and just do this instead.
+mapMaybeWithKey :: (Show k, Ord k, Show a, Ord a, Show b, Ord b)
+                => (k -> HitchhikerSet a -> Maybe (HitchhikerSet b))
+                -> HitchhikerSetMap k a -> HitchhikerSetMap k b
+mapMaybeWithKey fun (HITCHHIKERSETMAP config Nothing) =
+  HITCHHIKERSETMAP config Nothing
+mapMaybeWithKey fun (HITCHHIKERSETMAP config (Just top)) =
+  fromLeafMaps config $
+  map (M.mapMaybeWithKey mapFun) $
+  getLeafList (hhSetMapTF config) top
+  where
+    mapFun k v = strip <$> fun k (weave config v)

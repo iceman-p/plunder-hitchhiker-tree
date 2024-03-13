@@ -371,8 +371,8 @@ partialLookup e (EAVROWS config (Just top)) =
             | null hh -> HSM.empty config
             | otherwise -> aNodeTo $ arowInsertMany config hh $ ALeaf mempty
           Just anodes
-            | null hh -> trace ("just anodes") $ aNodeTo anodes
-            | otherwise -> trace ("full merge") $ aNodeTo $
+            | null hh -> aNodeTo anodes
+            | otherwise -> aNodeTo $
                 arowInsertMany config hh anodes
 
     matchHitchhikers :: (Int, [(e, a, v, tx, op)]) -> [(a, v, tx, op)]

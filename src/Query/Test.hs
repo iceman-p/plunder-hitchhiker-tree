@@ -66,6 +66,14 @@ derpdb = foldl' add dbWithAttrs records
       Just entid -> entid
 
     records = [
+      -- Amazing image
+      [(":derp/tag", VAL_STR "twilight sparkle"),
+       (":derp/tag", VAL_STR "cute"),
+       (":derp/tag", VAL_STR "tea"),
+       (":derp/upvotes", VAL_INT 1500),
+       (":derp/id", VAL_INT 8936),
+       (":derp/thumburl", VAL_STR "//cdn/8936.jpg")],
+
       -- Good image
       [(":derp/tag", VAL_STR "twilight sparkle"),
        (":derp/tag", VAL_STR "cute"),
@@ -104,21 +112,32 @@ derpdb = foldl' add dbWithAttrs records
       emptyDB
 
 -- (db/q '[:find ?derpid ?thumburl
---         :in $ [?tag ...] ?amount
+--         :in $ [?tag ...] ?min ?max
 --         :where
 --         [?e :derp/tag ?tag]
 --         [?e :derp/upvotes ?upvotes]
---         [(> ?upvotes ?amount)]
+--         [(< ?min ?upvotes)]
+--         [(< ?upvotes ?max)]
 --         [?e :derp/id ?derpid]
 --         [?e :derp/thumburl ?thumburl]]
 --        db
 --        ["twilight sparkle" "cute"] 100)
 
+-- We want mid images: not too low scoring, not too high scoring:
 fullDerpClauses = [
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/tag") (VAR "?tag")),
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/upvotes") (VAR "?upvotes")),
-  BiPredicateExpression B_GT (ARG_VAR (VAR "?upvotes"))
-                             (ARG_VAR (VAR "?amount")),
+  -- BiPredicateExpression B_LT (ARG_VAR (VAR "?min"))
+  --                            (ARG_VAR (VAR "?upvotes")),
+  -- BiPredicateExpression B_LT (ARG_VAR (VAR "?upvotes"))
+  --                            (ARG_VAR (VAR "?max")),
+
+  -- ?min > ?upvotes
+  -- 100 > ?upvotes
+  BiPredicateExpression (ARG_VAR (VAR "?min")) B_GT
+                             (ARG_VAR (VAR "?upvotes")),
+  -- BiPredicateExpression (ARG_VAR (VAR "?upvotes")) B_LT (ARG_VAR (VAR "?max")),
+
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid")),
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/thumburl") (VAR "?thumburl"))]
 
@@ -128,21 +147,23 @@ fullDerpNaiveResult =
     [ROWS [VAR "?tag"] [] [
         V.fromList [VAL_STR "twilight sparkle"],
         V.fromList [VAL_STR "cute"]],
-     ROWS [VAR "?amount"] [] [V.fromList [VAL_INT 100]]]
+     ROWS [VAR "?min"] [] [V.fromList [VAL_INT 100]],
+     ROWS [VAR "?max"] [] [V.fromList [VAL_INT 500]]]
     []
     fullDerpClauses
     [VAR "?derpid", VAR "?upvotes", VAR "?thumburl"]
 
 fullDerpPlan = mkPlan
   [derpdb]
-  [B_COLLECTION (VAR "?tag"), B_SCALAR (VAR "?amount")]
+  [B_COLLECTION (VAR "?tag"), B_SCALAR (VAR "?min"), B_SCALAR (VAR "?max")]
   fullDerpClauses
   [VAR "?derpid", VAR "?upvotes", VAR "?thumburl"]
 
 fullDerpOut = evalPlan
   [REL_SET $ RSET (VAR "?tag")
                   (HS.fromSet twoThreeConfig $ S.fromList $ map VAL_STR ["twilight sparkle", "cute"]),
-   REL_SCALAR $ RSCALAR (VAR "?amount") (VAL_INT 100)]
+   REL_SCALAR $ RSCALAR (VAR "?min") (VAL_INT 100),
+   REL_SCALAR $ RSCALAR (VAR "?max") (VAL_INT 500)]
   derpdb
   fullDerpPlan
 

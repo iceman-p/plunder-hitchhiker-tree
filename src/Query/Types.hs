@@ -168,7 +168,7 @@ data BuiltinPred
   | B_EQ
   | B_GTE
   | B_GT
-  deriving (Show)
+  deriving (Show,Enum,Bounded)
 
 builtinPredToCompare :: Ord a => BuiltinPred -> (a -> a -> Bool)
 builtinPredToCompare B_LT  = (<)
@@ -287,7 +287,7 @@ data Clause
   -- The simpler predicate for building things out.
   --
   -- TODO: Enable full blows PredicateExpression with unbounded arity later.
-  | BiPredicateExpression BuiltinPred FnArg FnArg
+  | BiPredicateExpression FnArg BuiltinPred FnArg
   -- | PredicateExpression Predicate
 
   | FunctionExpression Func [FnArg] [Binding]
@@ -296,7 +296,7 @@ data Clause
 
 clauseUses :: Clause -> Set Variable
 clauseUses (DataPattern load)                         = loadClauseBinds load
-clauseUses (BiPredicateExpression _ a b) =
+clauseUses (BiPredicateExpression a _ b) =
   S.fromList $ join [fnArgToVariable a, fnArgToVariable b]
 -- clauseUses (PredicateExpression (PREDICATE x fnArgs)) =
 --   S.fromList $ join $ map fnArgToVariable fnArgs
@@ -335,7 +335,9 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
 
   -- The big hammer. Given a list of key preds and value preds, while
   -- performing the iteration to restrict a tab by a set of keys, also perform
-  -- the following predicates.
+  -- the following predicates. Rolling these operations into a single traversal
+  -- saves runtime; in this case, you're joining a restricted set with a almost
+  -- complete tab from ?e to the number you're predicating on.
   TabRestrictKeysVals :: Variable -> Variable
                       -> [PlanBiPred] {- filter vals -}
                       -> Plan RelTab -> Plan RelSet -> Plan RelTab
@@ -346,11 +348,8 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
 
   TabKeySet :: Variable -> Variable -> Plan RelTab -> Plan RelSet
 
-  -- TODO: Change these values into (Plan RelScalar)
-  FilterPredTabKeysL :: Plan RelScalar -> BuiltinPred -> Plan RelTab
-                     -> Plan RelTab
-  FilterPredTabKeysR :: Plan RelTab -> BuiltinPred -> Plan RelScalar
-                     -> Plan RelTab
+  FilterPredTabKeys :: [PlanBiPred] -> Plan RelTab -> Plan RelTab
+  FilterPredTabVals :: [PlanBiPred] -> Plan RelTab -> Plan RelTab
 
   SetJoin :: Variable -> Plan RelSet -> Plan RelSet -> Plan RelSet
   SetScalarJoin :: Plan RelSet -> Plan RelScalar -> Plan RelSet
@@ -387,10 +386,13 @@ instance Show (Plan a) where
     show to <> ") (" <> show tab <> ") (" <> show set <> ")"
 
   -- :: Value -> BuiltinPred -> Plan RelTab -> Plan RelTab
-  show (FilterPredTabKeysL lConst pred rTab) =
-    "FilterPredTabKeysL (" <> show lConst <> ") (" <> show pred <> ") (" <>
+  show (FilterPredTabKeys preds rTab) =
+    "FilterPredTabKeys (" <> show preds <> ") (" <>
     show rTab <> ")"
 --        :: Value -> BuiltinPred -> Plan RelTab -> Plan RelTab
+
+  show (FilterPredTabVals preds rTab) =
+    "FilterPredTabVals (" <> show preds <> ") (" <> show rTab <> ")"
 
   show (SetJoin key a b) = "SetJoin (" <> show key <> ") (" <> show a <>
     ") (" <> show b <> ")"

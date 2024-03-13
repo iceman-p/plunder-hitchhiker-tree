@@ -8,6 +8,7 @@ import           Test.Tasty.TH
 import qualified HitchhikerMapTests
 import qualified HitchhikerSetMapTests
 import qualified HitchhikerSetTests
+import qualified PlanTests
 import qualified SubscriberTreeTests
 import qualified UtilTests
 
@@ -19,4 +20,5 @@ main = defaultMain $
   , HitchhikerSetTests.tests
   , HitchhikerSetMapTests.tests
   , SubscriberTreeTests.tests
+  , PlanTests.tests
   ]

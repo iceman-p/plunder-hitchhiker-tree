@@ -68,15 +68,15 @@ library:
   source-dirs: src
 
 executables:
-  benchmark:
-    main:                Main.hs
-    source-dirs:         app/benchmark
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - hitchhiker-haskell
+  # benchmark:
+  #   main:                Main.hs
+  #   source-dirs:         app/benchmark
+  #   ghc-options:
+  #   - -threaded
+  #   - -rtsopts
+  #   - -with-rtsopts=-N
+  #   dependencies:
+  #   - hitchhiker-haskell
     
   tag-console:
     main:                Main.hs
@@ -98,28 +98,28 @@ executables:
     dependencies:
     - hitchhiker-haskell
 
-  tag-site-demo:
-    main:                Main.hs
-    source-dirs:         app/tag-site-demo
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - hitchhiker-haskell
+  # tag-site-demo:
+  #   main:                Main.hs
+  #   source-dirs:         app/tag-site-demo
+  #   ghc-options:
+  #   - -threaded
+  #   - -rtsopts
+  #   - -with-rtsopts=-N
+  #   dependencies:
+  #   - hitchhiker-haskell
 
-  sync-imgs:
-    main:                Main.hs
-    source-dirs:         app/sync-imgs
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - hitchhiker-haskell
-    - http-client
-    - http-conduit
-    - network-uri
+  # sync-imgs:
+  #   main:                Main.hs
+  #   source-dirs:         app/sync-imgs
+  #   ghc-options:
+  #   - -threaded
+  #   - -rtsopts
+  #   - -with-rtsopts=-N
+  #   dependencies:
+  #   - hitchhiker-haskell
+  #   - http-client
+  #   - http-conduit
+  #   - network-uri
 
     
 tests:
