@@ -255,6 +255,8 @@ data Relation
 
 -- Type pattern EAV for binding value, XYZ for binding symbol
 data LoadClause
+  -- TODO: Actually, in practice, queries use the two symbols one blank form.
+
   = LC_EAZ EntityId Attr Variable
   -- TODO: Possible in the model, but requires iteration.
   -- | C_EYV EntityId Variable Value
@@ -277,7 +279,7 @@ loadClauseBinds (LC_XYV x y _) = S.fromList [x, y]
 -- "Input" Clause: A new type of clause with everything in it.
 data Clause
   = NotClause DataSource [Clause]
-  | NotJoinClause DataSource [Variable] [Clause]
+  | NotJoinClause DataSource (Set Variable) [Clause]
   | OrClause DataSource [OrClauseBody]
   | OrJoinClause -- TODO: This interacts with rule-vars in a weird way?
 
@@ -295,6 +297,7 @@ data Clause
   deriving (Show)
 
 clauseUses :: Clause -> Set Variable
+clauseUses (NotClause _ clauses) = S.unions $ map clauseUses clauses
 clauseUses (DataPattern load)                         = loadClauseBinds load
 clauseUses (BiPredicateExpression a _ b) =
   S.fromList $ join [fnArgToVariable a, fnArgToVariable b]
@@ -324,7 +327,11 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
   InputScalar :: Variable -> Int -> Plan RelScalar
   InputSet    :: Variable -> Int -> Plan RelSet
   InputConst :: Value -> Plan RelScalar
+  LoadSet :: RowLookup -> Value -> Value -> Variable -> Plan RelSet
   LoadTab :: RowLookup -> Value -> Variable -> Variable -> Plan RelTab
+
+  -- Not operations
+  SetDifference :: Variable -> Plan RelSet -> Plan RelSet -> Plan RelSet
 
   TabScalarLookup :: Variable -> Plan RelScalar
                   -> Variable -> Plan RelTab -> Plan RelSet
@@ -333,6 +340,8 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
   TabRestrictKeys :: Variable -> Variable
                   -> Plan RelTab -> Plan RelSet -> Plan RelTab
 
+  FilterPredTabKeys :: [PlanBiPred] -> Plan RelTab -> Plan RelTab
+  FilterPredTabVals :: [PlanBiPred] -> Plan RelTab -> Plan RelTab
   -- The big hammer. Given a list of key preds and value preds, while
   -- performing the iteration to restrict a tab by a set of keys, also perform
   -- the following predicates. Rolling these operations into a single traversal
@@ -342,14 +351,7 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
                       -> [PlanBiPred] {- filter vals -}
                       -> Plan RelTab -> Plan RelSet -> Plan RelTab
 
-  -- TabRestrictKeysValPred :: Variable -> Variable
-  --                        -
-  --                        -> Plan RelTab -> Plan RelSet -> PlanRelTab
-
   TabKeySet :: Variable -> Variable -> Plan RelTab -> Plan RelSet
-
-  FilterPredTabKeys :: [PlanBiPred] -> Plan RelTab -> Plan RelTab
-  FilterPredTabVals :: [PlanBiPred] -> Plan RelTab -> Plan RelTab
 
   SetJoin :: Variable -> Plan RelSet -> Plan RelSet -> Plan RelSet
   SetScalarJoin :: Plan RelSet -> Plan RelScalar -> Plan RelSet
@@ -367,8 +369,16 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
 instance Show (Plan a) where
   show (InputScalar sym int) = "InputScalar " <> show sym <> " " <> show int
   show (InputSet sym int) = "InputSet " <> show sym <> " " <> show int
+
+  show (LoadSet rl val1 val2 var) =
+    "LoadSet " <> show rl <> " (" <> show val1 <> ") (" <> show val2 <>
+    ") (" <> show var <> ")"
   show (LoadTab rl val from to) = "LoadTab " <> show rl <> " (" <> show val <>
                                   ") (" <> show from <> ") (" <> show to <> ")"
+
+  show (SetDifference var l r) = "SetDifference " <> show var <> " (" <> show l
+                                 <> ") (" <> show r <> ")"
+
   show (TabScalarLookup from set to tab) =
     "TabScalarLookup (" <> show from <> ") (" <> show set <> ") (" <>
     show to <> ") (" <> show tab <> ")"

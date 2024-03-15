@@ -49,7 +49,17 @@ evalPlan inputs db = relationToRows . runFromPlanHolder
       Just (REL_SET rs) -> rs
       _                 -> error "Input doesn't match plan in InputSet"
 
-    -- OK, what do we have to do here? We have to make the
+    go (LoadSet which lookup1 lookup2 sym) =
+      let val = case (which, lookup1, lookup2) of
+            (USE_EAV, VAL_ENTID eid, VAL_ENTID aid) ->
+              fullLookup eid aid (eav db)
+            (USE_AEV, VAL_ENTID aid, VAL_ENTID eid) ->
+              fullLookup aid eid (aev db)
+            (USE_AVE, VAL_ENTID aid, val) ->
+              HS.mapMonotonic VAL_ENTID $ fullLookup aid val (ave db)
+            (USE_VAE, val, VAL_ENTID aid) ->
+              HS.mapMonotonic VAL_ENTID $ fullLookup val aid (vae db)
+      in RSET {sym, val}
 
     go (LoadTab which lookupVal from to) =
       let val = case (which, lookupVal) of
@@ -65,6 +75,11 @@ evalPlan inputs db = relationToRows . runFromPlanHolder
               partialLookup val (vae db)
       in --trace ("LoadTab " <> show lookupVal <> " " <> show from <> " " <> show to <> " " <> show val) $
          RTAB {from,to,val}
+
+    go (SetDifference _key pl pr) =
+      let (RSET sym lhs) = go pl
+          (RSET _ rhs) = go pr
+      in RSET sym $ HS.difference lhs rhs
 
     go (TabScalarLookup _from pscalar _to ptab) =
       let (RSCALAR sym val) = go pscalar

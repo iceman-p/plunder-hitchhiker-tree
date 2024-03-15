@@ -57,6 +57,7 @@ fromLeafMaps :: (Show k, Show v, Ord k)
              -> [Map k v]
              -> HitchhikerMap k v
 fromLeafMaps config []   = HitchhikerMap.empty config
+-- TODO: The following should check split.
 fromLeafMaps config [m]  = HITCHHIKERMAP config $ Just
                          $ HitchhikerMapNodeLeaf m
 fromLeafMaps config rawMaps = HITCHHIKERMAP config $ Just node

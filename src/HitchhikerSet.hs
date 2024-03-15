@@ -25,12 +25,14 @@ module HitchhikerSet ( empty
                      , HitchhikerSet.findMin
                      , HitchhikerSet.findMax
                      , HitchhikerSet.mapMonotonic
+                     , HitchhikerSet.difference
                      ) where
 
 import           ClassyPrelude   hiding (delete, empty, intersection, member,
                                   null, singleton, union)
 
 import           Data.Set        (Set)
+import           Safe            (tailSafe)
 
 import           Data.Vector     ((!))
 import           Impl.Index
@@ -453,3 +455,29 @@ mapMonotonic func (HITCHHIKERSET config (Just top)) =
       HitchhikerSetNodeLeaf l ->
         -- TODO: Make a ssetMapMonotonic instead of just ssetMap.
         HitchhikerSetNodeLeaf $ ssetMap func l
+
+
+fromLeafSets :: (Show k, Ord k)
+            => TreeConfig
+            -> [ArraySet k]
+            -> HitchhikerSet k
+fromLeafSets config [] = HitchhikerSet.empty config
+fromLeafSets config [m] = fromArraySet config m
+fromLeafSets config rawSets = HITCHHIKERSET config $ Just node
+  where
+    node = fixUp config hhSetTF treeIndex
+    treeIndex = indexFromList idxV vals
+    idxV = V.fromList $ tailSafe $ map ssetFindMin rawSets
+    vals = V.fromList $ map HitchhikerSetNodeLeaf rawSets
+
+difference :: forall k
+                . (Show k, Ord k)
+               => HitchhikerSet k -> HitchhikerSet k -> HitchhikerSet k
+difference l@(HITCHHIKERSET _ Nothing) _ = l
+difference l (HITCHHIKERSET _ Nothing)   = l
+difference (HITCHHIKERSET config (Just a)) (HITCHHIKERSET _ (Just b)) =
+  fromLeafSets config $ setlistSetlistDifference as bs
+  where
+    as = getLeafList hhSetTF a
+    bs = getLeafList hhSetTF b
+

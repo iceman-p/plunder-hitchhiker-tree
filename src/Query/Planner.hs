@@ -25,12 +25,15 @@ data Direction
 
 mkPlan :: [Database] -> [Binding] -> [Clause] -> [Variable] -> PlanHolder
 mkPlan typeDBs bindingInputs clauses target =
-  converge $ filter targetNeeds $ go startingInputs clauses
+  constrainTo target $
+  converge $
+  filter targetNeeds $
+  go targetSet startingInputs clauses
   where
     targetSet = S.fromList target
 
     converge :: [PlanHolder] -> PlanHolder
-    converge [r] = constrainTo target r
+    converge [r] = r
     -- TODO: Since we've filtered out any irrelevant relations, this should be
     -- turned into a Cartesian product of the remaining relations projected
     -- into the target set.
@@ -40,43 +43,76 @@ mkPlan typeDBs bindingInputs clauses target =
     targetNeeds :: PlanHolder -> Bool
     targetNeeds ph = (S.intersection (planHolderBinds ph) targetSet) /= S.empty
 
-    go :: [PlanHolder] -> [Clause] -> [PlanHolder]
-    go ph [] = ph
-    go inputs (c:cs) =
---      trace ("Step: c=" <> show c <> ", cs=" <> show cs <> ", inputs=" <> show inputs) $
+    getAttr :: Attr -> (Value, Bool)
+    getAttr (ATTR attrText) = (VAL_ENTID $ rawEntityId, indexed)
+      where
+        attributesMap = attributes $ head typeDBs
+        attributePropMap = attributeProps $ head typeDBs
+        Just rawEntityId = M.lookup attrText attributesMap
+        Just (indexed, _, _) = M.lookup rawEntityId attributePropMap
+
+
+    go :: Set Variable -> [PlanHolder] -> [Clause] -> [PlanHolder]
+    go target inputs [] = inputs
+    go target inputs (c:cs) =
+      trace ("Step: c=" <> show c <> ", cs=" <> show cs <> ", inputs=" <> show inputs) $
       let past = pastProvides inputs
           future = futureNeeds cs
       in case c of
-        (DataPattern (LC_XAZ eSymb attr@(ATTR attrText) vSymb)) ->
-          let attributesMap = attributes $ head typeDBs
-              attributePropMap = attributeProps $ head typeDBs
-              Just rawEntityId = M.lookup attrText attributesMap
-              Just (indexed, _, _) = M.lookup rawEntityId attributePropMap
-              attrEntity = VAL_ENTID $ rawEntityId
-          in case (direction eSymb vSymb past future, indexed) of
-            (FORWARDS, _) ->
-              let load = PH_TAB eSymb vSymb
-                       $ LoadTab USE_AEV attrEntity eSymb vSymb
-              in go (joinAll (rhJoin future) (load:inputs)) cs
-            (BACKWARDS, True) ->
-              let load = PH_TAB vSymb eSymb
-                       $ LoadTab USE_AVE attrEntity vSymb eSymb
-              in go (joinAll (rhJoin future) (load:inputs)) cs
-            (BACKWARDS, False) ->
-              error "Handle backwards loading without an AVE table."
-            (LEFT_ONLY, _) ->
-              let load = PH_SET eSymb
-                       $ TabKeySet eSymb vSymb
-                       $ LoadTab USE_AEV attrEntity eSymb vSymb
-              in go (joinAll (rhJoin future) (load:inputs)) cs
-            (RIGHT_ONLY, True) ->
-              let load = PH_SET vSymb
-                       $ TabKeySet vSymb eSymb
-                       $ LoadTab USE_AVE attrEntity vSymb eSymb
-              in go (joinAll (rhJoin future) (load:inputs)) cs
-            (RIGHT_ONLY, False) ->
-              error "Handle backwards loading without an AVE table"
-            (IRRELEVANT, _) -> trace ("Irrelevant!?") $ go inputs cs
+        -- A not clause is a not-join where all the variables used inside the
+        -- not clause are joined on.
+        (NotClause ds clauses) -> go target inputs (njc:cs)
+          where
+            njc = NotJoinClause ds unifies clauses
+            unifies = S.unions $ map clauseUses clauses
+
+        -- Not join clause limits the number of
+        (NotJoinClause _datasource unifies nots) ->
+          trace "NotJoinClause..." $
+          -- If there are variables inside unifies that don't
+          let (notInputs, others) = partition (planIntersects unifies) inputs
+              notOutputs = go unifies notInputs nots
+          in case (notInputs, notOutputs) of
+            ([PH_SET origSym origSet], [PH_SET outSym notSet])
+              | origSym == outSym ->
+                let diff = PH_SET origSym $
+                           SetDifference origSym origSet notSet
+                in trace ("Diff: " <> show diff) $ go target (diff:others) cs
+            -- TODO: Making this general is going to be a bit tedious. You'll
+            -- have to write the one shot difference case for all types and
+            -- then force fallback to rows for the non-simple cases.
+            --
+            -- ([PH_TAB from to origTab], [PH_SET outSym notSet])
+            --  | from == outSym -> error "Remember to do this useful case"
+            _ -> error "Implement Not for "
+
+        (DataPattern (LC_XAV eSymb attr@(ATTR attrTest) value)) ->
+          let (attrEntity, indexed) = getAttr attr
+          in addDataPattern target future inputs cs $
+             PH_SET eSymb $
+             if indexed
+             then LoadSet USE_AVE attrEntity value eSymb
+             else error "Handle unindexed cases"
+
+        (DataPattern (LC_XAZ eSymb attr vSymb)) ->
+          let (attrEntity, indexed) = getAttr attr
+          in addDataPattern target future inputs cs $
+             case (direction eSymb vSymb past future, indexed) of
+               (FORWARDS, _) -> PH_TAB eSymb vSymb $
+                                LoadTab USE_AEV attrEntity eSymb vSymb
+               (BACKWARDS, True) -> PH_TAB vSymb eSymb $
+                                    LoadTab USE_AVE attrEntity vSymb eSymb
+               (BACKWARDS, False) ->
+                 error "Handle backwards loading without an AVE table."
+               (LEFT_ONLY, _) -> PH_SET eSymb
+                               $ TabKeySet eSymb vSymb
+                               $ LoadTab USE_AEV attrEntity eSymb vSymb
+               (RIGHT_ONLY, True) -> PH_SET vSymb
+                                   $ TabKeySet vSymb eSymb
+                                   $ LoadTab USE_AVE attrEntity vSymb eSymb
+               (RIGHT_ONLY, False) ->
+                 error "Handle backwards loading without an AVE table"
+               (IRRELEVANT, _) -> error "Irrelevant clause!?"
         (BiPredicateExpression arg1 pred arg2) ->
           -- We're a predicate. We look at the current state of the tree to try
           -- to transform that tree into a structure with specialized predicate
@@ -84,26 +120,29 @@ mkPlan typeDBs bindingInputs clauses target =
           -- rows.
           case (arg1, arg2) of
             (ARG_CONST const1, ARG_VAR var2) ->
-              go (map (applyPredL pred (InputConst const1) var2) inputs) cs
+              go target (map (applyPredL pred (InputConst const1) var2) inputs) cs
             (ARG_VAR var1, ARG_CONST const2) ->
-              go (map (applyPredR pred var1 (InputConst const2)) inputs) cs
+              go target (map (applyPredR pred var1 (InputConst const2)) inputs) cs
 
             (ARG_VAR var1, ARG_VAR var2)
               | var1 == var2 -> error "handle this weird case"
 
               | Just (var1Plan, restInputs) <- findScalarFor future var1 inputs
               , Nothing <- findScalarFor future var2 restInputs
-                -> go (map (applyPredL pred var1Plan var2) inputs) cs
+                -> go target (map (applyPredL pred var1Plan var2) inputs) cs
 
               | Just (var2Plan, restInputs) <- findScalarFor future var2 inputs
               , Nothing <- findScalarFor future var1 restInputs
-                -> go (map (applyPredR pred var1 var2Plan) inputs) cs
+                -> go target (map (applyPredR pred var1 var2Plan) inputs) cs
 
               -- TODO: Both are variables where both aren't scalars.
               | otherwise -> error "both are variables"
 
             (ARG_CONST const1, ARG_CONST const2) ->
               error "degenerate case. i hate you."
+
+    addDataPattern target future inputs cs load =
+      go target (joinAll (maybeJoin future) (load:inputs)) cs
 
     -- Finds and extracts a scalar plan
     findScalarFor :: Set Variable -> Variable -> [PlanHolder]
@@ -231,6 +270,11 @@ mkPlan typeDBs bindingInputs clauses target =
 
 -- -----------------------------------------------------------------------
 
+planIntersects :: Set Variable -> PlanHolder -> Bool
+planIntersects sv ph = (S.intersection sv $ planHolderBinds ph) /= S.empty
+
+-- -----------------------------------------------------------------------
+
 -- Given a joining function which may or may not join two elements, run all
 -- permutations of all elements of with the associative function `f`. If `f`
 -- returns Just, replaces both elements with the newly joined element and
@@ -250,75 +294,86 @@ joinAll f (x:xs) = joinOuter x xs []
       Nothing  -> joinInner x ys (y:prev)
       Just new -> Just (new, reverse prev ++ ys)
 
-rhJoin :: Set Variable -> PlanHolder -> PlanHolder -> Maybe PlanHolder
-rhJoin future l r = out
+-- Produces a plan to join two plans together if they share a variable,
+-- opportunistically dropping columns which aren't referred to in the `future`.
+maybeJoin :: Set Variable -> PlanHolder -> PlanHolder -> Maybe PlanHolder
+maybeJoin future l r = case (l, r) of
+  (PH_SCALAR lhs lhv, PH_SCALAR rhs rhv)
+    | lhs == rhs -> error "This has to be a set, right?"
+    | otherwise -> Nothing
+
+  (PH_SET lhs lhv, PH_SET rhs rhv)
+    | lhs == rhs -> Just $ PH_SET lhs $ SetJoin lhs lhv rhv
+    | otherwise  -> Nothing
+
+  (lhs@(PH_SCALAR _ _), rhs@(PH_SET _ _)) -> maybeJoin future rhs lhs
+  (PH_SET lhs lhv, PH_SCALAR rhs rhv)
+    | lhs == rhs -> Just $ PH_SET lhs $ SetScalarJoin lhv rhv
+    | otherwise -> Nothing
+
+  (lhs@(PH_SET _ _), rhs@(PH_TAB _ _ _)) -> maybeJoin future rhs lhs
+  (PH_TAB lhFrom lhTo lht, PH_SET rhSymb rhv)
+    | lhFrom == rhSymb && inFuture lhFrom && inFuture lhTo ->
+        Just $ PH_TAB lhFrom lhTo $ TabRestrictKeys lhFrom lhTo lht rhv
+    | lhFrom == rhSymb && inFuture lhFrom ->
+        Just $ PH_SET lhFrom $ SetJoin lhFrom (TabKeySet lhFrom lhTo lht) rhv
+    | lhFrom == rhSymb && inFuture lhTo ->
+        Just $ PH_SET lhTo $ TabSetUnionVals lhFrom rhv lhTo lht
+    | lhFrom == rhSymb -> error "wtf is this case"
+    | otherwise -> error "Handle all the lhTo cases."
+
+  (lhs@(PH_SCALAR _ _), rhs@(PH_TAB _ _ _)) -> maybeJoin future rhs lhs
+  (PH_TAB lhFrom lhTo lhTab, PH_SCALAR rhSymb rhv)
+    | rhSymb == lhFrom ->
+      Just $ PH_SET lhTo $ TabScalarLookup rhSymb rhv lhTo lhTab
+    | rhSymb == lhTo -> error "Handle backwards scalar table matching."
+    | otherwise -> Nothing
+
+  (PH_TAB lhFrom lhTo lht, PH_TAB rhFrom rhTo rht)
+    -- TODO: Handle from==from && to==to case.
+    | lhFrom == rhFrom && inFuture lhTo && inFuture rhTo ->
+      Just $ PH_MULTITAB lhFrom [lhTo, rhTo] $ MkMultiTab lht rht
+    | lhFrom == rhFrom && inFuture lhTo ->
+      Just $ PH_TAB lhFrom lhTo
+           $ TabRestrictKeys lhFrom lhTo lht
+           $ TabKeySet rhFrom rhTo rht
+    | lhFrom == rhFrom && inFuture rhTo ->
+      Just $ PH_TAB rhFrom rhTo
+           $ TabRestrictKeys rhFrom rhTo rht
+           $ TabKeySet lhFrom rhTo lht
+    | otherwise -> error "Handle all the cases before adding Nothing at end"
+
+  (lhs@(PH_SCALAR _ _), rhs@(PH_MULTITAB _ _ _)) -> maybeJoin future rhs lhs
+  (PH_MULTITAB keySymb valSymbs mt, PH_SCALAR rhSymb rhv)
+    | keySymb == rhSymb -> error "Handle multitab/scalar same"
+    | elem rhSymb valSymbs -> error "Handle multitab value scalar"
+    | otherwise -> Nothing
+
+  (lhs@(PH_MULTITAB _ _ _), rhs@(PH_TAB _ _ _)) -> maybeJoin future rhs lhs
+  (PH_TAB lhFrom lhTo lht, PH_MULTITAB keySymb valSymbs mt)
+    | lhFrom == keySymb && inFuture lhTo ->
+        Just $ PH_MULTITAB lhFrom (lhTo:valSymbs)
+             $ AddToMultiTab lht mt
+    | otherwise -> error "Handle all the cases before adding Nothing at end"
+
+
+  (PH_ROWS lSymb lSort lRows, PH_ROWS rSymb rSort rRows) -> undefined
+
+  (a, b) -> error $ "TODO: Unhandled maybeJoin case: " <> show a <> " <--> "
+                 <> show b
   where
-    out = case (l, r) of
-      (PH_SCALAR lhs lhv, PH_SCALAR rhs rhv)
-        | lhs == rhs -> error "This has to be a set, right?"
-        | otherwise -> Nothing
-
-      (PH_SET lhs lhv, PH_SET rhs rhv)
-        | lhs == rhs -> Just $ PH_SET lhs $ SetJoin lhs lhv rhv
-        | otherwise  -> Nothing
-
-      (lhs@(PH_SCALAR _ _), rhs@(PH_SET _ _)) -> rhJoin future rhs lhs
-      (PH_SET lhs lhv, PH_SCALAR rhs rhv)
-        | lhs == rhs -> Just $ PH_SET lhs $ SetScalarJoin lhv rhv
-        | otherwise -> Nothing
-
-      (lhs@(PH_SET _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
-      (PH_TAB lhFrom lhTo lht, PH_SET rhSymb rhv)
-        | lhFrom == rhSymb && inFuture lhFrom && inFuture lhTo ->
-            Just $ PH_TAB lhFrom lhTo $ TabRestrictKeys lhFrom lhTo lht rhv
-        | lhFrom == rhSymb && inFuture lhFrom ->
-            Just $ PH_SET lhFrom $ SetJoin lhFrom (TabKeySet lhFrom lhTo lht) rhv
-        | lhFrom == rhSymb && inFuture lhTo ->
-            Just $ PH_SET lhTo $ TabSetUnionVals lhFrom rhv lhTo lht
-        | lhFrom == rhSymb -> error "wtf is this case"
-        | otherwise -> error "Handle all the lhTo cases."
-
-      (lhs@(PH_SCALAR _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
-      (PH_TAB lhFrom lhTo lhTab, PH_SCALAR rhSymb rhv)
-        | rhSymb == lhFrom ->
-          Just $ PH_SET lhTo $ TabScalarLookup rhSymb rhv lhTo lhTab
-        | rhSymb == lhTo -> error "Handle backwards scalar table matching."
-        | otherwise -> Nothing
-
-      (PH_TAB lhFrom lhTo lht, PH_TAB rhFrom rhTo rht)
-        -- TODO: Handle from==from && to==to case.
-        | lhFrom == rhFrom && inFuture lhTo && inFuture rhTo ->
-          Just $ PH_MULTITAB lhFrom [lhTo, rhTo] $ MkMultiTab lht rht
-        | lhFrom == rhFrom && inFuture lhTo ->
-          Just $ PH_TAB lhFrom lhTo
-               $ TabRestrictKeys lhFrom lhTo lht
-               $ TabKeySet rhFrom rhTo rht
-        | lhFrom == rhFrom && inFuture rhTo ->
-          Just $ PH_TAB rhFrom rhTo
-               $ TabRestrictKeys rhFrom rhTo rht
-               $ TabKeySet lhFrom rhTo lht
-        | otherwise -> error "Handle all the cases before adding Nothing at end"
-
-      (lhs@(PH_SCALAR _ _), rhs@(PH_MULTITAB _ _ _)) -> rhJoin future rhs lhs
-      (PH_MULTITAB keySymb valSymbs mt, PH_SCALAR rhSymb rhv)
-        | keySymb == rhSymb -> error "Handle multitab/scalar same"
-        | elem rhSymb valSymbs -> error "Handle multitab value scalar"
-        | otherwise -> Nothing
-
-      (lhs@(PH_MULTITAB _ _ _), rhs@(PH_TAB _ _ _)) -> rhJoin future rhs lhs
-      (PH_TAB lhFrom lhTo lht, PH_MULTITAB keySymb valSymbs mt)
-        | lhFrom == keySymb && inFuture lhTo ->
-            Just $ PH_MULTITAB lhFrom (lhTo:valSymbs)
-                 $ AddToMultiTab lht mt
-        | otherwise -> error "Handle all the cases before adding Nothing at end"
-
-
-      (PH_ROWS lSymb lSort lRows, PH_ROWS rSymb rSort rRows) -> undefined
-
-      (a, b) -> error $ "TODO: Unhandled rhJoin case: " <> show a <> " <--> "
-                     <> show b
-
     inFuture = flip S.member future
+
+-- Given two plans, make a single plan, regardless of what's in the future or
+-- whether they.
+fullJoin :: PlanHolder -> PlanHolder -> PlanHolder
+fullJoin l r = case (l, r) of
+  (PH_SET lhs lhv, PH_SET rhs rhv)
+    | lhs == rhs -> PH_SET lhs $ SetJoin lhs lhv rhv
+    | otherwise  -> PH_TAB lhs rhs $ error "Write project"
+
+
+  (x, y) -> error $ "Implement fullJoin for: " <> show x <> ", " <> show y
 
 -- constrainTo is temporary and should be renamed when we have full :find.
 --

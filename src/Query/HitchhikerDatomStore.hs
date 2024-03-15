@@ -268,101 +268,27 @@ insertToValSet config curSet (tx, v, op) = case (curSet, op) of
 
 -- -----------------------------------------------------------------------
 
--- lookup :: forall e a v tx
---         . (Show a, Show v, Show tx, Ord e, Ord a, Ord v, Ord tx)
---        => e -> a -> EAVRows e a v tx -> HitchhikerSet v
--- lookup _ _ (EAVROWS config Nothing)    = HS.empty config
-
--- -- Lookup is more complicated in that we have to push matching transactions
--- -- down through multiple levels, to
--- lookup e a (EAVROWS config (Just top)) = lookInENode (ALeaf mempty) top
---   where
---     lookInENode :: ADatomRow a v tx -> EDatomRow e a v tx
---                 -> HitchhikerSet v
---     lookInENode hh = \case
---       ERowIndex index hitchhikers ->
---         lookInENode (mergeADatomRows config hh $ matchHitchhikers hitchhikers) $
---           findSubnodeByKey e index
---       ELeaf items -> case M.lookup e items of
---         Nothing     -> undefined -- HS.fromArraySet config $ applyLog mempty txs
---         Just anodes -> lookInANode hh anodes
-
---     matchHitchhikers :: Map e (ADatomRow a v tx) -> ADatomRow a v tx
---     matchHitchhikers hh = fromMaybe (ALeaf mempty) (M.lookup e hh)
-
---     lookInANode :: ADatomRow a v tx -> ADatomRow a v tx -> HitchhikerSet v
---     lookInANode = undefined
-
---     -- -- When recursing downwards through ERowIndex nodes, we must accumulate
---     -- -- matching
---     -- appendMatchingEHH :: ArraySet (v, tx, Bool)
---     --                   -> Map e (ArraySet (a, v, tx, Bool))
---     --                   -> ArraySet (v, tx, Bool)
---     -- appendMatchingEHH vtx hh = case M.lookup e hh of
---     --   Nothing   -> vtx
---     --   Just avtx -> ssetUnion vtx $ matchAV avtx
---     --   where
---     --     matchAV =
---     --       ssetMap removeA .
---     --       ssetTakeWhileAntitone takeFun .
---     --       ssetDropWhileAntitone dropFun
---     --       where
---     --         removeA (a, v, tx, o) = (v, tx, o)
---     --         dropFun (x, _, _, _) = (x < a)
---     --         takeFun (x, _, _, _) = (x == a)
-
---     -- lookInANode :: ArraySet (v, tx, Bool) -> ADatomRow a v tx -> HitchhikerSet v
---     -- lookInANode txs = \case
---     --   ARowIndex index hitchhikers ->
---     --     let newTxs = appendMatchingAHH txs hitchhikers
---     --     in lookInANode newTxs $ findSubnodeByKey a index
---     --   ALeaf items -> case M.lookup a items of
---     --     Nothing       -> HS.fromArraySet config $ applyLog mempty txs
---     --     Just vstorage -> applyToVStorage txs vstorage
-
---     -- appendMatchingAHH :: ArraySet (v, tx, Bool)
---     --                   -> Map a (ArraySet (v, tx, Bool))
---     --                   -> ArraySet (v, tx, Bool)
---     -- appendMatchingAHH vtx hh = case M.lookup a hh of
---     --   Nothing    -> vtx
---     --   Just hhVtx -> vtx <> hhVtx
-
---     -- applyLog :: ArraySet v -> ArraySet (v, tx, Bool) -> ArraySet v
---     -- applyLog = foldl' apply
---     --   where
---     --     apply set (v, _, True)  = ssetInsert v set
---     --     apply set (v, _, False) = ssetDelete v set
-
---     -- applyToVStorage :: ArraySet (v, tx, Bool)
---     --                 -> VStorage v tx
---     --                 -> HitchhikerSet v
---     -- applyToVStorage as vs =
---     --   case vstorageInsertMany config vs as of
---     --     VSimple v _    -> HS.singleton config v
---     --     VStorage top _ -> HITCHHIKERSET config top
+fullLookup :: forall e a v tx
+        . (Show e, Show a, Show v, Show tx, Ord e, Ord a, Ord v, Ord tx)
+       => e -> a -> EAVRows e a v tx -> HitchhikerSet v
+fullLookup _ _ (EAVROWS config Nothing)    = HS.empty config
+fullLookup e a rows@(EAVROWS config (Just top)) =
+  HSM.lookup a $ partialLookup e rows
 
 -- -----------------------------------------------------------------------
-
--- OK, with the new data structures, how do we rewrite partialLookup? Because
--- we now need something with
-
--- TODO: Reenable partialLookup once this is done
 
 partialLookup :: forall e a v tx
                . (Show e, Show a, Show v, Show tx, Ord e, Ord a, Ord v, Ord tx)
               => e -> EAVRows e a v tx -> HitchhikerSetMap a v
 partialLookup _ (EAVROWS config Nothing)    = HSM.empty config
 
-partialLookup e (EAVROWS config (Just top)) =
---  trace ("LOOKUP " <> show e <> " in " <> show top) $
-  lookInENode mempty top
+partialLookup e (EAVROWS config (Just top)) = lookInENode mempty top
   where
     lookInENode :: [(a, v, tx, Bool)]
                 -> EDatomRow e a v tx
                 -> HitchhikerSetMap a v
     lookInENode hh = \case
       ERowIndex index hitchhikers ->
---        trace ("HH KEYS: " <> (show hitchhikers)) $
         lookInENode (hh <> matchHitchhikers hitchhikers) $
         findSubnodeByKey e index
       ELeaf items ->

@@ -350,3 +350,42 @@ doWholeSplit func keys (_, hh) = out
 
     addLen l = (length l, l)
 
+-- You should just be able to foldl the set differences.
+--
+-- ghci> foldl' S.difference (S.fromList [1, 2, 3]) [S.fromList [2], S.fromList [3]]
+-- fromList [1]
+
+
+
+-- Takes the difference of `a` and `b` where items in `b` are removed from `a`.
+--
+-- Experiment: let's not do partial. We don't need it, we can just output a
+-- modified `a`.
+setlistSetlistDifference :: (Show k, Ord k)
+                         => [ArraySet k]
+                         -> [ArraySet k]
+                         -> [ArraySet k]
+setlistSetlistDifference = go
+  where
+    go [] _ = []
+    go a [] = a
+    go ao@(a:as) bo@(b:bs) =
+      -- trace ("go " <> show ao <> " " <> show bo) $
+      let aMin = ssetFindMin a
+          aMax = ssetFindMax a
+          bMin = ssetFindMin b
+          bMax = ssetFindMax b
+          overlap = aMin <= bMax && bMin <= aMax
+
+          i = ssetDifference a b
+          diffHas = not $ ssetIsEmpty i
+
+      in if | overlap && aMax == bMax && diffHas -> (i):(go as bs)
+            | overlap && aMax == bMax            -> go as bs
+            | overlap && aMax  > bMax && diffHas -> go (i:as) bs
+            | overlap && aMax  > bMax            -> go ao bs
+            | overlap &&                 diffHas -> go (i:as) bo
+            | overlap                            -> go as bo
+            |            aMax == bMax            -> a:(go as bs)
+            |            aMax  > bMax            -> go ao bs
+            |            otherwise               -> a:(go as bo)
