@@ -125,11 +125,20 @@ fullDerpOut = evalPlan
    REL_SCALAR $ RSCALAR (VAR "?min") (VAL_INT 100),
    REL_SCALAR $ RSCALAR (VAR "?max") (VAL_INT 500)]
   derpdb
-  fullDerpPlan
+  (fromRight fullDerpPlan)
+
+fromRight :: Either a b -> b
+fromRight (Right a) = a
+fromRight _         = error "fromRight: Left"
 
 -- -----------------------------------------------------------------------
 
--- Actually, to implement the following, I'll need to
+-- (db/q '[:find ?derpid
+--         :where
+--         [?e :derp/tag "twilight sparkle"]
+--         (not [?e :derp/tag "starlight glimmer"])
+--         [?e :derp/id ?derpid]
+--        db)
 
 notTestClauses = [
   DataPattern (LC_XAV (VAR "?e") (ATTR ":derp/tag")
@@ -150,4 +159,4 @@ notTestPlan = mkPlan
 notTestOut = evalPlan
   []
   derpdb
-  notTestPlan
+  (fromRight notTestPlan)

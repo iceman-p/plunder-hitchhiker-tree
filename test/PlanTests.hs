@@ -48,18 +48,17 @@ testPairToVals (name, count) = [
 equivalentRun :: Database -> [Binding] -> [Relation] -> [Clause] -> [Variable]
               -> Bool
 equivalentRun db bindingInputs input clauses target =
-  if sort planOut.values == sort naiveOut.values
-  then True
-  else trace ("UNEQUIVALENT:" <>
-              "\nPLAN:  " <> show planOut <>
-              "\nNAIVE: " <> show naiveOut) False
-  where
-    rowInput = map relationToRows input
-    naiveOut = naiveEvaluator db rowInput [] clauses target
-
-    plan = mkPlan [db] bindingInputs clauses target
-    planOut = evalPlan input db plan
-
+  case mkPlan [db] bindingInputs clauses target of
+    Left err -> trace ("PLANNING ERROR: " <> show err) False
+    Right plan ->
+      let planOut = evalPlan input db plan
+          rowInput = map relationToRows input
+          naiveOut = naiveEvaluator db rowInput [] clauses target
+      in if sort planOut.values == sort naiveOut.values
+         then True
+         else trace ("UNEQUIVALENT:" <>
+                     "\nPLAN:  " <> show planOut <>
+                     "\nNAIVE: " <> show naiveOut) False
 
 -- Given a list of numbers
 prop_plan_check_filter_lhs_eq :: [(String,Int)] -> BuiltinPred -> Int -> Bool

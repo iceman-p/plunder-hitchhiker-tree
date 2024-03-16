@@ -2,7 +2,7 @@ module Query.Planner where
 
 import           ClassyPrelude              hiding (head)
 
-import           Data.List                  (head)
+import           Data.List                  (head, nub)
 
 import           Query.HitchhikerDatomStore
 import           Query.PlanEvaluator
@@ -23,12 +23,39 @@ data Direction
   | RIGHT_ONLY
   | IRRELEVANT
 
-mkPlan :: [Database] -> [Binding] -> [Clause] -> [Variable] -> PlanHolder
+data PlanningError
+  = PE_MISMATCHED_OR [Set Variable]
+  deriving (Show)
+
+-- TODO: Major things I want to do with the planner.
+--
+-- - [ ] or-clause
+--
+-- - [ ] RuleExpressions
+--
+-- - [ ] Get smart about using thunks on databases to only call partialLookup
+--       once per combination. Hitchhiker push down might be expensive and
+--       resolving that to a thunk which has already executed could be a pretty
+--       big win.
+--
+-- - [ ] Same with caching attribute lookups, specific value lookups.
+--
+-- - [ ] Fill in basically all the other type combinations. Right now, we only
+--       really deal with the things needed in the direct paths of the queries
+--       we were going for.
+--
+-- - [ ] Grep out TODO in this file.
+--
+-- - [ ] Grep out TODO in this directory.
+--
+-- - [ ] mkPlan should return an Either with real errors, once all the false
+--       errors are removed.
+--
+mkPlan :: [Database] -> [Binding] -> [Clause] -> [Variable]
+       -> Either PlanningError PlanHolder
 mkPlan typeDBs bindingInputs clauses target =
-  constrainTo target $
-  converge $
-  filter targetNeeds $
-  go targetSet startingInputs clauses
+  (constrainTo target . converge . filter targetNeeds) <$>
+    go targetSet startingInputs clauses
   where
     targetSet = S.fromList target
 
@@ -52,8 +79,9 @@ mkPlan typeDBs bindingInputs clauses target =
         Just (indexed, _, _) = M.lookup rawEntityId attributePropMap
 
 
-    go :: Set Variable -> [PlanHolder] -> [Clause] -> [PlanHolder]
-    go target inputs [] = inputs
+    go :: Set Variable -> [PlanHolder] -> [Clause]
+       -> Either PlanningError [PlanHolder]
+    go target inputs [] = Right inputs
     go target inputs (c:cs) =
       trace ("Step: c=" <> show c <> ", cs=" <> show cs <> ", inputs=" <> show inputs) $
       let past = pastProvides inputs
@@ -71,20 +99,28 @@ mkPlan typeDBs bindingInputs clauses target =
           trace "NotJoinClause..." $
           -- If there are variables inside unifies that don't
           let (notInputs, others) = partition (planIntersects unifies) inputs
-              notOutputs = go unifies notInputs nots
-          in case (notInputs, notOutputs) of
-            ([PH_SET origSym origSet], [PH_SET outSym notSet])
-              | origSym == outSym ->
-                let diff = PH_SET origSym $
-                           SetDifference origSym origSet notSet
-                in trace ("Diff: " <> show diff) $ go target (diff:others) cs
-            -- TODO: Making this general is going to be a bit tedious. You'll
-            -- have to write the one shot difference case for all types and
-            -- then force fallback to rows for the non-simple cases.
-            --
-            -- ([PH_TAB from to origTab], [PH_SET outSym notSet])
-            --  | from == outSym -> error "Remember to do this useful case"
-            _ -> error "Implement Not for "
+              eitherNotOutputs = go unifies notInputs nots
+          in case eitherNotOutputs of
+            Left err -> Left err
+            Right notOutputs -> case (notInputs, notOutputs) of
+              ([PH_SET origSym origSet], [PH_SET outSym notSet])
+                | origSym == outSym ->
+                  let diff = PH_SET origSym $
+                             SetDifference origSym origSet notSet
+                  in trace ("Diff: " <> show diff) $ go target (diff:others) cs
+              -- TODO: Making this general is going to be a bit tedious. You'll
+              -- have to write the one shot difference case for all types and
+              -- then force fallback to rows for the non-simple cases.
+              --
+              -- ([PH_TAB from to origTab], [PH_SET outSym notSet])
+              --  | from == outSym -> error "Remember to do this useful case"
+              _ -> error "Implement Not for "
+
+        -- In an or clause, we want to make the
+        (OrClause _datasource orClauses) ->
+          let orUses = map orClauseUses orClauses
+          in if | not $ allEq orUses -> Left $ PE_MISMATCHED_OR $ nub orUses
+                | otherwise          -> undefined
 
         (DataPattern (LC_XAV eSymb attr@(ATTR attrTest) value)) ->
           let (attrEntity, indexed) = getAttr attr
@@ -272,6 +308,14 @@ mkPlan typeDBs bindingInputs clauses target =
 
 planIntersects :: Set Variable -> PlanHolder -> Bool
 planIntersects sv ph = (S.intersection sv $ planHolderBinds ph) /= S.empty
+
+allEq :: Ord a => [a] -> Bool
+allEq [] = True
+allEq [a] = True
+allEq (a:as) = go as
+  where
+    go []     = True
+    go (b:bs) = if a /= b then False else go bs
 
 -- -----------------------------------------------------------------------
 

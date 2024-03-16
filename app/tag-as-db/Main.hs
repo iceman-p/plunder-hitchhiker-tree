@@ -50,6 +50,10 @@ main = do
       l = show $ length files
 
   flip evalStateT emptyBase $ do
+    dbPlan <- case fullDerpPlan (database emptyBase) of
+      Left err -> error $ "Error building query plan: " <> show err
+      Right x  -> pure x
+
     forM z $ \(i, file) -> do
       traceM $ "Loading " ++ show i ++ " of " ++ l ++ " " ++ (show file)
       let path = jsondir </> file
@@ -71,7 +75,7 @@ main = do
     -- pPrint $ (ave database)
     -- pPrint $ (vae database)
 
-    repl
+    repl dbPlan
 
 delim = do
   many (char ' ')
@@ -85,8 +89,8 @@ read' = liftIO $ do
   hFlush stdout
   getLine
 
-repl :: StateT Base IO ()
-repl = do
+repl :: PlanHolder -> StateT Base IO ()
+repl derpQueryPlan = do
   raw <- read'
 
   BASE{database} <- get
@@ -95,7 +99,7 @@ repl = do
   case c of
     Left err -> do
       liftIO $ putStrLn $ tshow err
-      repl
+      repl derpQueryPlan
     -- Right [":showitems"] -> do
     --   (Model items _) <- get
     --   traceM $ show items
@@ -109,7 +113,7 @@ repl = do
       pure ()
     Right tags -> do
       liftIO $ putStrLn ("TAGS: " ++ tshow tags)
-      traceM ("Plan: " <> show (fullDerpPlan database))
+      traceM ("Plan: " <> show derpQueryPlan)
       let amount = 300
       let planOut = evalPlan
             [REL_SET $ RSET (VAR "?tags")
@@ -117,7 +121,7 @@ repl = do
                              map VAL_STR tags),
              REL_SCALAR $ RSCALAR (VAR "?min") (VAL_INT amount)]
             database
-            (fullDerpPlan database)
+            derpQueryPlan
           naiveOut = naiveEvaluator
             database
             [ROWS [VAR "?tags"] [] (map toNaiveTag tags),
@@ -137,7 +141,7 @@ repl = do
       --     longResults <- lookupItems s
       --     forM_ longResults $ \(imgid, thumb) -> do
       --       putStrLn (" " ++ (tshow imgid) ++ ": " ++ pack thumb)
-      repl
+      repl derpQueryPlan
 
 fullDerpClauses = [
   DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/tags") (VAR "?tags")),

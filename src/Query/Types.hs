@@ -311,6 +311,10 @@ data OrClauseBody
   | OCB_AND_CLAUSES [Clause]
   deriving (Show)
 
+orClauseUses :: OrClauseBody -> Set Variable
+orClauseUses (OCB_CLAUSE clause)  = clauseUses clause
+orClauseUses (OCB_AND_CLAUSES cs) = S.unions $ map clauseUses cs
+
 data RulePack
 
 -- -----------------------------------------------------------------------
