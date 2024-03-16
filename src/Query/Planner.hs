@@ -2,7 +2,7 @@ module Query.Planner where
 
 import           ClassyPrelude              hiding (head)
 
-import           Data.List                  (head, nub)
+import           Data.List                  (foldl1', head, nub)
 
 import           Query.HitchhikerDatomStore
 import           Query.PlanEvaluator
@@ -44,6 +44,8 @@ data PlanningError
 --       really deal with the things needed in the direct paths of the queries
 --       we were going for.
 --
+-- - [ ] Work with multiple databases.
+--
 -- - [ ] Grep out TODO in this file.
 --
 -- - [ ] Grep out TODO in this directory.
@@ -52,12 +54,18 @@ data PlanningError
 --       errors are removed.
 --
 mkPlan :: [Database] -> [Binding] -> [Clause] -> [Variable]
-       -> Either PlanningError PlanHolder
+       -> Either [PlanningError] PlanHolder
 mkPlan typeDBs bindingInputs clauses target =
-  (constrainTo target . converge . filter targetNeeds) <$>
-    go targetSet startingInputs clauses
+  mkOutPlan target <$> processClause targetSet startingInputs clauses
   where
     targetSet = S.fromList target
+
+    mkOutPlan :: [Variable] -> [PlanHolder] -> PlanHolder
+    mkOutPlan target = constrainTo target . converge . filter targetNeeds
+      where
+        targetNeeds :: PlanHolder -> Bool
+        targetNeeds ph =
+          (S.intersection (planHolderBinds ph) $ S.fromList target) /= S.empty
 
     converge :: [PlanHolder] -> PlanHolder
     converge [r] = r
@@ -67,9 +75,7 @@ mkPlan typeDBs bindingInputs clauses target =
     converge inputs = error $ "Plan did not converge to one relation: "
                            <> show inputs
 
-    targetNeeds :: PlanHolder -> Bool
-    targetNeeds ph = (S.intersection (planHolderBinds ph) targetSet) /= S.empty
-
+    -- TODO: Use Either instead of blindly trusting `head`.
     getAttr :: Attr -> (Value, Bool)
     getAttr (ATTR attrText) = (VAL_ENTID $ rawEntityId, indexed)
       where
@@ -78,18 +84,17 @@ mkPlan typeDBs bindingInputs clauses target =
         Just rawEntityId = M.lookup attrText attributesMap
         Just (indexed, _, _) = M.lookup rawEntityId attributePropMap
 
-
-    go :: Set Variable -> [PlanHolder] -> [Clause]
-       -> Either PlanningError [PlanHolder]
-    go target inputs [] = Right inputs
-    go target inputs (c:cs) =
+    processClause :: Set Variable -> [PlanHolder] -> [Clause]
+       -> Either [PlanningError] [PlanHolder]
+    processClause target inputs [] = Right inputs
+    processClause target inputs (c:cs) =
 --      trace ("Step: c=" <> show c <> ", cs=" <> show cs <> ", inputs=" <> show inputs) $
       let past = pastProvides inputs
           future = futureNeeds cs
       in case c of
         -- A not clause is a not-join where all the variables used inside the
         -- not clause are joined on.
-        (NotClause ds clauses) -> go target inputs (njc:cs)
+        (NotClause ds clauses) -> processClause target inputs (njc:cs)
           where
             njc = NotJoinClause ds unifies clauses
             unifies = S.unions $ map clauseUses clauses
@@ -99,7 +104,7 @@ mkPlan typeDBs bindingInputs clauses target =
           trace "NotJoinClause..." $
           -- If there are variables inside unifies that don't
           let (notInputs, others) = partition (planIntersects unifies) inputs
-              eitherNotOutputs = go unifies notInputs nots
+              eitherNotOutputs = processClause unifies notInputs nots
           in case eitherNotOutputs of
             Left err -> Left err
             Right notOutputs -> case (notInputs, notOutputs) of
@@ -107,7 +112,7 @@ mkPlan typeDBs bindingInputs clauses target =
                 | origSym == outSym ->
                   let diff = PH_SET origSym $
                              SetDifference origSym origSet notSet
-                  in trace ("Diff: " <> show diff) $ go target (diff:others) cs
+                  in trace ("Diff: " <> show diff) $ processClause target (diff:others) cs
               -- TODO: Making this general is going to be a bit tedious. You'll
               -- have to write the one shot difference case for all types and
               -- then force fallback to rows for the non-simple cases.
@@ -117,10 +122,24 @@ mkPlan typeDBs bindingInputs clauses target =
               _ -> error "Implement Not for "
 
         -- In an or clause, we want to make the
+        (OrClause _datasource []) -> error "Empty `or` clause"
         (OrClause _datasource orClauses) ->
           let orUses = map orClauseUses orClauses
-          in if | not $ allEq orUses -> Left $ PE_MISMATCHED_OR $ nub orUses
-                | otherwise          -> undefined
+              orTarget = head orUses
+              orEvaluated =
+                map (\a -> mkOutPlan (S.toList orTarget) <$>
+                           (processClause orTarget startingInputs $
+                            orClauseToClauseList a))
+                    orClauses
+
+              errs = join $ lefts orEvaluated
+
+              -- Since every `or` clause has the same variables, we must do
+              final = foldl1' sumRelations $ rights orEvaluated
+          in if | not $ allEq orUses -> Left [PE_MISMATCHED_OR $ nub orUses]
+                | null errs          ->
+                  addDataPattern target future inputs cs final
+                | otherwise          -> Left errs
 
         (DataPattern (LC_XAV eSymb attr@(ATTR attrTest) value)) ->
           let (attrEntity, indexed) = getAttr attr
@@ -156,20 +175,20 @@ mkPlan typeDBs bindingInputs clauses target =
           -- rows.
           case (arg1, arg2) of
             (ARG_CONST const1, ARG_VAR var2) ->
-              go target (map (applyPredL pred (InputConst const1) var2) inputs) cs
+              processClause target (map (applyPredL pred (InputConst const1) var2) inputs) cs
             (ARG_VAR var1, ARG_CONST const2) ->
-              go target (map (applyPredR pred var1 (InputConst const2)) inputs) cs
+              processClause target (map (applyPredR pred var1 (InputConst const2)) inputs) cs
 
             (ARG_VAR var1, ARG_VAR var2)
               | var1 == var2 -> error "handle this weird case"
 
               | Just (var1Plan, restInputs) <- findScalarFor future var1 inputs
               , Nothing <- findScalarFor future var2 restInputs
-                -> go target (map (applyPredL pred var1Plan var2) inputs) cs
+                -> processClause target (map (applyPredL pred var1Plan var2) inputs) cs
 
               | Just (var2Plan, restInputs) <- findScalarFor future var2 inputs
               , Nothing <- findScalarFor future var1 restInputs
-                -> go target (map (applyPredR pred var1 var2Plan) inputs) cs
+                -> processClause target (map (applyPredR pred var1 var2Plan) inputs) cs
 
               -- TODO: Both are variables where both aren't scalars.
               | otherwise -> error "both are variables"
@@ -178,7 +197,7 @@ mkPlan typeDBs bindingInputs clauses target =
               error "degenerate case. i hate you."
 
     addDataPattern target future inputs cs load =
-      go target (joinAll (maybeJoin future) (load:inputs)) cs
+      processClause target (joinAll (maybeJoin future) (load:inputs)) cs
 
     -- Finds and extracts a scalar plan
     findScalarFor :: Set Variable -> Variable -> [PlanHolder]
@@ -215,8 +234,8 @@ mkPlan typeDBs bindingInputs clauses target =
             | var2 == from -> FilterPredTabKeys [PBP_LEFT const1 pred] lt
             | var2 == to -> FilterPredTabVals [PBP_LEFT const1 pred] lt
 
-          sj@(SetJoin from lhs rhs)
-            | var2 == from -> SetJoin from (applyPredLToPlan lhs)
+          sj@(SetIntersect from lhs rhs)
+            | var2 == from -> SetIntersect from (applyPredLToPlan lhs)
                                            (applyPredLToPlan rhs)
 
           (TabKeySet from to tab)
@@ -255,8 +274,8 @@ mkPlan typeDBs bindingInputs clauses target =
             | var1 == from -> FilterPredTabKeys [PBP_RIGHT pred const2] lt
             | var1 == to -> FilterPredTabVals [PBP_RIGHT pred const2] lt
 
-          sj@(SetJoin from lhs rhs)
-            | var1 == from -> SetJoin from (applyPredRToPlan lhs)
+          sj@(SetIntersect from lhs rhs)
+            | var1 == from -> SetIntersect from (applyPredRToPlan lhs)
                                            (applyPredRToPlan rhs)
 
           (TabKeySet from to tab)
@@ -347,7 +366,7 @@ maybeJoin future l r = case (l, r) of
     | otherwise -> Nothing
 
   (PH_SET lhs lhv, PH_SET rhs rhv)
-    | lhs == rhs -> Just $ PH_SET lhs $ SetJoin lhs lhv rhv
+    | lhs == rhs -> Just $ PH_SET lhs $ SetIntersect lhs lhv rhv
     | otherwise  -> Nothing
 
   (lhs@(PH_SCALAR _ _), rhs@(PH_SET _ _)) -> maybeJoin future rhs lhs
@@ -360,7 +379,7 @@ maybeJoin future l r = case (l, r) of
     | lhFrom == rhSymb && inFuture lhFrom && inFuture lhTo ->
         Just $ PH_TAB lhFrom lhTo $ TabRestrictKeys lhFrom lhTo lht rhv
     | lhFrom == rhSymb && inFuture lhFrom ->
-        Just $ PH_SET lhFrom $ SetJoin lhFrom (TabKeySet lhFrom lhTo lht) rhv
+        Just $ PH_SET lhFrom $ SetIntersect lhFrom (TabKeySet lhFrom lhTo lht) rhv
     | lhFrom == rhSymb && inFuture lhTo ->
         Just $ PH_SET lhTo $ TabSetUnionVals lhFrom rhv lhTo lht
     | lhFrom == rhSymb -> error "wtf is this case"
@@ -413,7 +432,7 @@ maybeJoin future l r = case (l, r) of
 fullJoin :: PlanHolder -> PlanHolder -> PlanHolder
 fullJoin l r = case (l, r) of
   (PH_SET lhs lhv, PH_SET rhs rhv)
-    | lhs == rhs -> PH_SET lhs $ SetJoin lhs lhv rhv
+    | lhs == rhs -> PH_SET lhs $ SetIntersect lhs lhv rhv
     | otherwise  -> PH_TAB lhs rhs $ error "Write project"
 
 
@@ -441,3 +460,9 @@ constrainTo vars p@(PH_TAB from to plan)
     varSet = S.fromList vars
 constrainTo vars p@(PH_MULTITAB from tos mt) =
   PH_ROWS vars vars $ MultiTabToRows vars mt
+
+-- Given two plans, make a single plan
+sumRelations :: PlanHolder -> PlanHolder -> PlanHolder
+sumRelations (PH_SET lhs lhv) (PH_SET rhs rhv)
+  | lhs == rhs = PH_SET lhs $ SetUnion lhs lhv rhv
+

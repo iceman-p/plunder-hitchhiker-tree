@@ -160,3 +160,27 @@ notTestOut = evalPlan
   []
   derpdb
   (fromRight notTestPlan)
+
+-- -----------------------------------------------------------------------
+
+orTestClauses = [
+  OrClause DataSourceDefault [
+    OCB_CLAUSE $
+      DataPattern (LC_XAV (VAR "?e") (ATTR ":derp/tag") (VAL_STR "tea")),
+    OCB_CLAUSE $
+      DataPattern (LC_XAV (VAR "?e") (ATTR ":derp/tag") (VAL_STR "kite"))
+    ],
+  DataPattern (LC_XAZ (VAR "?e") (ATTR ":derp/id") (VAR "?derpid"))
+  ]
+
+
+orTestPlan = mkPlan
+  [derpdb]
+  []
+  orTestClauses
+  [VAR "?derpid"]
+
+orTestOut = evalPlan
+  []
+  derpdb
+  (fromRight orTestPlan)

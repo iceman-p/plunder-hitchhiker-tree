@@ -298,6 +298,7 @@ data Clause
 
 clauseUses :: Clause -> Set Variable
 clauseUses (NotClause _ clauses) = S.unions $ map clauseUses clauses
+clauseUses (OrClause _ orclauses) = S.unions $ map orClauseUses orclauses
 clauseUses (DataPattern load)                         = loadClauseBinds load
 clauseUses (BiPredicateExpression a _ b) =
   S.fromList $ join [fnArgToVariable a, fnArgToVariable b]
@@ -314,6 +315,10 @@ data OrClauseBody
 orClauseUses :: OrClauseBody -> Set Variable
 orClauseUses (OCB_CLAUSE clause)  = clauseUses clause
 orClauseUses (OCB_AND_CLAUSES cs) = S.unions $ map clauseUses cs
+
+orClauseToClauseList :: OrClauseBody -> [Clause]
+orClauseToClauseList (OCB_CLAUSE clause)       = [clause]
+orClauseToClauseList (OCB_AND_CLAUSES clauses) = clauses
 
 data RulePack
 
@@ -357,7 +362,8 @@ data Plan :: Data.Kind.Type -> Data.Kind.Type where
 
   TabKeySet :: Variable -> Variable -> Plan RelTab -> Plan RelSet
 
-  SetJoin :: Variable -> Plan RelSet -> Plan RelSet -> Plan RelSet
+  SetIntersect :: Variable -> Plan RelSet -> Plan RelSet -> Plan RelSet
+  SetUnion :: Variable -> Plan RelSet -> Plan RelSet -> Plan RelSet
   SetScalarJoin :: Plan RelSet -> Plan RelScalar -> Plan RelSet
 
   MkMultiTab :: Plan RelTab -> Plan RelTab -> Plan RelMultiTab
@@ -408,8 +414,11 @@ instance Show (Plan a) where
   show (FilterPredTabVals preds rTab) =
     "FilterPredTabVals (" <> show preds <> ") (" <> show rTab <> ")"
 
-  show (SetJoin key a b) = "SetJoin (" <> show key <> ") (" <> show a <>
+  show (SetIntersect key a b) = "SetIntersect (" <> show key <> ") (" <> show a <>
     ") (" <> show b <> ")"
+  show (SetUnion key a b) = "SetUnion (" <> show key <> ") (" <> show a <>
+    ") (" <> show b <> ")"
+
   show (SetScalarJoin a b) = "SetScalarJoin (" <> show a <> ") (" <> show b <>
                              ")"
   show (MkMultiTab a b) = "MkMultiTab (" <> show a <> ") (" <> show b <> ")"

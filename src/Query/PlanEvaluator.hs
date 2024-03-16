@@ -137,11 +137,18 @@ evalPlan inputs db = relationToRows . runFromPlanHolder
             (applyFilterFuncsToSet preds) set tab
       in RTAB from to outtab
 
-    go (SetJoin _key pa pb) =
+    go (SetIntersect _key pa pb) =
       let ea = go pa
           eb = go pb
       in if ea.sym == eb.sym
          then RSET ea.sym $ HS.intersection ea.val eb.val
+         else error "Bad plan: comparing setjoin-ing two different types"
+
+    go (SetUnion _key pa pb) =
+      let ea = go pa
+          eb = go pb
+      in if ea.sym == eb.sym
+         then RSET ea.sym $ HS.union ea.val eb.val
          else error "Bad plan: comparing setjoin-ing two different types"
 
     go (SetScalarJoin pset pscalar) =
