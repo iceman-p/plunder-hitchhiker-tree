@@ -306,19 +306,3 @@ splitSetRight full@(HITCHHIKERSET config (Just top)) pred k = case pred of
     min = HS.findMin full
     max = HS.findMax full
     emptySet = HS.empty config
-
-
-
--- multiTabToRows :: Variable
---                -> [Variable]
---                -> HitchhikerMap Value (Vector (HitchhikerSet Value))
---                -> Rows
--- multiTabToRows key vals hhmap = ROWS vars vars rowData
---   where
---     vars = key:vals
---     rowData = concat $ map step $ HM.toList hhmap
-
---     step :: (Value, Vector (HitchhikerSet Value)) -> [Vector Value]
---     step (k, tops) = V.toList $ V.sequence $
---       V.cons (V.singleton k) (map (V.fromList . HS.toList) tops)
-

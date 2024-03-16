@@ -5,15 +5,16 @@ import           ClassyPrelude
 import           Query.Types
 import           Types
 
-import           Data.Maybe       (fromJust)
+import           Data.Containers.ListUtils (nubOrd)
+import           Data.Maybe                (fromJust)
 
-import qualified Data.List        as L
-import qualified Data.Set         as S
-import qualified Data.Vector      as V
+import qualified Data.List                 as L
+import qualified Data.Set                  as S
+import qualified Data.Vector               as V
 
-import qualified HitchhikerMap    as HM
-import qualified HitchhikerSet    as HS
-import qualified HitchhikerSetMap as HSM
+import qualified HitchhikerMap             as HM
+import qualified HitchhikerSet             as HS
+import qualified HitchhikerSetMap          as HSM
 
 -- Row handling functions
 
@@ -36,7 +37,7 @@ multiTabToRows :: [Variable]
 multiTabToRows req key vals hhmap =
   ROWS req req rowData
   where
-    rowData = concat $ map step $ HM.toList hhmap
+    rowData = nubOrd $ concat $ map step $ HM.toList hhmap
 
     -- In order, what are the the indexes of |vals| in
     outIdxes :: [Either () Int]

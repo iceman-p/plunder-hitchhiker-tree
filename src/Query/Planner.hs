@@ -83,7 +83,7 @@ mkPlan typeDBs bindingInputs clauses target =
        -> Either PlanningError [PlanHolder]
     go target inputs [] = Right inputs
     go target inputs (c:cs) =
-      trace ("Step: c=" <> show c <> ", cs=" <> show cs <> ", inputs=" <> show inputs) $
+--      trace ("Step: c=" <> show c <> ", cs=" <> show cs <> ", inputs=" <> show inputs) $
       let past = pastProvides inputs
           future = futureNeeds cs
       in case c of
