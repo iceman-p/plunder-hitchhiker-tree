@@ -12,7 +12,7 @@ import           Types
 
 import           Data.Sorted.Set
 
-import qualified Data.Map              as M
+import qualified Data.Map.Strict       as M
 import qualified Data.Set              as S
 import qualified HitchhikerMap         as HM
 import qualified HitchhikerSet         as HS

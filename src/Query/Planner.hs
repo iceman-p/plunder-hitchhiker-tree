@@ -8,7 +8,7 @@ import           Query.HitchhikerDatomStore
 import           Query.PlanEvaluator
 import           Query.Types
 
-import qualified Data.Map                   as M
+import qualified Data.Map.Strict            as M
 import qualified Data.Set                   as S
 
 -- Planner try 3

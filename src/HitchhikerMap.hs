@@ -2,7 +2,7 @@ module HitchhikerMap where
 
 import           ClassyPrelude     hiding (empty)
 
-import           Data.Map          (Map)
+import           Data.Map.Strict   (Map)
 
 import           Safe              (tailSafe)
 

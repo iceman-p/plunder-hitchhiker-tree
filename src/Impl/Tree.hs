@@ -4,7 +4,7 @@ module Impl.Tree where
 
 import           ClassyPrelude
 
-import           Data.Map             (Map)
+import           Data.Map.Strict      (Map)
 
 import           Data.Primitive.Array hiding (fromList)
 import           Data.Sorted.Row

@@ -5,7 +5,7 @@ module Types where
 
 import           ClassyPrelude
 
-import           Data.Map      (Map)
+import           Data.Map.Strict (Map)
 
 -- For ArraySet
 import           Data.Sorted

@@ -11,7 +11,7 @@ import           Test.Tasty.QuickCheck
 import           Types
 import           Utils
 
-import qualified Data.Map              as M
+import qualified Data.Map.Strict       as M
 import qualified Data.Set              as Set
 import qualified Data.SetMap           as S
 import qualified HitchhikerSet         as HS

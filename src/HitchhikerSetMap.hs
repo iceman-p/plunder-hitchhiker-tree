@@ -2,7 +2,7 @@ module HitchhikerSetMap where
 
 import           ClassyPrelude
 
-import           Data.Map          (Map)
+import           Data.Map.Strict   (Map)
 import           Data.Set          (Set)
 
 import           Safe              (tailSafe)

@@ -17,7 +17,7 @@ import           Query.Rows
 import           Query.Types
 import           Types
 
-import qualified Data.Map                   as M
+import qualified Data.Map.Strict            as M
 import qualified Data.Set                   as S
 
 instance Arbitrary BuiltinPred where

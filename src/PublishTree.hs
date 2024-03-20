@@ -8,7 +8,7 @@ import           Control.Monad.State.Strict (State, evalState, get, modify',
 import           Impl.Types
 import           Types
 
-import qualified Data.Map                   as M
+import qualified Data.Map.Strict            as M
 
 toPublishTree :: (Hashable k, Hashable v)
               => HitchhikerMap k v

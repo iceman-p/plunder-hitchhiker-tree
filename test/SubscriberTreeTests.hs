@@ -12,7 +12,7 @@ import           Test.Tasty.QuickCheck
 import           PublishTree
 import           Types
 
-import qualified Data.Map              as M
+import qualified Data.Map.Strict       as M
 import qualified HitchhikerMap         as H
 import qualified SubscriberTree        as S
 

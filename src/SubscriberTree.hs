@@ -9,15 +9,15 @@ module SubscriberTree (SubscriberTree(..),
 
 import           ClassyPrelude
 
-import           Data.Map      (Map)
-import           Data.Set      (Set)
+import           Data.Map.Strict (Map)
+import           Data.Set        (Set)
 
 import           Impl.Index
 import           Impl.Types
 import           Types
 import           Utils
 
-import qualified Data.Map      as M
+import qualified Data.Map.Strict as M
 
 -- A SubscriberTree is a partial mirror of a FullTree. SubscriberTree is meant
 -- to replicate as much structure as possible from a FullTree and be updatable
