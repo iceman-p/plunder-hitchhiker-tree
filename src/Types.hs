@@ -70,6 +70,24 @@ largeConfig = TREECONFIG {
     minFanout' = 64
     maxFanout' = 2 * minFanout' - 1
 
+data CountList x = COUNTLIST !Int ![x]
+  deriving (Show, Generic, NFData, NoThunks)
+
+emptyCL :: CountList x
+emptyCL = COUNTLIST 0 []
+
+singletonCL :: x -> CountList x
+singletonCL x = COUNTLIST 1 [x]
+
+toCountList :: [x] -> CountList x
+toCountList x = COUNTLIST (length x) x
+
+countListSize :: CountList x -> Int
+countListSize (COUNTLIST x _) = x
+
+countListEmpty :: CountList x -> Bool
+countListEmpty (COUNTLIST x _) = x == 0
+
 -- -----------------------------------------------------------------------
 
 -- The shared node between both FullTrees and PartialTrees.
@@ -90,7 +108,7 @@ data HitchhikerMap k v = HITCHHIKERMAP {
 -- -----------------------------------------------------------------------
 
 data HitchhikerSetNode k
-  = HitchhikerSetNodeIndex !(TreeIndex k (HitchhikerSetNode k)) !(Int, [k])
+  = HitchhikerSetNodeIndex !(TreeIndex k (HitchhikerSetNode k)) !(CountList k)
   | HitchhikerSetNodeLeaf !(ArraySet k)
   deriving (Show, Generic, NFData, NoThunks)
 

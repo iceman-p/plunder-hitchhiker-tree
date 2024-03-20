@@ -36,9 +36,16 @@ import qualified Data.Set         as S
 -- though the code is written so it can be reused for the ave or vea indexes,
 -- too.
 
+data DatomEAV e a v tx = DAT_EAV !e !a !v !tx !Bool
+  deriving (Show, Eq, Ord, Generic, NFData, NoThunks)
+data DatomAV a v tx = DAT_AV !a !v !tx !Bool
+  deriving (Show, Eq, Ord, Generic, NFData, NoThunks)
+data DatomTxV v tx = DAT_TXV !tx !v !Bool
+  deriving (Show, Eq, Ord, Generic, NFData, NoThunks)
+
 data EDatomRow e a v tx
   = ERowIndex !(TreeIndex e (EDatomRow e a v tx))
-              (Int, [(e, a, v, tx, Bool)])
+              !(CountList (DatomEAV e a v tx))
   | ELeaf !(Map e (ADatomRow a v tx))
   deriving (Show, Generic, NFData, NoThunks)
 
@@ -46,13 +53,13 @@ data EDatomRow e a v tx
 -- means that vs aren't stored next to each other when doing a simple a scan.
 data ADatomRow a v tx
   = ARowIndex !(TreeIndex a (ADatomRow a v tx))
-              (Int, [(a, v, tx, Bool)])
+              !(CountList (DatomAV a v tx))
   | ALeaf !(Map a (VStorage v tx))
   deriving (Show, Generic, NFData, NoThunks)
 
 -- An append only, backwards list that keeps track of the first transaction
 -- number (the terminal item of the list)
-data TxHistory v tx = TxHistory !tx ![(tx, v, Bool)]
+data TxHistory v tx = TxHistory !tx ![DatomTxV v tx]
   deriving (Show, Generic, NoThunks)
 
 instance NFData (TxHistory v tx) where

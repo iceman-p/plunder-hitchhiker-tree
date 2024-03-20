@@ -95,8 +95,8 @@ hhMapTF = TreeFun {
   mkNode = HitchhikerMapNodeIndex,
   mkLeaf = HitchhikerMapNodeLeaf,
   caseNode = \case
-      HitchhikerMapNodeIndex a b -> SLeft (a, b)
-      HitchhikerMapNodeLeaf l    -> SRight l,
+      HitchhikerMapNodeIndex a b -> CaseIndex a b
+      HitchhikerMapNodeLeaf l    -> CaseLeaf l,
 
   leafInsert = M.unionWith (\a b -> b),
   leafMerge = (<>),

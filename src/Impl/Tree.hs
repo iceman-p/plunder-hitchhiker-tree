@@ -27,15 +27,15 @@ treeDepth :: TreeFun k v a hh lt
           -> a
           -> Int
 treeDepth tf@TreeFun{..} node = case caseNode node of
-  SLeft (TreeIndex _ vals, _) -> 1 + (treeDepth tf $ vals ! 0)
-  SRight _                    -> 1
+  CaseIndex (TreeIndex _ vals) hh -> 1 + (treeDepth tf $ vals ! 0)
+  CaseLeaf _                      -> 1
 
 treeWeightEstimate :: TreeFun k v a hh lt
                    -> a
                    -> Int
 treeWeightEstimate tf@TreeFun{..} node = case caseNode node of
-  SLeft (TreeIndex keys vals, _) -> (length keys) * (treeDepth tf $ vals ! 0)
-  SRight l                       -> leafLength l
+  CaseIndex (TreeIndex keys vals) _ -> (length keys) * (treeDepth tf $ vals ! 0)
+  CaseLeaf l                        -> leafLength l
 
 fixUp :: TreeConfig
       -> TreeFun k v a hh lt
@@ -54,7 +54,7 @@ insertRec :: (Show k, Show a, Show lt, Show hh, Ord k)
           -> TreeIndex k a
 insertRec config tf@TreeFun{..} !toAdd node =
   case caseNode node of
-    SLeft (!children, !hitchhikers)
+    CaseIndex children hitchhikers
       | hhLength merged > maxHitchhikers config ->
           -- We have reached the maximum number of hitchhikers, we now need to
           -- flush these downwards.
@@ -68,8 +68,9 @@ insertRec config tf@TreeFun{..} !toAdd node =
       where
         !merged = hhMerge hitchhikers toAdd
 
-    SRight !items                  ->
-      let !ti = splitLeafMany tf (maxLeafItems config) $ leafInsert items toAdd
+    CaseLeaf items                  ->
+      let !li = leafInsert items toAdd
+          !ti = splitLeafMany tf (maxLeafItems config) li
       in ti
 
 -- Given a list of hitchhikers, try to distribute each downward, but written as
@@ -94,14 +95,14 @@ distributeDownwards config tf@TreeFun{..} !inHH treeIn@(TreeIndex keys vals)
       in TreeIndex (fromList newKeys) (concat newVals)
   where
     push :: (hh, a) -> TreeIndex k a
-    push (hh, node)
+    push (!hh, !node)
       | hhLength hh == 0 = singletonIndex node
       | otherwise        = let !x = insertRec config tf hh node in x
 
     joinIndex :: [k] -> [TreeIndex k a] -> ([k], [Row a])
     joinIndex [] [] = ([], [])
     joinIndex [] [TreeIndex keys vals] = (toList keys, [vals])
-    joinIndex (k:ks) ((TreeIndex keys vals):ts) =
+    joinIndex (!k:ks) ((TreeIndex keys vals):ts) =
       let (keyrest, valrest) = joinIndex ks ts
       in ( (toList keys) ++ [k] ++ keyrest
          , (vals:valrest) )
@@ -112,8 +113,8 @@ getLeafList :: Ord k => TreeFun k v a hh lt -> a -> [lt]
 getLeafList tf@TreeFun{..} = go hhEmpty
   where
     go hh node = case caseNode node of
-      SRight leaves                 -> let !i = leafInsert leaves hh in [i]
-      SLeft (TreeIndex keys vals, hitchhikers) ->
+      CaseLeaf leaves                 -> let !i = leafInsert leaves hh in [i]
+      CaseIndex (TreeIndex keys vals) hitchhikers ->
         let !perValHH = hhWholeSplit (toList keys)
                       $ hhMerge hitchhikers hh
             !par = zipWith go perValHH (toList vals)
@@ -124,8 +125,8 @@ flushDownwards :: Ord k => TreeFun k v a hh lt -> a -> a
 flushDownwards tf@TreeFun{..} = go hhEmpty
   where
     go hh node = case caseNode node of
-      SRight leaves                 -> mkLeaf $ leafInsert leaves hh
-      SLeft (children@(TreeIndex keys vals), hitchhikers) ->
+      CaseLeaf leaves                 -> mkLeaf $! leafInsert leaves hh
+      CaseIndex children@(TreeIndex keys vals) hitchhikers ->
         let perValHH = fromList
                      $ hhWholeSplit (toList keys)
                      $ hhMerge hitchhikers hh
@@ -150,8 +151,8 @@ deleteRec :: (Show k, Show a, Show lt, Show hh, Ord k)
           -> a
 deleteRec config tf@TreeFun{..} key mybV node =
   case caseNode node of
-    SRight items                  -> mkLeaf $ leafDelete key mybV items
-    SLeft (children, hitchhikers) ->
+    CaseLeaf items                  -> mkLeaf $ leafDelete key mybV items
+    CaseIndex children hitchhikers ->
       let (ctx, child) = valView key children
           newChild = deleteRec config tf key mybV child
           childNeedsMerge = nodeNeedsMerge config tf newChild
@@ -171,8 +172,8 @@ nodeNeedsMerge :: TreeConfig
                -> a
                -> Bool
 nodeNeedsMerge config TreeFun{..} node = case caseNode node of
-  SLeft (children, hitchhikers) -> indexNumKeys children < minIdxKeys config
-  SRight items                  -> leafLength items < minLeafItems config
+  CaseIndex children hitchhikers -> indexNumKeys children < minIdxKeys config
+  CaseLeaf items                 -> leafLength items < minLeafItems config
 
 mergeNodes :: (Show k, Show a, Show hh, Show lt, Ord k)
            => TreeConfig
@@ -183,12 +184,13 @@ mergeNodes :: (Show k, Show a, Show hh, Show lt, Ord k)
            -> TreeIndex k a
 mergeNodes config tf@TreeFun{..} left middleKey right =
   case (caseNode left, caseNode right) of
-    (SLeft (leftIdx, leftHH), SLeft (rightIdx, rightHH)) ->
+    (CaseIndex leftIdx leftHH, CaseIndex rightIdx rightHH) ->
       let left  = distributeDownwards config tf leftHH leftIdx
           right = distributeDownwards config tf rightHH rightIdx
       in extendIndex tf (maxIdxKeys config) (mergeIndex left middleKey right)
-    (SRight leftLeaf, SRight rightLeaf)                  ->
-      splitLeafMany tf (maxLeafItems config) (leafMerge leftLeaf rightLeaf)
+    (CaseLeaf leftLeaf, CaseLeaf rightLeaf)                  ->
+      let !merged = leafMerge leftLeaf rightLeaf
+      in splitLeafMany tf (maxLeafItems config) merged
 
 
 asToSet :: Ord k => [ArraySet k] -> ClassyPrelude.Set k
@@ -330,8 +332,8 @@ maplistMaplistIntersect fun partial ao@(a:as) bo@(b:bs) =
                filteredBy (toMap (a:partial)) $ maplistMaplistIntersect fun [] ao bs
 
 
-countListMerge :: Monoid a => (Int, a) -> (Int, a) -> (Int, a)
-countListMerge (lc, l) (rc, r) = (lc + rc, l ++ r)
+countListMerge :: CountList a -> CountList a -> CountList a
+countListMerge (COUNTLIST lc l) (COUNTLIST rc r) = COUNTLIST (lc + rc) (l ++ r)
 
 
 splitCountList :: Ord e
@@ -343,19 +345,17 @@ splitCountList fun e (_, i) = ((length left, left), (length right, right))
 
 doWholeSplit :: Ord item
              => (e -> item -> Bool)
-             -> [e] -> (Int, [item])
-             -> [(Int, [item])]
-doWholeSplit func keys (_, hh) = out
+             -> [e] -> CountList item
+             -> [CountList item]
+doWholeSplit func keys (COUNTLIST _ hh) = out
   where
     sortedHH = sort hh
     (pieces, finalPiece) = foldl' checkspan ([], sortedHH) keys
-    out = map addLen (reverse $ (finalPiece:pieces))
+    out = map toCountList $ reverse $ (finalPiece:pieces)
 
     checkspan (prev, remaining) k = (lhs:prev, rhs)
       where
         (lhs, rhs) = span (func k) remaining
-
-    addLen l = (length l, l)
 
 -- You should just be able to foldl the set differences.
 --

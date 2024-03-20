@@ -35,29 +35,29 @@ emptyRows config = EAVROWS config SNothing
 addDatom :: forall e a v tx
           . (Show e, Show a, Show v, Show tx,
              Ord e, Ord a, Ord v, Ord tx)
-         => (e, a, v, tx, Bool)
+         => DatomEAV e a v tx
          -> EAVRows e a v tx
          -> EAVRows e a v tx
-addDatom (!e, !a, !v, !tx, !o) (EAVROWS config SNothing) =
+addDatom (DAT_EAV e a v tx o) (EAVROWS config SNothing) =
   -- Initialize everything to a single
   EAVROWS config $ SJust $
   ELeaf $ M.singleton e $!
   ALeaf $ M.singleton a $!
-  vstorageSingleton (tx, v, o)
+  vstorageSingleton $ DAT_TXV tx v o
 
-addDatom datom@(!e, !a, !v, !tx, !o) (EAVROWS config (SJust root)) =
+addDatom datom (EAVROWS config (SJust root)) =
   EAVROWS config $ SJust $
   fixUp config (hhEDatomRowTF config) $
   insertRec config
             (hhEDatomRowTF config)
-            (1, [datom])
+            (singletonCL datom)
             root
 
 -- Given a list of datoms, build out a
 addDatoms :: forall e a v tx
           . (Show e, Show a, Show v, Show tx,
              Ord e, Ord a, Ord v, Ord tx)
-         => [(e, a, v, tx, Bool)]
+         => [DatomEAV e a v tx]
          -> EAVRows e a v tx
          -> EAVRows e a v tx
 addDatoms ds (EAVROWS config SNothing) =
@@ -68,7 +68,7 @@ addDatoms ds (EAVROWS config SNothing) =
 addDatoms ds (EAVROWS config (SJust top)) =
   EAVROWS config $ SJust $
   fixUp config (hhEDatomRowTF config) $
-  insertRec config (hhEDatomRowTF config) (length ds, ds) top
+  insertRec config (hhEDatomRowTF config) (toCountList ds) top
 
 
 -- Given a list of individual datoms, put all of them in a hitchhiker
@@ -77,22 +77,19 @@ addDatoms ds (EAVROWS config (SJust top)) =
 datomsToTree :: forall e a v tx
               . (Show e, Show a, Show v, Show tx, Ord a, Ord e, Ord v, Ord tx)
              => TreeConfig
-             -> [(e, a, v, tx, Bool)] -> Map e (ADatomRow a v tx)
+             -> [DatomEAV e a v tx] -> Map e (ADatomRow a v tx)
 datomsToTree _ [] = mempty
 datomsToTree config ds = go mempty ds
   where
-    go :: Map e (ADatomRow a v tx) -> [(e, a, v, tx, Bool)]
+    go :: Map e (ADatomRow a v tx) -> [DatomEAV e a v tx]
        -> Map e (ADatomRow a v tx)
-    go !acc []                     = acc
-    go !acc (d@(e, _, _, _, _):ds) = go (M.alter (injectE d) e acc) ds
+    go !acc []                         = acc
+    go !acc (d@(DAT_EAV e _ _ _ _):ds) = go (M.alter (injectE d) e acc) ds
 
-    injectE :: (e, a, v, tx, Bool) -> Maybe (ADatomRow a v tx)
-            -> Maybe (ADatomRow a v tx)
-    injectE x@(_, a, v, tx, op) Nothing =
---      trace ("inject singleton " <> show x) $
-      Just $! ALeaf $! M.singleton a $! vstorageSingleton (tx, v, op)
-    injectE (_, a, v, tx, op) (Just !adatoms) =
-      Just $! arowInsertMany config [(a, v, tx, op)] adatoms
+    injectE x@(DAT_EAV _ a v tx op) Nothing =
+      Just $! ALeaf $! M.singleton a $! vstorageSingleton $ DAT_TXV tx v op
+    injectE (DAT_EAV _ a v tx op) (Just !adatoms) =
+      Just $! arowInsertMany config [(DAT_AV a v tx op)] adatoms
 
 
 hhEDatomRowTF :: (Show e, Show a, Show v, Show tx,
@@ -101,14 +98,14 @@ hhEDatomRowTF :: (Show e, Show a, Show v, Show tx,
               -> TreeFun e
                          (a, v, tx, Bool)
                          (EDatomRow e a v tx)
-                         (Int, [(e, a, v, tx, Bool)])
+                         (CountList (DatomEAV e a v tx))
                          (Map e (ADatomRow a v tx))
 hhEDatomRowTF config = TreeFun {
   mkNode = ERowIndex,
   mkLeaf = ELeaf,
   caseNode = \case
-      ERowIndex a b -> SLeft (a, b)
-      ELeaf l       -> SRight l,
+      ERowIndex a b -> CaseIndex a b
+      ELeaf l       -> CaseLeaf l,
 
   -- leafMap -> hhMap -> leafMap
   leafInsert = edatomLeafInsert config,
@@ -120,9 +117,9 @@ hhEDatomRowTF config = TreeFun {
   leafDelete = \a b -> error "Pure deletion has to be handled otherwise",
 
   hhMerge = countListMerge,
-  hhLength = fst,
+  hhLength = countListSize,
   hhWholeSplit = edatomHHWholeSplit,
-  hhEmpty = (0, []),
+  hhEmpty = emptyCL,
   hhDelete = \a b -> error "Pure deletion has to be handled otherwise"
   }
 
@@ -131,53 +128,55 @@ hhEDatomRowTF config = TreeFun {
 edatomLeafInsert :: (Show e, Show a, Show v, Show tx, Ord e, Ord a, Ord v, Ord tx)
                  => TreeConfig
                  -> Map e (ADatomRow a v tx)
-                 -> (Int, [(e, a, v, tx, Bool)])
+                 -> (CountList (DatomEAV e a v tx))
                  -> Map e (ADatomRow a v tx)
-edatomLeafInsert config map (count, insertions) = go map $ reverse insertions
+edatomLeafInsert config map (COUNTLIST _ insertions) =
+  go map $ reverse insertions
   where
-    go !map []                           = map
-    go !map (tuple@(e, a, v, tx, op):is) = go (M.alter (merge tuple) e map) is
+    go !map []                             = map
+    go !map (tuple@(DAT_EAV e _ _ _ _):is) = go (M.alter (merge tuple) e map) is
 
-    merge orig@(e, a, v, tx, op) c =
+    merge (DAT_EAV e a v tx op) c =
 --      trace ("edatom insert " <> show orig) $
       case c of
-        Nothing  -> Just $ ALeaf $ M.singleton a (vstorageSingleton (tx, v, op))
+        Nothing  -> Just $ ALeaf $ M.singleton a $
+                    vstorageSingleton (DAT_TXV tx v op)
         -- TODO: Once you've confirmed that the new edatom list based
         -- implementation works, move on at this join point to make adatom work.
-        Just !ad -> Just $ arowInsertMany config [(a, v, tx, op)] ad
+        Just !ad -> Just $ arowInsertMany config [DAT_AV a v tx op] ad
 
 edatomHHWholeSplit :: (Ord e, Ord a, Ord v, Ord tx)
-                   => [e] -> (Int, [(e, a, v, tx, Bool)])
-                   -> [(Int, [(e, a, v, tx, Bool)])]
+                   => [e] -> (CountList (DatomEAV e a v tx))
+                   -> [CountList (DatomEAV e a v tx)]
 edatomHHWholeSplit = doWholeSplit altk
   where
-    altk k (e, _, _, _, _) = e < k
+    altk k (DAT_EAV e _ _ _ _) = e < k
 
 unwrapHSM :: HitchhikerSetMap k v -> HitchhikerSetMapNode k v
 unwrapHSM (HITCHHIKERSETMAP _ (Just x)) = x
 
 arowInsertMany :: (Show a, Show v, Show tx, Ord a, Ord v, Ord tx)
                => TreeConfig
-               -> [(a, v, tx, Bool)]
+               -> [DatomAV a v tx]
                -> ADatomRow a v tx
                -> ADatomRow a v tx
 arowInsertMany config !items top =
   fixUp config (hhADatomRowTF config) $
-  insertRec config (hhADatomRowTF config) (length items, items) top
+  insertRec config (hhADatomRowTF config) (toCountList items) top
 
 hhADatomRowTF :: (Show a, Show v, Show tx, Ord a, Ord v, Ord tx)
               => TreeConfig
               -> TreeFun a
                          (v, tx, Bool)
                          (ADatomRow a v tx)
-                         (Int, [(a, v, tx, Bool)])
+                         (CountList (DatomAV a v tx))
                          (Map a (VStorage v tx))
 hhADatomRowTF config = TreeFun {
   mkNode = ARowIndex,
   mkLeaf = ALeaf,
   caseNode = \case
-      ARowIndex a b -> SLeft (a, b)
-      ALeaf l       -> SRight l,
+      ARowIndex a b -> CaseIndex a b
+      ALeaf l       -> CaseLeaf l,
 
   -- -- leafMap -> hhMap -> leafMap
   leafInsert = adatomLeafInsert config, --   M.unionWith (mergeVStorage config),
@@ -189,61 +188,63 @@ hhADatomRowTF config = TreeFun {
   leafDelete = \a b -> error "Pure deletion has to be handled otherwise",
 
   hhMerge = countListMerge,
-  hhLength = fst,
+  hhLength = countListSize,
   hhWholeSplit = adatomHHWholeSplit,
-  hhEmpty = (0, []),
+  hhEmpty = emptyCL,
   hhDelete = \a b -> error "Pure deletion has to be handled otherwise"
   }
 
 adatomLeafInsert :: (Show a, Show v, Show tx, Ord a, Ord v, Ord tx)
                  => TreeConfig
                  -> Map a (VStorage v tx)
-                 -> (Int, [(a, v, tx, Bool)])
+                 -> (CountList (DatomAV a v tx))
                  -> Map a (VStorage v tx)
-adatomLeafInsert config map (count, insertions) =
+adatomLeafInsert config map (COUNTLIST _ insertions) =
 --  trace ("adatomLeafInsert " <> show insertions) $
   go map $ reverse insertions
   where
-    go !map []                        = map
-    go !map (tuple@(a, v, tx, op):is) = go (M.alter (merge tuple) a map) is
+    go !map []                          = map
+    go !map (tuple@(DAT_AV a _ _ _):is) = go (M.alter (merge tuple) a map) is
 
-    merge (_, v, tx, op) = \case
+    merge (DAT_AV _ v tx op) = \case
       Nothing ->
-        Just $! vstorageSingleton (tx, v, op)
+        Just $! vstorageSingleton $ DAT_TXV tx v op
       -- TODO: Once you've confirmed that the new edatom list based
       -- implementation works, move on at this join point to make adatom work.
-      Just !vs -> Just $! vstorageInsertMany config vs [(tx, v, op)]
+      Just !vs -> Just $! vstorageInsertMany config vs [(DAT_TXV tx v op)]
 
 adatomHHWholeSplit :: (Show a, Show v, Show tx, Ord a, Ord v, Ord tx)
-                   => [a] -> (Int, [(a, v, tx, Bool)])
-                   -> [(Int, [(a, v, tx, Bool)])]
+                   => [a] -> CountList (DatomAV a v tx)
+                   -> [CountList (DatomAV a v tx)]
 adatomHHWholeSplit = doWholeSplit altk
   where
-    altk k (a, _, _, _) = a < k
+    altk k (DAT_AV a _ _ _) = a < k
 
 -- -----------------------------------------------------------------------
 
-mkSingletonTxMap !tuple@(!tx, v, op) = TxHistory tx [tuple]
+mkSingletonTxMap !tuple@(DAT_TXV tx _ _) = TxHistory tx [tuple]
 
-insertTxMap :: TxHistory v tx -> (tx, v, Bool) -> TxHistory v tx
+insertTxMap :: TxHistory v tx -> DatomTxV v tx -> TxHistory v tx
 insertTxMap (TxHistory origTx txs) !newTx = TxHistory origTx (newTx:txs)
 
-vstorageSingleton :: (tx, v, Bool) -> VStorage v tx
-vstorageSingleton (tx, v, True)   = VSimple v tx
+vstorageSingleton :: DatomTxV v tx -> VStorage v tx
+vstorageSingleton (DAT_TXV tx v True) = VSimple v tx
 
 -- Dumb, but the model allows it.
-vstorageSingleton d@(_, _, False) = VStorage SNothing $ mkSingletonTxMap d
+vstorageSingleton d@(DAT_TXV _ _ False)     =
+  VStorage SNothing $ mkSingletonTxMap d
 
 vstorageInsert :: (Show v, Show tx, Ord v, Ord tx)
                => TreeConfig
                -> VStorage v tx
-               -> (tx, v, Bool)
+               -> DatomTxV v tx
                -> VStorage v tx
 vstorageInsert config (VSimple pv ptx) newFact =
-  vstorageInsert config
-                 (VStorage (SJust $ HitchhikerSetNodeLeaf $ ssetSingleton pv)
-                           (mkSingletonTxMap (ptx, pv, True)))
-                 newFact
+  let !singpv = ssetSingleton pv
+  in vstorageInsert config
+                    (VStorage (SJust $ HitchhikerSetNodeLeaf $ singpv)
+                              (mkSingletonTxMap newFact))
+                    newFact
 
 vstorageInsert config (VStorage !curSet !txMap) !newTx =
   VStorage newSet newTxMap
@@ -254,16 +255,17 @@ vstorageInsert config (VStorage !curSet !txMap) !newTx =
 vstorageInsertMany :: (Show v, Show tx, Ord v, Ord tx)
                    => TreeConfig
                    -> VStorage v tx
-                   -> [(tx, v, Bool)]
+                   -> [DatomTxV v tx]
                    -> VStorage v tx
 vstorageInsertMany config !storage !as =
   foldl' (vstorageInsert config) storage as
 
 insertToValSet :: (Show v, Ord v)
                => TreeConfig
-               -> StrictMaybe (HitchhikerSetNode v) -> (tx, v, Bool)
                -> StrictMaybe (HitchhikerSetNode v)
-insertToValSet config curSet (tx, v, op) = case (curSet, op) of
+               -> DatomTxV v tx
+               -> StrictMaybe (HitchhikerSetNode v)
+insertToValSet config curSet (DAT_TXV tx v op) = case (curSet, op) of
       (SNothing, True)    -> SJust $ HitchhikerSetNodeLeaf $ ssetSingleton v
       (SNothing, False)   -> SNothing
       (SJust !set, True)  -> SJust $ HS.insertRaw config v set
@@ -287,7 +289,7 @@ partialLookup _ (EAVROWS config SNothing)    = HSM.empty config
 
 partialLookup e (EAVROWS config (SJust top)) = lookInENode mempty top
   where
-    lookInENode :: [(a, v, tx, Bool)]
+    lookInENode :: [DatomAV a v tx]
                 -> EDatomRow e a v tx
                 -> HitchhikerSetMap a v
     lookInENode hh = \case
@@ -304,13 +306,13 @@ partialLookup e (EAVROWS config (SJust top)) = lookInENode mempty top
             | otherwise -> aNodeTo $
                 arowInsertMany config hh anodes
 
-    matchHitchhikers :: (Int, [(e, a, v, tx, op)]) -> [(a, v, tx, op)]
-    matchHitchhikers (_, rows) = go rows
+    matchHitchhikers :: CountList (DatomEAV e a v tx) -> [DatomAV a v tx]
+    matchHitchhikers (COUNTLIST _ rows) = go rows
       where
         go [] = []
-        go ((cure, a, v, tx, op):ds) = if e == cure
-                                       then (a,v, tx, op):(go ds)
-                                       else go ds
+        go ((DAT_EAV cure a v t op):ds) = if e == cure
+                                          then (DAT_AV a v t op):(go ds)
+                                          else go ds
 
     aNodeTo :: ADatomRow a v tx -> HitchhikerSetMap a v
     aNodeTo anodes = HITCHHIKERSETMAP config $ Just $ translate arow
@@ -458,18 +460,18 @@ learns rawDatoms db@DATABASE{..} =
     vae = addDatoms (mapMaybe (eavToVae attributeProps) resolvedDatoms) vae
   }
 
-eavToEav (e, a, v, tx, op) = (e, a, v, tx, op)
+eavToEav (e, a, v, tx, op) = DAT_EAV e a v tx op
 
-eavToAev (e, a, v, tx, op) = (a, e, v, tx, op)
+eavToAev (e, a, v, tx, op) = DAT_EAV a e v tx op
 
 eavToAve attributes (e, a, v, tx, op)
   | Just (indexed, _, _) <- M.lookup a attributes
   , indexed
-    = Just (a, v, e, tx, op)
+    = Just (DAT_EAV a v e tx op)
   | otherwise = Nothing
 
 eavToVae attributes (e, a, v, tx, op)
   | Just (_, _, valType) <- M.lookup a attributes
   , valType == VT_ENTITY
-    = Just (v, a, e, tx, op)
+    = Just (DAT_EAV v a e tx op)
   | otherwise = Nothing

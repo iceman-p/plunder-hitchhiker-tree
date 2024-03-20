@@ -19,6 +19,10 @@ import           Impl.Strict
 data TreeIndex k v = TreeIndex !(Row k) !(Row v)
   deriving (Show, Eq, Generic, NFData, NoThunks)
 
+data CaseNode idx hhMap lm
+  = CaseIndex !idx !hhMap
+  | CaseLeaf !lm
+
 -- | Bundle of functions for manipulating a given tree type.
 --
 -- This generalizes how to deal with the leaves and hitchhiker data on each
@@ -29,7 +33,7 @@ data TreeFun key value subnode hhMap leafMap = TreeFun {
   mkNode       :: TreeIndex key subnode -> hhMap -> subnode,
   mkLeaf       :: leafMap -> subnode,
   caseNode     :: subnode
-               -> StrictEither ((TreeIndex key subnode), hhMap) leafMap,
+               -> CaseNode (TreeIndex key subnode) hhMap leafMap,
 
   -- Leaf storage options.
   leafInsert   :: leafMap -> hhMap -> leafMap,

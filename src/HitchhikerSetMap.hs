@@ -86,8 +86,8 @@ hhSetMapTF setConfig = TreeFun {
   mkNode = HitchhikerSetMapNodeIndex,
   mkLeaf = HitchhikerSetMapNodeLeaf,
   caseNode = \case
-      HitchhikerSetMapNodeIndex a b -> SLeft (a, b)
-      HitchhikerSetMapNodeLeaf l    -> SRight l,
+      HitchhikerSetMapNodeIndex a b -> CaseIndex a b
+      HitchhikerSetMapNodeLeaf l    -> CaseLeaf l,
 
   leafInsert = leafInsertImpl setConfig,
   leafMerge = leafMergeImpl setConfig {- M.unionWith HS.union -},
@@ -307,7 +307,7 @@ toKeySet (HITCHHIKERSETMAP config (Just top)) =
     translate = \case
       HitchhikerSetMapNodeIndex idx hh ->
         let ks = M.keys hh
-        in HitchhikerSetNodeIndex (mapIndex translate idx) (length ks, ks)
+        in HitchhikerSetNodeIndex (mapIndex translate idx) (toCountList ks)
       HitchhikerSetMapNodeLeaf l ->
         HitchhikerSetNodeLeaf $ ssetFromDistinctAscList $ M.keys l
 

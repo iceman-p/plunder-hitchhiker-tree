@@ -4,8 +4,9 @@
 
 {-# OPTIONS_GHC -Wall   #-}
 -- {-# OPTIONS_GHC -Werror #-}  -- allow orphans for now
-{-# LANGUAGE Strict     #-}
-{-# LANGUAGE StrictData #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE Strict      #-}
+{-# LANGUAGE StrictData  #-}
 
 module Data.Sorted.Types
     ( Row
@@ -15,6 +16,7 @@ module Data.Sorted.Types
 where
 
 import           Control.DeepSeq
+import           Data.Dynamic
 import           Data.Primitive.Array
 import           GHC.Generics
 import           NoThunks.Class
@@ -23,6 +25,8 @@ import           Prelude
 --------------------------------------------------------------------------------
 
 type Row a = Array a
+
+-- deriving via InspectHeap (Array a) instance Typeable a => NoThunks (Array a)
 
 instance NoThunks (Array a) where
   showTypeOf _ = "<never used since never fails>"

@@ -89,8 +89,8 @@ toSet (HITCHHIKERSET config SNothing) = S.empty
 toSet (HITCHHIKERSET config (SJust !root)) = collect root
   where
     collect = \case
-      HitchhikerSetNodeIndex (TreeIndex _ nodes) hh ->
-        foldl' (<>) (S.fromList $ snd hh) $ fmap collect nodes
+      HitchhikerSetNodeIndex (TreeIndex _ nodes) (COUNTLIST i hh) ->
+        foldl' (<>) (S.fromList hh) $ fmap collect nodes
       HitchhikerSetNodeLeaf l -> mkSet l
 
     mkSet = S.fromList . F.toList
@@ -115,7 +115,7 @@ insertRaw :: (Show k, Ord k)
           => TreeConfig -> k -> HitchhikerSetNode k
           -> HitchhikerSetNode k
 insertRaw config !k !root =
-  fixUp config hhSetTF $ insertRec config hhSetTF (1, [k]) root
+  fixUp config hhSetTF $ insertRec config hhSetTF (singletonCL k) root
 
 insertMany :: (Show k, Ord k)
            => [k] -> HitchhikerSet k -> HitchhikerSet k
@@ -129,7 +129,7 @@ insertMany !items hhset@(HITCHHIKERSET config (SJust !top))
   | L.null items = hhset
   | otherwise = HITCHHIKERSET config $ SJust $
                 fixUp config hhSetTF $
-                insertRec config hhSetTF (length items, items) top
+                insertRec config hhSetTF (toCountList items) top
 
 insertManyRaw :: (Show k, Ord k)
               => TreeConfig
@@ -138,7 +138,7 @@ insertManyRaw :: (Show k, Ord k)
               -> HitchhikerSetNode k
 insertManyRaw config !items !top =
   fixUp config hhSetTF $
-  insertRec config hhSetTF (length items, items) top
+  insertRec config hhSetTF (toCountList items) top
 
 delete :: (Show k, Ord k)
        => k -> HitchhikerSet k -> HitchhikerSet k
@@ -151,23 +151,23 @@ deleteRaw :: (Show k, Ord k)
           -> StrictMaybe (HitchhikerSetNode k)
 deleteRaw config !k root =
   case deleteRec config hhSetTF k Nothing root of
-    HitchhikerSetNodeIndex index hitchhikers
+    HitchhikerSetNodeIndex index (COUNTLIST i hitchhikers)
       | SJust childNode <- fromSingletonIndex index ->
           if L.null hitchhikers then SJust childNode
-          else SJust $ insertManyRaw config (snd hitchhikers) childNode
+          else SJust $ insertManyRaw config hitchhikers childNode
     HitchhikerSetNodeLeaf items
       | ssetIsEmpty items -> SNothing
     newRootNode -> SJust newRootNode
 
 -- -----------------------------------------------------------------------
 
-hhSetTF :: Ord k => TreeFun k v (HitchhikerSetNode k) (Int, [k]) (ArraySet k)
+hhSetTF :: Ord k => TreeFun k v (HitchhikerSetNode k) (CountList k) (ArraySet k)
 hhSetTF = TreeFun {
   mkNode = HitchhikerSetNodeIndex,
   mkLeaf = HitchhikerSetNodeLeaf,
   caseNode = \case
-      HitchhikerSetNodeIndex a b -> SLeft (a, b)
-      HitchhikerSetNodeLeaf l    -> SRight l,
+      HitchhikerSetNodeIndex a b -> CaseIndex a b
+      HitchhikerSetNodeLeaf l    -> CaseLeaf l,
 
   leafInsert = hhSetLeafInsert,
   leafMerge = (<>),
@@ -180,23 +180,23 @@ hhSetTF = TreeFun {
       Just _  -> error "Can't delete specific values in set",
 
   hhMerge = countListMerge,
-  hhLength = fst,
+  hhLength = countListSize,
   hhWholeSplit = setHHWholeSplit,
-  hhEmpty = (0, []),
-  hhDelete = \k mybV (_, s) -> case mybV of
+  hhEmpty = emptyCL,
+  hhDelete = \k mybV (COUNTLIST _ s) -> case mybV of
       Nothing -> let nu = filter (/= k) s
-                 in (length nu, nu)
+                 in toCountList nu
       Just _  -> error "Can't delete specific values in set"
   }
 
-hhSetLeafInsert :: Ord k => ArraySet k -> (Int, [k]) -> ArraySet k
-hhSetLeafInsert as (_, !items) =
+hhSetLeafInsert :: Ord k => ArraySet k -> CountList k -> ArraySet k
+hhSetLeafInsert as (COUNTLIST _ items) =
   let !x = ssetUnion as $ ssetFromList items
   in x
 
 setHHWholeSplit :: Ord k
-                => [k] -> (Int, [k])
-                -> [(Int, [k])]
+                => [k] -> CountList k
+                -> [CountList k]
 setHHWholeSplit = doWholeSplit altk
   where
     altk k x = x < k
@@ -209,8 +209,8 @@ member key (HITCHHIKERSET _ SNothing) = False
 member key (HITCHHIKERSET _ (SJust top)) = lookInNode top
   where
     lookInNode = \case
-      HitchhikerSetNodeIndex index hitchhikers ->
-        case elem key (snd hitchhikers) of
+      HitchhikerSetNodeIndex index (COUNTLIST _ hitchhikers) ->
+        case elem key hitchhikers of
           True  -> True
           False -> lookInNode $ findSubnodeByKey key index
       HitchhikerSetNodeLeaf items -> ssetMember key items
@@ -242,7 +242,7 @@ data AdvanceOp
 getLeftmostValue :: HitchhikerSetNode k -> k
 getLeftmostValue (HitchhikerSetNodeLeaf s)       = ssetFindMin s
 getLeftmostValue (HitchhikerSetNodeIndex (TreeIndex _ vals) hh)
-  | not $ L.null hh = error "Hitchhikers in set intersection"
+  | not $ countListEmpty hh = error "Hitchhikers in set intersection"
   | otherwise = getLeftmostValue $ unsafeHead vals
 
 consolidate :: Ord k => Int -> [ArraySet k] -> [ArraySet k]
@@ -383,7 +383,7 @@ takeWhileAntitone fun (HITCHHIKERSET config (SJust top)) =
             nuVals = rowPut lastItem (hsmTakeWhile (tVals ! lastItem)) tVals
         in if P.null nuKeys
            then hsmTakeWhile $ vals ! 0
-           else HitchhikerSetNodeIndex (TreeIndex nuKeys nuVals) (0, [])
+           else HitchhikerSetNodeIndex (TreeIndex nuKeys nuVals) emptyCL
 
       HitchhikerSetNodeLeaf l ->
         HitchhikerSetNodeLeaf $ ssetTakeWhileAntitone fun l
@@ -408,7 +408,7 @@ dropWhileAntitone fun (HITCHHIKERSET config (SJust top)) =
         -- the function holds, we don't need to recur into the subnodes.
         if P.null nuKeys
         then hsmDropWhile $ nuVals ! 0
-        else HitchhikerSetNodeIndex (TreeIndex nuKeys nuVals) (0, [])
+        else HitchhikerSetNodeIndex (TreeIndex nuKeys nuVals) emptyCL
         where
           nuKeys = dropWhile fun keys
           dropCount = length keys - length nuKeys
@@ -456,8 +456,8 @@ mapMonotonic func (HITCHHIKERSET config (SJust top)) =
   where
     go :: HitchhikerSetNode k -> HitchhikerSetNode a
     go = \case
-      HitchhikerSetNodeIndex (TreeIndex keys vals) (i, hh) ->
-        HitchhikerSetNodeIndex (TreeIndex mkeys mvals) (i, mhh)
+      HitchhikerSetNodeIndex (TreeIndex keys vals) (COUNTLIST i hh) ->
+        HitchhikerSetNodeIndex (TreeIndex mkeys mvals) (COUNTLIST i mhh)
         where
           mkeys = map func keys
           mvals = map go vals

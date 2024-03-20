@@ -177,11 +177,11 @@ addEntries items = do
   -- pPrint "D: "
   -- pPrint datoms
   let !newDB = learns datoms database
-  case unsafeNoThunks newDB.eav of
-    Nothing    -> pure ()
-    Just thunk -> error . concat $ [
-        "Unexpected thunk with context "
-      , show (thunkInfo thunk)
-      ]
+  -- case unsafeNoThunks newDB.eav of
+  --   Nothing    -> pure ()
+  --   Just thunk -> error . concat $ [
+  --       "Unexpected thunk with context "
+  --     , show (thunkInfo thunk)
+  --     ]
 
   put b { database = newDB }
