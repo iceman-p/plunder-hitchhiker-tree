@@ -28,7 +28,7 @@ tests =
     ]
 
 indexFromList :: [k] -> [v] -> TreeIndex k v
-indexFromList ks vs = TreeIndex (V.fromList ks) (V.fromList vs)
+indexFromList ks vs = TreeIndex (fromList ks) (fromList vs)
 
 -- Sample one level index for quick testing.
 largeIndex :: TreeIndex Int Int
