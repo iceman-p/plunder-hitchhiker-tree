@@ -1,3 +1,5 @@
+{-# LANGUAGE Strict     #-}
+{-# LANGUAGE StrictData #-}
 {-# OPTIONS_GHC -w   #-}
 module HitchhikerSet ( empty
                      , getConfig
@@ -47,7 +49,7 @@ import           Data.Sorted.Set
 
 import qualified Data.Foldable   as F
 import qualified Data.List       as L
-import qualified Data.Map        as M
+import qualified Data.Map.Strict as M
 import qualified Data.Set        as S
 import qualified Data.Vector     as V
 
@@ -80,7 +82,7 @@ fromArraySet config ks
 -- TODO: The runtime of this seems stupidly heavyweight.
 toSet :: (Show k, Ord k) => HitchhikerSet k -> Set k
 toSet (HITCHHIKERSET config Nothing) = S.empty
-toSet (HITCHHIKERSET config (Just root)) = collect root
+toSet (HITCHHIKERSET config (Just !root)) = collect root
   where
     collect = \case
       HitchhikerSetNodeIndex (TreeIndex _ nodes) hh ->
@@ -91,15 +93,15 @@ toSet (HITCHHIKERSET config (Just root)) = collect root
 
 weightEstimate :: (Ord k) => HitchhikerSet k -> Int
 weightEstimate (HITCHHIKERSET config Nothing)     = 0
-weightEstimate (HITCHHIKERSET config (Just root)) =
+weightEstimate (HITCHHIKERSET config (Just !root)) =
   treeWeightEstimate hhSetTF root
 
 depth :: (Ord k) => HitchhikerSet k -> Int
-depth (HITCHHIKERSET config Nothing)     = 0
-depth (HITCHHIKERSET config (Just root)) = treeDepth hhSetTF root
+depth (HITCHHIKERSET config Nothing)      = 0
+depth (HITCHHIKERSET config (Just !root)) = treeDepth hhSetTF root
 
 insert :: (Show k, Ord k) => k -> HitchhikerSet k -> HitchhikerSet k
-insert !k !(HITCHHIKERSET config (Just root)) =
+insert !k !(HITCHHIKERSET config (Just !root)) =
   HITCHHIKERSET config $ Just $ insertRaw config k root
 
 insert !k (HITCHHIKERSET config Nothing)
@@ -108,7 +110,7 @@ insert !k (HITCHHIKERSET config Nothing)
 insertRaw :: (Show k, Ord k)
           => TreeConfig -> k -> HitchhikerSetNode k
           -> HitchhikerSetNode k
-insertRaw config !k root =
+insertRaw config !k !root =
   fixUp config hhSetTF $ insertRec config hhSetTF (1, [k]) root
 
 insertMany :: (Show k, Ord k)
@@ -119,7 +121,7 @@ insertMany !items hhset@(HITCHHIKERSET config Nothing)
                 fixUp config hhSetTF $
                 splitLeafMany hhSetTF (maxLeafItems config) $ ssetFromList items
 
-insertMany !items hhset@(HITCHHIKERSET config (Just top))
+insertMany !items hhset@(HITCHHIKERSET config (Just !top))
   | L.null items = hhset
   | otherwise = HITCHHIKERSET config $ Just $
                 fixUp config hhSetTF $
@@ -130,7 +132,7 @@ insertManyRaw :: (Show k, Ord k)
               -> [k]
               -> HitchhikerSetNode k
               -> HitchhikerSetNode k
-insertManyRaw config !items top =
+insertManyRaw config !items !top =
   fixUp config hhSetTF $
   insertRec config hhSetTF (length items, items) top
 

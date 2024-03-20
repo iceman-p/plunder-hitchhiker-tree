@@ -11,7 +11,7 @@ import           Types
 import           Data.Maybe                 (fromJust)
 
 import qualified Data.List                  as L
-import qualified Data.Map                   as M
+import qualified Data.Map.Strict            as M
 import qualified Data.Set                   as S
 import qualified Data.Vector                as V
 

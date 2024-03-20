@@ -1,3 +1,5 @@
+{-# LANGUAGE Strict     #-}
+{-# LANGUAGE StrictData #-}
 -- The Query/Database version of ImgJSON
 module DataJSON where
 

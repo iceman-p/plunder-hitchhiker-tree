@@ -1,3 +1,5 @@
+{-# LANGUAGE Strict     #-}
+{-# LANGUAGE StrictData #-}
 module Query.Types where
 
 import           ClassyPrelude
@@ -62,7 +64,7 @@ data VStorage v tx
   -- We have had multiple transactions which have asserted or redacted values.
   -- Keep track of the current set, plus a historical log of all assertions or
   -- redactions that can be replayed.
-  | VStorage (Maybe (HitchhikerSetNode v)) !(TxHistory v tx)
+  | VStorage !(Maybe (HitchhikerSetNode v)) !(TxHistory v tx)
   deriving (Show)
 
 instance (NFData (HitchhikerSetNode v)) => NFData (VStorage v tx) where

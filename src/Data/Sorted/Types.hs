@@ -4,6 +4,8 @@
 
 {-# OPTIONS_GHC -Wall   #-}
 {-# OPTIONS_GHC -Werror #-}
+{-# LANGUAGE Strict     #-}
+{-# LANGUAGE StrictData #-}
 
 module Data.Sorted.Types
     ( Row
@@ -12,10 +14,10 @@ module Data.Sorted.Types
     )
 where
 
-import Prelude
-import Data.Primitive.Array
-import Control.DeepSeq
-import GHC.Generics
+import           Control.DeepSeq
+import           Data.Primitive.Array
+import           GHC.Generics
+import           Prelude
 
 --------------------------------------------------------------------------------
 

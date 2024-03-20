@@ -1,3 +1,5 @@
+{-# LANGUAGE Strict     #-}
+{-# LANGUAGE StrictData #-}
 module Main (main) where
 
 import           ClassyPrelude              hiding (many)
@@ -75,7 +77,7 @@ main = do
     -- pPrint $ (ave database)
     -- pPrint $ (vae database)
 
-    repl dbPlan
+    -- repl dbPlan
 
 delim = do
   many (char ' ')
@@ -131,9 +133,9 @@ repl derpQueryPlan = do
             [VAR "?derpid", VAR "?score", VAR "?thumburl"]
           toNaiveTag t = V.fromList [VAL_STR t]
       putStrLn $ "OUT: " <> tshow planOut
-      putStrLn $ "NAIVE: " <> tshow naiveOut
-      putStrLn $ "EQ TO NAIVE: " <> tshow (planOut == naiveOut)
-      putStrLn $ "SORTED EQ TO NAIVE: " <> tshow (sort planOut.values == sort naiveOut.values)
+      -- putStrLn $ "NAIVE: " <> tshow naiveOut
+      -- putStrLn $ "EQ TO NAIVE: " <> tshow (planOut == naiveOut)
+      -- putStrLn $ "SORTED EQ TO NAIVE: " <> tshow (sort planOut.values == sort naiveOut.values)
       -- s <- search tags
       -- case s of
       --   Left tags -> liftIO $ putStrLn ("INVALID TAGS: " ++ tshow tags)

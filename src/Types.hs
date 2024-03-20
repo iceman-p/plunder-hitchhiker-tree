@@ -1,3 +1,6 @@
+{-# LANGUAGE Strict     #-}
+{-# LANGUAGE StrictData #-}
+
 module Types where
 
 import           ClassyPrelude
@@ -85,8 +88,8 @@ data HitchhikerMap k v = HITCHHIKERMAP {
 -- -----------------------------------------------------------------------
 
 data HitchhikerSetNode k
-  = HitchhikerSetNodeIndex (TreeIndex k (HitchhikerSetNode k)) (Int, [k])
-  | HitchhikerSetNodeLeaf (ArraySet k)
+  = HitchhikerSetNodeIndex !(TreeIndex k (HitchhikerSetNode k)) !(Int, [k])
+  | HitchhikerSetNodeLeaf !(ArraySet k)
   deriving (Show, Generic, NFData)
 
 data HitchhikerSet k = HITCHHIKERSET {

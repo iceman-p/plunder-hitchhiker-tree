@@ -2,10 +2,10 @@ module HitchhikerSetMap where
 
 import           ClassyPrelude
 
-import           Data.Map      (Map)
-import           Data.Set      (Set)
+import           Data.Map        (Map)
+import           Data.Set        (Set)
 
-import           Safe          (tailSafe)
+import           Safe            (tailSafe)
 
 import           Impl.Index
 import           Impl.Leaf
@@ -16,11 +16,11 @@ import           Utils
 
 import           Data.Sorted
 
-import qualified HitchhikerSet as HS
+import qualified HitchhikerSet   as HS
 
-import qualified Data.Map      as M
-import qualified Data.Set      as S
-import qualified Data.Vector   as V
+import qualified Data.Map.Strict as M
+import qualified Data.Set        as S
+import qualified Data.Vector     as V
 
 empty :: TreeConfig -> HitchhikerSetMap k v
 empty config = HITCHHIKERSETMAP config Nothing

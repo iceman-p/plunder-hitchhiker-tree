@@ -1,10 +1,10 @@
 module HitchhikerMap where
 
-import           ClassyPrelude hiding (empty)
+import           ClassyPrelude   hiding (empty)
 
-import           Data.Map      (Map)
+import           Data.Map        (Map)
 
-import           Safe          (tailSafe)
+import           Safe            (tailSafe)
 
 import           Impl.Index
 import           Impl.Leaf
@@ -13,10 +13,10 @@ import           Impl.Types
 import           Types
 import           Utils
 
-import qualified Data.Map      as M
-import qualified Data.Vector   as V
+import qualified Data.Map.Strict as M
+import qualified Data.Vector     as V
 
-import qualified HitchhikerSet as HS
+import qualified HitchhikerSet   as HS
 
 empty :: TreeConfig -> HitchhikerMap k v
 empty config = HITCHHIKERMAP config Nothing

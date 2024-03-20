@@ -12,7 +12,7 @@ import           Data.Sorted
 import           Data.Sorted.Set
 
 import qualified Control.Arrow   as Arrow
-import qualified Data.Map        as M
+import qualified Data.Map.Strict as M
 import qualified Data.Set        as S
 import qualified Data.Vector     as V
 

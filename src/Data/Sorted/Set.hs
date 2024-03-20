@@ -7,6 +7,8 @@
 {-# OPTIONS_GHC -Wall        #-}
 {-# OPTIONS_GHC -Werror      #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE Strict        #-}
+{-# LANGUAGE StrictData    #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 module Data.Sorted.Set

@@ -1,9 +1,11 @@
+{-# LANGUAGE Strict     #-}
+{-# LANGUAGE StrictData #-}
 module Impl.Tree where
 
 import           ClassyPrelude
 
-import           Data.Map      (Map)
-import           Data.Vector   (Vector)
+import           Data.Map        (Map)
+import           Data.Vector     (Vector)
 
 import           Impl.Index
 import           Impl.Leaf
@@ -13,10 +15,10 @@ import           Utils
 
 import           Data.Sorted
 
-import qualified Data.List     as L
-import qualified Data.Map      as M
-import qualified Data.Set      as S
-import qualified Data.Vector   as V
+import qualified Data.List       as L
+import qualified Data.Map.Strict as M
+import qualified Data.Set        as S
+import qualified Data.Vector     as V
 
 treeDepth :: TreeFun k v a hh lt
           -> a
@@ -47,22 +49,23 @@ insertRec :: (Show k, Show a, Show lt, Show hh, Ord k)
           -> hh
           -> a
           -> TreeIndex k a
-insertRec config tf@TreeFun{..} toAdd node =
+insertRec config tf@TreeFun{..} !toAdd node =
   case caseNode node of
-    Left (children, hitchhikers)
+    Left (!children, !hitchhikers)
       | hhLength merged > maxHitchhikers config ->
           -- We have reached the maximum number of hitchhikers, we now need to
           -- flush these downwards.
-          extendIndex tf (maxLeafItems config) $
-            distributeDownwards config tf merged children
+          let !dd = distributeDownwards config tf merged children
+              !ei = extendIndex tf (maxLeafItems config) $ dd
+          in ei
       | otherwise ->
           -- All we must do is rebuild the node with the new k/v pair added on
           -- as a hitchhiker to this node.
           singletonIndex $ mkNode children merged
       where
-        merged = hhMerge hitchhikers toAdd
+        !merged = hhMerge hitchhikers toAdd
 
-    Right items                  ->
+    Right !items                  ->
       splitLeafMany tf (maxLeafItems config) $ leafInsert items toAdd
 
 -- Given a list of hitchhikers, try to distribute each downward, but written as
@@ -75,12 +78,12 @@ distributeDownwards
   -> hh
   -> TreeIndex k a
   -> TreeIndex k a
-distributeDownwards config tf@TreeFun{..} inHH treeIn@(TreeIndex keys vals)
+distributeDownwards config tf@TreeFun{..} !inHH treeIn@(TreeIndex keys vals)
   -- No things to distribute, no need to do the calculations.
   | hhLength inHH == 0 = treeIn
 
   | otherwise =
-      let keyList    = V.toList keys
+      let !keyList    = V.toList keys
           splitHH    = hhWholeSplit keyList inHH
           indexList  = map push $ zip splitHH (V.toList vals)
           (newKeys, newVals) = joinIndex keyList indexList
@@ -107,9 +110,9 @@ getLeafList tf@TreeFun{..} = go hhEmpty
     go hh node = case caseNode node of
       Right leaves                 -> [leafInsert leaves hh]
       Left (TreeIndex keys vals, hitchhikers) ->
-        let perValHH = hhWholeSplit (V.toList keys)
-                     $ hhMerge hitchhikers hh
-            par = zipWith go perValHH (V.toList vals)
+        let !perValHH = hhWholeSplit (V.toList keys)
+                      $ hhMerge hitchhikers hh
+            !par = zipWith go perValHH (V.toList vals)
         in join $ par
 
 -- Given a node, ensure that all hitchhikers have been pushed down to leaves.

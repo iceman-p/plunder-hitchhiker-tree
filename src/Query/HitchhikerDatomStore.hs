@@ -1,6 +1,8 @@
 {-# OPTIONS_GHC -Wno-partial-fields   #-}
 {-# OPTIONS_GHC -Wincomplete-patterns   #-}
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GADTs      #-}
+{-# LANGUAGE Strict     #-}
+{-# LANGUAGE StrictData #-}
 module Query.HitchhikerDatomStore where
 
 import           ClassyPrelude    hiding (lookup)
@@ -21,7 +23,7 @@ import qualified HitchhikerSet    as HS
 import qualified HitchhikerSetMap as HSM
 
 import qualified Data.List        as L
-import qualified Data.Map         as M
+import qualified Data.Map.Strict  as M
 import qualified Data.Set         as S
 import qualified Data.Vector      as V
 
@@ -81,15 +83,15 @@ datomsToTree config ds = go mempty ds
   where
     go :: Map e (ADatomRow a v tx) -> [(e, a, v, tx, Bool)]
        -> Map e (ADatomRow a v tx)
-    go acc []                     = acc
-    go acc (d@(e, _, _, _, _):ds) = go (M.alter (injectE d) e acc) ds
+    go !acc []                     = acc
+    go !acc (d@(e, _, _, _, _):ds) = go (M.alter (injectE d) e acc) ds
 
     injectE :: (e, a, v, tx, Bool) -> Maybe (ADatomRow a v tx)
             -> Maybe (ADatomRow a v tx)
     injectE x@(_, a, v, tx, op) Nothing =
 --      trace ("inject singleton " <> show x) $
       Just $ ALeaf $ M.singleton a $ vstorageSingleton (tx, v, op)
-    injectE (_, a, v, tx, op) (Just adatoms) =
+    injectE (_, a, v, tx, op) (Just !adatoms) =
       Just $ arowInsertMany config [(a, v, tx, op)] adatoms
 
 
@@ -110,18 +112,18 @@ hhEDatomRowTF config = TreeFun {
 
   -- leafMap -> hhMap -> leafMap
   leafInsert = edatomLeafInsert config,
-  leafMerge = error "eLeafInsert only required for deletion",
+  leafMerge = \a b -> error "eLeafInsert only required for deletion",
   leafLength = M.size,
   leafSplitAt = M.splitAt,
   leafFirstKey = fst . M.findMin,
   leafEmpty = M.empty,
-  leafDelete = error "Pure deletion has to be handled otherwise",
+  leafDelete = \a b -> error "Pure deletion has to be handled otherwise",
 
   hhMerge = countListMerge,
   hhLength = fst,
   hhWholeSplit = edatomHHWholeSplit,
   hhEmpty = (0, []),
-  hhDelete = error "Pure deletion has to be handled otherwise"
+  hhDelete = \a b -> error "Pure deletion has to be handled otherwise"
   }
 
 -- -----------------------------------------------------------------------
@@ -133,16 +135,16 @@ edatomLeafInsert :: (Show e, Show a, Show v, Show tx, Ord e, Ord a, Ord v, Ord t
                  -> Map e (ADatomRow a v tx)
 edatomLeafInsert config map (count, insertions) = go map $ reverse insertions
   where
-    go map []                           = map
-    go map (tuple@(e, a, v, tx, op):is) = go (M.alter (merge tuple) e map) is
+    go !map []                           = map
+    go !map (tuple@(e, a, v, tx, op):is) = go (M.alter (merge tuple) e map) is
 
     merge orig@(e, a, v, tx, op) c =
 --      trace ("edatom insert " <> show orig) $
       case c of
-        Nothing -> Just $ ALeaf $ M.singleton a (vstorageSingleton (tx, v, op))
+        Nothing  -> Just $ ALeaf $ M.singleton a (vstorageSingleton (tx, v, op))
         -- TODO: Once you've confirmed that the new edatom list based
         -- implementation works, move on at this join point to make adatom work.
-        Just ad -> Just $ arowInsertMany config [(a, v, tx, op)] ad
+        Just !ad -> Just $ arowInsertMany config [(a, v, tx, op)] ad
 
 edatomHHWholeSplit :: (Ord e, Ord a, Ord v, Ord tx)
                    => [e] -> (Int, [(e, a, v, tx, Bool)])
@@ -179,18 +181,18 @@ hhADatomRowTF config = TreeFun {
 
   -- -- leafMap -> hhMap -> leafMap
   leafInsert = adatomLeafInsert config, --   M.unionWith (mergeVStorage config),
-  leafMerge = error "eLeafInsert only required for deletion",
+  leafMerge = \a b -> error "eLeafInsert only required for deletion",
   leafLength = M.size,
   leafSplitAt = M.splitAt,
   leafFirstKey = fst . M.findMin,
   leafEmpty = M.empty,
-  leafDelete = error "Pure deletion has to be handled otherwise",
+  leafDelete = \a b -> error "Pure deletion has to be handled otherwise",
 
   hhMerge = countListMerge,
   hhLength = fst,
   hhWholeSplit = adatomHHWholeSplit,
   hhEmpty = (0, []),
-  hhDelete = error "Pure deletion has to be handled otherwise"
+  hhDelete = \a b -> error "Pure deletion has to be handled otherwise"
   }
 
 adatomLeafInsert :: (Show a, Show v, Show tx, Ord a, Ord v, Ord tx)
@@ -202,14 +204,14 @@ adatomLeafInsert config map (count, insertions) =
 --  trace ("adatomLeafInsert " <> show insertions) $
   go map $ reverse insertions
   where
-    go map []                        = map
-    go map (tuple@(a, v, tx, op):is) = go (M.alter (merge tuple) a map) is
+    go !map []                        = map
+    go !map (tuple@(a, v, tx, op):is) = go (M.alter (merge tuple) a map) is
 
     merge (_, v, tx, op) = \case
       Nothing -> Just $ vstorageSingleton (tx, v, op)
       -- TODO: Once you've confirmed that the new edatom list based
       -- implementation works, move on at this join point to make adatom work.
-      Just vs -> Just $ vstorageInsertMany config vs [(tx, v, op)]
+      Just !vs -> Just $ vstorageInsertMany config vs [(tx, v, op)]
 
 adatomHHWholeSplit :: (Show a, Show v, Show tx, Ord a, Ord v, Ord tx)
                    => [a] -> (Int, [(a, v, tx, Bool)])
@@ -223,7 +225,7 @@ adatomHHWholeSplit = doWholeSplit altk
 mkSingletonTxMap (tx, v, op) = TxHistory tx [(tx, v, op)]
 
 insertTxMap :: TxHistory v tx -> (tx, v, Bool) -> TxHistory v tx
-insertTxMap (TxHistory origTx txs) newTx = TxHistory origTx (newTx:txs)
+insertTxMap (TxHistory origTx txs) !newTx = TxHistory origTx (newTx:txs)
 
 vstorageSingleton :: (tx, v, Bool) -> VStorage v tx
 vstorageSingleton (tx, v, True)   = VSimple v tx
@@ -242,7 +244,7 @@ vstorageInsert config (VSimple pv ptx) newFact =
                            (mkSingletonTxMap (ptx, pv, True)))
                  newFact
 
-vstorageInsert config (VStorage curSet txMap) newTx =
+vstorageInsert config (VStorage !curSet !txMap) !newTx =
   VStorage newSet newTxMap
   where
     newSet = insertToValSet config curSet newTx
@@ -253,7 +255,7 @@ vstorageInsertMany :: (Show v, Show tx, Ord v, Ord tx)
                    -> VStorage v tx
                    -> [(tx, v, Bool)]
                    -> VStorage v tx
-vstorageInsertMany config storage as =
+vstorageInsertMany config !storage !as =
   foldl' (vstorageInsert config) storage as
 
 insertToValSet :: (Show v, Ord v)
@@ -261,10 +263,11 @@ insertToValSet :: (Show v, Ord v)
                -> Maybe (HitchhikerSetNode v) -> (tx, v, Bool)
                -> Maybe (HitchhikerSetNode v)
 insertToValSet config curSet (tx, v, op) = case (curSet, op) of
-      (Nothing, True)   -> Just $ HitchhikerSetNodeLeaf $ ssetSingleton v
-      (Nothing, False)  -> Nothing
-      (Just set, True)  -> Just $ HS.insertRaw config v set
-      (Just set, False) -> HS.deleteRaw config v set
+      (Nothing, True)    -> let x = ssetSingleton v
+                            in Just $ HitchhikerSetNodeLeaf x
+      (Nothing, False)   -> Nothing
+      (Just !set, True)  -> let !x = HS.insertRaw config v set in Just x
+      (Just !set, False) -> HS.deleteRaw config v set
 
 -- -----------------------------------------------------------------------
 

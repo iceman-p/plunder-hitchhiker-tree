@@ -1,3 +1,5 @@
+{-# LANGUAGE Strict     #-}
+{-# LANGUAGE StrictData #-}
 module Impl.Types where
 
 import           ClassyPrelude

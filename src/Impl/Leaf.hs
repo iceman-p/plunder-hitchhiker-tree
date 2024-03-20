@@ -1,3 +1,5 @@
+{-# LANGUAGE Strict     #-}
+{-# LANGUAGE StrictData #-}
 module Impl.Leaf where
 
 import           ClassyPrelude
