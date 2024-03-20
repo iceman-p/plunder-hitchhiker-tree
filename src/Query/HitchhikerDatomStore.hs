@@ -9,6 +9,7 @@ import           ClassyPrelude    hiding (lookup)
 
 import           Impl.Index
 import           Impl.Leaf
+import           Impl.Strict
 import           Impl.Tree
 import           Impl.Types
 import           Types
@@ -28,7 +29,7 @@ import qualified Data.Set         as S
 
 
 emptyRows :: TreeConfig -> EAVRows e a v tx
-emptyRows config = EAVROWS config Nothing
+emptyRows config = EAVROWS config SNothing
 
 --
 addDatom :: forall e a v tx
@@ -37,15 +38,15 @@ addDatom :: forall e a v tx
          => (e, a, v, tx, Bool)
          -> EAVRows e a v tx
          -> EAVRows e a v tx
-addDatom (!e, !a, !v, !tx, !o) (EAVROWS config Nothing) =
+addDatom (!e, !a, !v, !tx, !o) (EAVROWS config SNothing) =
   -- Initialize everything to a single
-  EAVROWS config $ Just $
-  ELeaf $ M.singleton e $
-  ALeaf $ M.singleton a $
+  EAVROWS config $ SJust $
+  ELeaf $ M.singleton e $!
+  ALeaf $ M.singleton a $!
   vstorageSingleton (tx, v, o)
 
-addDatom datom@(!e, !a, !v, !tx, !o) (EAVROWS config (Just root)) =
-  EAVROWS config $ Just $
+addDatom datom@(!e, !a, !v, !tx, !o) (EAVROWS config (SJust root)) =
+  EAVROWS config $ SJust $
   fixUp config (hhEDatomRowTF config) $
   insertRec config
             (hhEDatomRowTF config)
@@ -59,13 +60,13 @@ addDatoms :: forall e a v tx
          => [(e, a, v, tx, Bool)]
          -> EAVRows e a v tx
          -> EAVRows e a v tx
-addDatoms ds (EAVROWS config Nothing) =
-  EAVROWS config $ Just $ fixUp config (hhEDatomRowTF config) $
+addDatoms ds (EAVROWS config SNothing) =
+  EAVROWS config $ SJust $ fixUp config (hhEDatomRowTF config) $
   splitLeafMany (hhEDatomRowTF config)
                 (maxLeafItems config)
                 (datomsToTree config ds)
-addDatoms ds (EAVROWS config (Just top)) =
-  EAVROWS config $ Just $
+addDatoms ds (EAVROWS config (SJust top)) =
+  EAVROWS config $ SJust $
   fixUp config (hhEDatomRowTF config) $
   insertRec config (hhEDatomRowTF config) (length ds, ds) top
 
@@ -89,9 +90,9 @@ datomsToTree config ds = go mempty ds
             -> Maybe (ADatomRow a v tx)
     injectE x@(_, a, v, tx, op) Nothing =
 --      trace ("inject singleton " <> show x) $
-      Just $ ALeaf $ M.singleton a $ vstorageSingleton (tx, v, op)
+      Just $! ALeaf $! M.singleton a $! vstorageSingleton (tx, v, op)
     injectE (_, a, v, tx, op) (Just !adatoms) =
-      Just $ arowInsertMany config [(a, v, tx, op)] adatoms
+      Just $! arowInsertMany config [(a, v, tx, op)] adatoms
 
 
 hhEDatomRowTF :: (Show e, Show a, Show v, Show tx,
@@ -106,8 +107,8 @@ hhEDatomRowTF config = TreeFun {
   mkNode = ERowIndex,
   mkLeaf = ELeaf,
   caseNode = \case
-      ERowIndex a b -> Left (a, b)
-      ELeaf l       -> Right l,
+      ERowIndex a b -> SLeft (a, b)
+      ELeaf l       -> SRight l,
 
   -- leafMap -> hhMap -> leafMap
   leafInsert = edatomLeafInsert config,
@@ -175,8 +176,8 @@ hhADatomRowTF config = TreeFun {
   mkNode = ARowIndex,
   mkLeaf = ALeaf,
   caseNode = \case
-      ARowIndex a b -> Left (a, b)
-      ALeaf l       -> Right l,
+      ARowIndex a b -> SLeft (a, b)
+      ALeaf l       -> SRight l,
 
   -- -- leafMap -> hhMap -> leafMap
   leafInsert = adatomLeafInsert config, --   M.unionWith (mergeVStorage config),
@@ -207,10 +208,11 @@ adatomLeafInsert config map (count, insertions) =
     go !map (tuple@(a, v, tx, op):is) = go (M.alter (merge tuple) a map) is
 
     merge (_, v, tx, op) = \case
-      Nothing -> Just $ vstorageSingleton (tx, v, op)
+      Nothing ->
+        Just $! vstorageSingleton (tx, v, op)
       -- TODO: Once you've confirmed that the new edatom list based
       -- implementation works, move on at this join point to make adatom work.
-      Just !vs -> Just $ vstorageInsertMany config vs [(tx, v, op)]
+      Just !vs -> Just $! vstorageInsertMany config vs [(tx, v, op)]
 
 adatomHHWholeSplit :: (Show a, Show v, Show tx, Ord a, Ord v, Ord tx)
                    => [a] -> (Int, [(a, v, tx, Bool)])
@@ -221,7 +223,7 @@ adatomHHWholeSplit = doWholeSplit altk
 
 -- -----------------------------------------------------------------------
 
-mkSingletonTxMap (tx, v, op) = TxHistory tx [(tx, v, op)]
+mkSingletonTxMap !tuple@(!tx, v, op) = TxHistory tx [tuple]
 
 insertTxMap :: TxHistory v tx -> (tx, v, Bool) -> TxHistory v tx
 insertTxMap (TxHistory origTx txs) !newTx = TxHistory origTx (newTx:txs)
@@ -230,7 +232,7 @@ vstorageSingleton :: (tx, v, Bool) -> VStorage v tx
 vstorageSingleton (tx, v, True)   = VSimple v tx
 
 -- Dumb, but the model allows it.
-vstorageSingleton d@(_, _, False) = VStorage Nothing $ mkSingletonTxMap d
+vstorageSingleton d@(_, _, False) = VStorage SNothing $ mkSingletonTxMap d
 
 vstorageInsert :: (Show v, Show tx, Ord v, Ord tx)
                => TreeConfig
@@ -239,7 +241,7 @@ vstorageInsert :: (Show v, Show tx, Ord v, Ord tx)
                -> VStorage v tx
 vstorageInsert config (VSimple pv ptx) newFact =
   vstorageInsert config
-                 (VStorage (Just $ HitchhikerSetNodeLeaf $ ssetSingleton pv)
+                 (VStorage (SJust $ HitchhikerSetNodeLeaf $ ssetSingleton pv)
                            (mkSingletonTxMap (ptx, pv, True)))
                  newFact
 
@@ -259,22 +261,21 @@ vstorageInsertMany config !storage !as =
 
 insertToValSet :: (Show v, Ord v)
                => TreeConfig
-               -> Maybe (HitchhikerSetNode v) -> (tx, v, Bool)
-               -> Maybe (HitchhikerSetNode v)
+               -> StrictMaybe (HitchhikerSetNode v) -> (tx, v, Bool)
+               -> StrictMaybe (HitchhikerSetNode v)
 insertToValSet config curSet (tx, v, op) = case (curSet, op) of
-      (Nothing, True)    -> let x = ssetSingleton v
-                            in Just $ HitchhikerSetNodeLeaf x
-      (Nothing, False)   -> Nothing
-      (Just !set, True)  -> let !x = HS.insertRaw config v set in Just x
-      (Just !set, False) -> HS.deleteRaw config v set
+      (SNothing, True)    -> SJust $ HitchhikerSetNodeLeaf $ ssetSingleton v
+      (SNothing, False)   -> SNothing
+      (SJust !set, True)  -> SJust $ HS.insertRaw config v set
+      (SJust !set, False) -> HS.deleteRaw config v set
 
 -- -----------------------------------------------------------------------
 
 fullLookup :: forall e a v tx
         . (Show e, Show a, Show v, Show tx, Ord e, Ord a, Ord v, Ord tx)
        => e -> a -> EAVRows e a v tx -> HitchhikerSet v
-fullLookup _ _ (EAVROWS config Nothing)    = HS.empty config
-fullLookup e a rows@(EAVROWS config (Just top)) =
+fullLookup _ _ (EAVROWS config SNothing)    = HS.empty config
+fullLookup e a rows@(EAVROWS config (SJust top)) =
   HSM.lookup a $ partialLookup e rows
 
 -- -----------------------------------------------------------------------
@@ -282,9 +283,9 @@ fullLookup e a rows@(EAVROWS config (Just top)) =
 partialLookup :: forall e a v tx
                . (Show e, Show a, Show v, Show tx, Ord e, Ord a, Ord v, Ord tx)
               => e -> EAVRows e a v tx -> HitchhikerSetMap a v
-partialLookup _ (EAVROWS config Nothing)    = HSM.empty config
+partialLookup _ (EAVROWS config SNothing)    = HSM.empty config
 
-partialLookup e (EAVROWS config (Just top)) = lookInENode mempty top
+partialLookup e (EAVROWS config (SJust top)) = lookInENode mempty top
   where
     lookInENode :: [(a, v, tx, Bool)]
                 -> EDatomRow e a v tx
@@ -323,9 +324,10 @@ partialLookup e (EAVROWS config (Just top)) = lookInENode mempty top
 
         translateLeaf = \case
           VSimple x _ ->
-            Just $ NAKEDSET (Just (HitchhikerSetNodeLeaf $ ssetSingleton x))
-          VStorage Nothing _ -> Nothing
-          VStorage x _ -> Just $ NAKEDSET x
+            let !sj = SJust $ HitchhikerSetNodeLeaf $ ssetSingleton x
+            in Just $ NAKEDSET sj
+          VStorage SNothing _ -> Nothing
+          VStorage !x _ -> Just $ NAKEDSET x
 
 
 -- -----------------------------------------------------------------------
@@ -397,7 +399,7 @@ learnAttribute :: Text -> Bool -> Cardinality -> ValueType -> Database
 learnAttribute name indexed cardinality vtype db =
   let entity = nextEntity db
   in learns [
-    (ENTREF $ ENTID entity, ENTID 1, VAL_STR $ unpack name, True),
+    (ENTREF $ ENTID entity, ENTID 1, VAL_STR name, True),
     (ENTREF $ ENTID entity, ENTID 2,
      VAL_ENTID $ ENTID $ case cardinality of { ONE -> 3; MANY -> 4 }, True),
     (ENTREF $ ENTID entity, ENTID 9, VAL_INT $ fromEnum indexed, True)

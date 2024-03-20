@@ -2,6 +2,7 @@ module MultiIntersectV6Stack where
 
 import           ClassyPrelude
 
+import           Impl.Strict
 import           Impl.Tree
 import           Impl.Types
 import           Types
@@ -73,12 +74,12 @@ stackIntersection :: forall k. (NFData k, Ord k, Show k)
                 => [HitchhikerSet k] -> [ArraySet k]
 stackIntersection [] = []
 stackIntersection [x] = case HS.rawNode x of
-  Nothing   -> []
-  Just node -> getLeafList HS.hhSetTF node
+  SNothing   -> []
+  SJust node -> getLeafList HS.hhSetTF node
 stackIntersection sets@((HITCHHIKERSET config _):_) =
   let byWeight a b = HS.weightEstimate a `compare` HS.weightEstimate b
       orderedByWeight = sortBy byWeight sets
-      nodesByWeight = catMaybes $ map HS.rawNode orderedByWeight
+      nodesByWeight = sCatMaybes $ map HS.rawNode orderedByWeight
       -- minItems = minLeafItems config `div` 2
   in if any HS.null sets
      then []

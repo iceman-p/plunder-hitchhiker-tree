@@ -7,9 +7,13 @@ import           ClassyPrelude
 
 import           Data.Map.Strict (Map)
 
+import           NoThunks.Class
+
 -- For ArraySet
 import           Data.Sorted
+import           NoThunks.Class
 
+import           Impl.Strict
 import           Impl.Types
 
 -- TODO: For now, hash is just an int. Change this in production.
@@ -30,7 +34,7 @@ data TreeConfig = TREECONFIG {
   maxLeafItems   :: Int,
   maxHitchhikers :: Int
   }
-  deriving (Eq, Generic, NFData)
+  deriving (Eq, Generic, NFData, NoThunks)
 
 instance Show TreeConfig where
   show _ = "TREECONFIG"
@@ -88,17 +92,17 @@ data HitchhikerMap k v = HITCHHIKERMAP {
 data HitchhikerSetNode k
   = HitchhikerSetNodeIndex !(TreeIndex k (HitchhikerSetNode k)) !(Int, [k])
   | HitchhikerSetNodeLeaf !(ArraySet k)
-  deriving (Show, Generic, NFData)
+  deriving (Show, Generic, NFData, NoThunks)
 
 data HitchhikerSet k = HITCHHIKERSET {
   config :: TreeConfig,
-  root   :: Maybe (HitchhikerSetNode k)
+  root   :: StrictMaybe (HitchhikerSetNode k)
   }
   deriving (Show, Generic, NFData)
 
 -- -----------------------------------------------------------------------
 
-data NakedHitchhikerSet k = NAKEDSET (Maybe (HitchhikerSetNode k))
+data NakedHitchhikerSet k = NAKEDSET (StrictMaybe (HitchhikerSetNode k))
   deriving (Show, Generic, NFData)
 
 data HitchhikerSetMapNode k v

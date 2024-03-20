@@ -4,6 +4,8 @@ import           ClassyPrelude
 
 import           Data.List                  (foldl1')
 
+import           Impl.Strict
+import           Impl.Types
 import           Query.HitchhikerDatomStore
 import           Query.Rows
 import           Query.Types
@@ -232,8 +234,8 @@ applyFilterFuncsToSet ((EBP_RIGHT pred s):ps) k vset =
 -- of the antitone functions, but must handle
 splitSetLeft :: (Show k, Ord k)
              => k -> BuiltinPred -> HitchhikerSet k -> HitchhikerSet k
-splitSetLeft _ _ (HITCHHIKERSET config Nothing) = HITCHHIKERSET config Nothing
-splitSetLeft k pred full@(HITCHHIKERSET config (Just top)) = case pred of
+splitSetLeft _ _ (HITCHHIKERSET config SNothing) = HITCHHIKERSET config SNothing
+splitSetLeft k pred full@(HITCHHIKERSET config (SJust top)) = case pred of
   B_LT
     -- 0 < [1, 2, 3]: all elements match
     | k < min -> full
@@ -274,8 +276,9 @@ splitSetLeft k pred full@(HITCHHIKERSET config (Just top)) = case pred of
 
 splitSetRight :: (Show k, Ord k)
               => HitchhikerSet k -> BuiltinPred -> k -> HitchhikerSet k
-splitSetRight (HITCHHIKERSET config Nothing) _ _ = HITCHHIKERSET config Nothing
-splitSetRight full@(HITCHHIKERSET config (Just top)) pred k = case pred of
+splitSetRight (HITCHHIKERSET config SNothing) _ _ =
+  HITCHHIKERSET config SNothing
+splitSetRight full@(HITCHHIKERSET config (SJust top)) pred k = case pred of
   B_LT
     -- [1, 2, 3] < 0: no elements match
     | not (min < k) -> emptySet

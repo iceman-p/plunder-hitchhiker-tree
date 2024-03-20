@@ -12,6 +12,7 @@ import           Data.Sorted.Types
 
 import           Impl.Index
 import           Impl.Leaf
+import           Impl.Strict
 import           Impl.Tree
 import           Impl.Types
 import           Types
@@ -85,8 +86,8 @@ hhSetMapTF setConfig = TreeFun {
   mkNode = HitchhikerSetMapNodeIndex,
   mkLeaf = HitchhikerSetMapNodeLeaf,
   caseNode = \case
-      HitchhikerSetMapNodeIndex a b -> Left (a, b)
-      HitchhikerSetMapNodeLeaf l    -> Right l,
+      HitchhikerSetMapNodeIndex a b -> SLeft (a, b)
+      HitchhikerSetMapNodeLeaf l    -> SRight l,
 
   leafInsert = leafInsertImpl setConfig,
   leafMerge = leafMergeImpl setConfig {- M.unionWith HS.union -},
@@ -185,7 +186,7 @@ delete _ _ !(HITCHHIKERSETMAP config Nothing) = HITCHHIKERSETMAP config Nothing
 delete !k !v !(HITCHHIKERSETMAP config (Just root)) =
   case deleteRec config (hhSetMapTF config) k (Just v) root of
     HitchhikerSetMapNodeIndex index hitchhikers
-      | Just childNode <- fromSingletonIndex index ->
+      | SJust childNode <- fromSingletonIndex index ->
           if M.null hitchhikers then HITCHHIKERSETMAP config (Just childNode)
           else insertMany (mapSetToList hitchhikers) $
                HITCHHIKERSETMAP config (Just childNode)
@@ -260,10 +261,10 @@ restrictKeys :: forall k v
              -> HitchhikerSetMap k v
 restrictKeys _ orig@(HITCHHIKERSETMAP _ Nothing) = orig
 
-restrictKeys (HITCHHIKERSET _ Nothing) (HITCHHIKERSETMAP config _) =
+restrictKeys (HITCHHIKERSET _ SNothing) (HITCHHIKERSETMAP config _) =
   HitchhikerSetMap.empty config
 
-restrictKeys s@(HITCHHIKERSET sConfig (Just a))
+restrictKeys s@(HITCHHIKERSET sConfig (SJust a))
              sm@(HITCHHIKERSETMAP mConfig (Just b)) =
   fromLeafMaps mConfig $ setlistMaplistIntersect [] as bs
   where
@@ -280,10 +281,10 @@ restrictKeysWithPred :: forall k v
                      -> HitchhikerSetMap k v
 restrictKeysWithPred _ _ orig@(HITCHHIKERSETMAP _ Nothing) = orig
 
-restrictKeysWithPred _ (HITCHHIKERSET _ Nothing) (HITCHHIKERSETMAP config _) =
+restrictKeysWithPred _ (HITCHHIKERSET _ SNothing) (HITCHHIKERSETMAP config _) =
   HitchhikerSetMap.empty config
 
-restrictKeysWithPred func (HITCHHIKERSET sConfig (Just a))
+restrictKeysWithPred func (HITCHHIKERSET sConfig (SJust a))
                           (HITCHHIKERSETMAP mConfig (Just b)) =
   fromLeafMaps mConfig $ setlistMaplistIntersectWithPred convertFunc [] as bs
   where
@@ -296,11 +297,11 @@ toKeySet :: forall k v
           . (Show k, Show v, Ord k, Ord v)
          => HitchhikerSetMap k v
          -> HitchhikerSet k
-toKeySet (HITCHHIKERSETMAP config Nothing) = (HITCHHIKERSET config Nothing)
+toKeySet (HITCHHIKERSETMAP config Nothing) = (HITCHHIKERSET config SNothing)
 toKeySet (HITCHHIKERSETMAP config (Just top)) =
     (HITCHHIKERSET config newTop)
   where
-    newTop = Just $ translate top
+    newTop = SJust $ translate top
 
     -- TODO: ssetFromList $ M.keys -> tabKeysSet.
     translate = \case

@@ -5,6 +5,7 @@ import           ClassyPrelude
 import           Debug.Trace
 
 import           HitchhikerSet
+import           Impl.Strict
 import           Impl.Tree
 import           Types
 
@@ -39,9 +40,9 @@ setlistIntersect ao@(a:as) bo@(b:bs) =
 -- The dumbest, most naive intersection possible.
 naiveIntersection :: (Show k, Ord k)
                   => HitchhikerSet k -> HitchhikerSet k -> [ArraySet k]
-naiveIntersection n@(HITCHHIKERSET _ Nothing) _ = []
-naiveIntersection _ n@(HITCHHIKERSET _ Nothing) = []
-naiveIntersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
+naiveIntersection n@(HITCHHIKERSET _ SNothing) _ = []
+naiveIntersection _ n@(HITCHHIKERSET _ SNothing) = []
+naiveIntersection (HITCHHIKERSET conf (SJust a)) (HITCHHIKERSET _ (SJust b)) =
   setlistIntersect as bs
   where
     as = getLeafList hhSetTF a

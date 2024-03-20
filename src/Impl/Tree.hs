@@ -12,6 +12,7 @@ import           Data.Sorted.Types
 
 import           Impl.Index
 import           Impl.Leaf
+import           Impl.Strict
 import           Impl.Types
 import           Types
 import           Utils
@@ -26,23 +27,23 @@ treeDepth :: TreeFun k v a hh lt
           -> a
           -> Int
 treeDepth tf@TreeFun{..} node = case caseNode node of
-  Left (TreeIndex _ vals, _) -> 1 + (treeDepth tf $ vals ! 0)
-  Right _                    -> 1
+  SLeft (TreeIndex _ vals, _) -> 1 + (treeDepth tf $ vals ! 0)
+  SRight _                    -> 1
 
 treeWeightEstimate :: TreeFun k v a hh lt
                    -> a
                    -> Int
 treeWeightEstimate tf@TreeFun{..} node = case caseNode node of
-  Left (TreeIndex keys vals, _) -> (length keys) * (treeDepth tf $ vals ! 0)
-  Right l                       -> leafLength l
+  SLeft (TreeIndex keys vals, _) -> (length keys) * (treeDepth tf $ vals ! 0)
+  SRight l                       -> leafLength l
 
 fixUp :: TreeConfig
       -> TreeFun k v a hh lt
       -> TreeIndex k a
       -> a
 fixUp config tf@TreeFun{..} idx = case fromSingletonIndex idx of
-  Just newRootNode -> newRootNode
-  Nothing          ->
+  SJust newRootNode -> newRootNode
+  SNothing          ->
     fixUp config tf (extendIndex tf (maxLeafItems config) idx)
 
 insertRec :: (Show k, Show a, Show lt, Show hh, Ord k)
@@ -53,7 +54,7 @@ insertRec :: (Show k, Show a, Show lt, Show hh, Ord k)
           -> TreeIndex k a
 insertRec config tf@TreeFun{..} !toAdd node =
   case caseNode node of
-    Left (!children, !hitchhikers)
+    SLeft (!children, !hitchhikers)
       | hhLength merged > maxHitchhikers config ->
           -- We have reached the maximum number of hitchhikers, we now need to
           -- flush these downwards.
@@ -67,8 +68,9 @@ insertRec config tf@TreeFun{..} !toAdd node =
       where
         !merged = hhMerge hitchhikers toAdd
 
-    Right !items                  ->
-      splitLeafMany tf (maxLeafItems config) $ leafInsert items toAdd
+    SRight !items                  ->
+      let !ti = splitLeafMany tf (maxLeafItems config) $ leafInsert items toAdd
+      in ti
 
 -- Given a list of hitchhikers, try to distribute each downward, but written as
 -- a map.
@@ -94,7 +96,7 @@ distributeDownwards config tf@TreeFun{..} !inHH treeIn@(TreeIndex keys vals)
     push :: (hh, a) -> TreeIndex k a
     push (hh, node)
       | hhLength hh == 0 = singletonIndex node
-      | otherwise        = insertRec config tf hh node
+      | otherwise        = let !x = insertRec config tf hh node in x
 
     joinIndex :: [k] -> [TreeIndex k a] -> ([k], [Row a])
     joinIndex [] [] = ([], [])
@@ -110,8 +112,8 @@ getLeafList :: Ord k => TreeFun k v a hh lt -> a -> [lt]
 getLeafList tf@TreeFun{..} = go hhEmpty
   where
     go hh node = case caseNode node of
-      Right leaves                 -> [leafInsert leaves hh]
-      Left (TreeIndex keys vals, hitchhikers) ->
+      SRight leaves                 -> let !i = leafInsert leaves hh in [i]
+      SLeft (TreeIndex keys vals, hitchhikers) ->
         let !perValHH = hhWholeSplit (toList keys)
                       $ hhMerge hitchhikers hh
             !par = zipWith go perValHH (toList vals)
@@ -122,8 +124,8 @@ flushDownwards :: Ord k => TreeFun k v a hh lt -> a -> a
 flushDownwards tf@TreeFun{..} = go hhEmpty
   where
     go hh node = case caseNode node of
-      Right leaves                 -> mkLeaf $ leafInsert leaves hh
-      Left (children@(TreeIndex keys vals), hitchhikers) ->
+      SRight leaves                 -> mkLeaf $ leafInsert leaves hh
+      SLeft (children@(TreeIndex keys vals), hitchhikers) ->
         let perValHH = fromList
                      $ hhWholeSplit (toList keys)
                      $ hhMerge hitchhikers hh
@@ -148,17 +150,17 @@ deleteRec :: (Show k, Show a, Show lt, Show hh, Ord k)
           -> a
 deleteRec config tf@TreeFun{..} key mybV node =
   case caseNode node of
-    Right items                  -> mkLeaf $ leafDelete key mybV items
-    Left (children, hitchhikers) ->
+    SRight items                  -> mkLeaf $ leafDelete key mybV items
+    SLeft (children, hitchhikers) ->
       let (ctx, child) = valView key children
           newChild = deleteRec config tf key mybV child
           childNeedsMerge = nodeNeedsMerge config tf newChild
           prunedHH = hhDelete key mybV hitchhikers
       in case (childNeedsMerge, leftView ctx, rightView ctx) of
-           (True, _, Just (rKey, rChild, rCtx)) ->
+           (True, _, SJust (rKey, rChild, rCtx)) ->
              mkNode (putIdx rCtx (mergeNodes config tf newChild rKey rChild))
                     prunedHH
-           (True, Just (lCtx, lChild, lKey), _) ->
+           (True, SJust (lCtx, lChild, lKey), _) ->
              mkNode (putIdx lCtx (mergeNodes config tf lChild lKey newChild))
                     prunedHH
            (True, _, _) -> error "deleteRec: node with single child"
@@ -169,8 +171,8 @@ nodeNeedsMerge :: TreeConfig
                -> a
                -> Bool
 nodeNeedsMerge config TreeFun{..} node = case caseNode node of
-  Left (children, hitchhikers) -> indexNumKeys children < minIdxKeys config
-  Right items                  -> leafLength items < minLeafItems config
+  SLeft (children, hitchhikers) -> indexNumKeys children < minIdxKeys config
+  SRight items                  -> leafLength items < minLeafItems config
 
 mergeNodes :: (Show k, Show a, Show hh, Show lt, Ord k)
            => TreeConfig
@@ -181,11 +183,11 @@ mergeNodes :: (Show k, Show a, Show hh, Show lt, Ord k)
            -> TreeIndex k a
 mergeNodes config tf@TreeFun{..} left middleKey right =
   case (caseNode left, caseNode right) of
-    (Left (leftIdx, leftHH), Left (rightIdx, rightHH)) ->
+    (SLeft (leftIdx, leftHH), SLeft (rightIdx, rightHH)) ->
       let left  = distributeDownwards config tf leftHH leftIdx
           right = distributeDownwards config tf rightHH rightIdx
       in extendIndex tf (maxIdxKeys config) (mergeIndex left middleKey right)
-    (Right leftLeaf, Right rightLeaf)                  ->
+    (SRight leftLeaf, SRight rightLeaf)                  ->
       splitLeafMany tf (maxLeafItems config) (leafMerge leftLeaf rightLeaf)
 
 

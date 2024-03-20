@@ -1,10 +1,13 @@
-{-# LANGUAGE Strict     #-}
-{-# LANGUAGE StrictData #-}
 module Impl.Types where
 
 import           ClassyPrelude
 
+import           NoThunks.Class
+
 import           Data.Sorted.Types
+import           Impl.Strict
+
+-- ----------------------------------------------------------------------------
 
 -- An Index is the main payload of an index node: the inner node of a B+ tree.
 --
@@ -13,8 +16,8 @@ import           Data.Sorted.Types
 --
 -- (Contrast that with how the Clojure hitchhiker tree works where things are
 -- right aligned instead.)
-data TreeIndex k v = TreeIndex (Row k) (Row v)
-  deriving (Show, Eq, Generic, NFData)
+data TreeIndex k v = TreeIndex !(Row k) !(Row v)
+  deriving (Show, Eq, Generic, NFData, NoThunks)
 
 -- | Bundle of functions for manipulating a given tree type.
 --
@@ -25,7 +28,8 @@ data TreeFun key value subnode hhMap leafMap = TreeFun {
   -- Constructor/elimination.
   mkNode       :: TreeIndex key subnode -> hhMap -> subnode,
   mkLeaf       :: leafMap -> subnode,
-  caseNode     :: subnode -> Either ((TreeIndex key subnode), hhMap) leafMap,
+  caseNode     :: subnode
+               -> StrictEither ((TreeIndex key subnode), hhMap) leafMap,
 
   -- Leaf storage options.
   leafInsert   :: leafMap -> hhMap -> leafMap,

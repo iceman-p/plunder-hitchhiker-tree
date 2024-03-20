@@ -30,6 +30,7 @@ dependencies:
 - mono-traversable
 - mtl
 - multimap
+- nothunks
 - optics
 - parsec
 - pretty-simple
@@ -61,11 +62,16 @@ ghc-options:
 - -Wincomplete-uni-patterns
 - -Wmissing-home-modules
 - -Wpartial-fields
+- -finfo-table-map
+- -fdistinct-constructor-tables
 #- -Wredundant-constraints
 
 
 library:
   source-dirs: src
+  ghc-options:
+  - -finfo-table-map
+  - -fdistinct-constructor-tables
 
 executables:
   # benchmark:
@@ -95,6 +101,8 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -finfo-table-map
+    - -fdistinct-constructor-tables
     dependencies:
     - hitchhiker-haskell
 

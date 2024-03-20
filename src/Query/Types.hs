@@ -4,8 +4,11 @@ module Query.Types where
 
 import           ClassyPrelude
 
+import           Impl.Strict
 import           Impl.Types
 import           Types
+
+import           NoThunks.Class
 
 import           Data.Sorted
 
@@ -37,7 +40,7 @@ data EDatomRow e a v tx
   = ERowIndex !(TreeIndex e (EDatomRow e a v tx))
               (Int, [(e, a, v, tx, Bool)])
   | ELeaf !(Map e (ADatomRow a v tx))
-  deriving (Show, Generic, NFData)
+  deriving (Show, Generic, NFData, NoThunks)
 
 -- TODO: Think about data locality. A lot. Right now VStorage's indirection
 -- means that vs aren't stored next to each other when doing a simple a scan.
@@ -45,12 +48,12 @@ data ADatomRow a v tx
   = ARowIndex !(TreeIndex a (ADatomRow a v tx))
               (Int, [(a, v, tx, Bool)])
   | ALeaf !(Map a (VStorage v tx))
-  deriving (Show, Generic, NFData)
+  deriving (Show, Generic, NFData, NoThunks)
 
 -- An append only, backwards list that keeps track of the first transaction
 -- number (the terminal item of the list)
 data TxHistory v tx = TxHistory !tx ![(tx, v, Bool)]
-  deriving (Show)
+  deriving (Show, Generic, NoThunks)
 
 instance NFData (TxHistory v tx) where
   rnf !_ = ()
@@ -64,8 +67,8 @@ data VStorage v tx
   -- We have had multiple transactions which have asserted or redacted values.
   -- Keep track of the current set, plus a historical log of all assertions or
   -- redactions that can be replayed.
-  | VStorage !(Maybe (HitchhikerSetNode v)) !(TxHistory v tx)
-  deriving (Show)
+  | VStorage !(StrictMaybe (HitchhikerSetNode v)) !(TxHistory v tx)
+  deriving (Show, Generic, NoThunks)
 
 instance (NFData (HitchhikerSetNode v)) => NFData (VStorage v tx) where
   rnf !(VSimple !v !tx) = ()
@@ -74,9 +77,9 @@ instance (NFData (HitchhikerSetNode v)) => NFData (VStorage v tx) where
 
 data EAVRows e a v tx = EAVROWS {
   config :: TreeConfig,
-  root   :: Maybe (EDatomRow e a v tx)
+  root   :: StrictMaybe (EDatomRow e a v tx)
   }
-  deriving (Show, Generic, NFData)
+  deriving (Show, Generic, NFData, NoThunks)
 
 -- TODO: Making this
 
@@ -97,7 +100,7 @@ data Database = DATABASE {
 -- -----------------------------------------------------------------------
 
 newtype EntityId = ENTID Int
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic, NoThunks)
 
 instance NFData EntityId where
   rnf !_ = ()
@@ -109,15 +112,15 @@ newtype Attr = ATTR Text
 data Value
   = VAL_ENTID {-# UNPACK #-} !EntityId
   | VAL_INT {-# UNPACK #-} !Int
-  | VAL_STR {-# UNPACK #-} !String
-  deriving (Show, Eq, Ord)
+  | VAL_STR {-# UNPACK #-} !Text
+  deriving (Show, Eq, Ord, Generic, NoThunks)
 
 -- Adding this consistently drops runtime from 10.5s to ~6s.
 instance NFData Value where
   rnf !_ = ()
 
 instance IsString Value where
-  fromString = VAL_STR
+  fromString !a = VAL_STR $! pack a
 
 data ValueType
   = VT_ENTITY

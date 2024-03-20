@@ -39,6 +39,7 @@ import           Safe                 (tailSafe)
 
 import           Impl.Index
 import           Impl.Leaf
+import           Impl.Strict
 import           Impl.Tree
 import           Impl.Types
 import           Types
@@ -57,20 +58,20 @@ import qualified Data.Map.Strict      as M
 import qualified Data.Set             as S
 
 empty :: TreeConfig -> HitchhikerSet k
-empty config = HITCHHIKERSET config Nothing
+empty config = HITCHHIKERSET config SNothing
 
 getConfig :: HitchhikerSet k -> TreeConfig
 getConfig (HITCHHIKERSET config _) = config
 
 null :: HitchhikerSet k -> Bool
-null (HITCHHIKERSET config tree) = not $ isJust tree
+null (HITCHHIKERSET config tree) = not $ sIsJust tree
 
-rawNode :: HitchhikerSet k -> Maybe (HitchhikerSetNode k)
+rawNode :: HitchhikerSet k -> StrictMaybe (HitchhikerSetNode k)
 rawNode (HITCHHIKERSET _ tree) = tree
 
 singleton :: TreeConfig -> k -> HitchhikerSet k
 singleton config k
-  = HITCHHIKERSET config (Just $ HitchhikerSetNodeLeaf $ ssetSingleton k)
+  = HITCHHIKERSET config (SJust $ HitchhikerSetNodeLeaf $ ssetSingleton k)
 
 fromSet :: (Show k, Ord k) => TreeConfig -> S.Set k -> HitchhikerSet k
 fromSet config ks
@@ -84,8 +85,8 @@ fromArraySet config ks
 
 -- TODO: The runtime of this seems stupidly heavyweight.
 toSet :: (Show k, Ord k) => HitchhikerSet k -> S.Set k
-toSet (HITCHHIKERSET config Nothing) = S.empty
-toSet (HITCHHIKERSET config (Just !root)) = collect root
+toSet (HITCHHIKERSET config SNothing) = S.empty
+toSet (HITCHHIKERSET config (SJust !root)) = collect root
   where
     collect = \case
       HitchhikerSetNodeIndex (TreeIndex _ nodes) hh ->
@@ -95,20 +96,20 @@ toSet (HITCHHIKERSET config (Just !root)) = collect root
     mkSet = S.fromList . F.toList
 
 weightEstimate :: (Ord k) => HitchhikerSet k -> Int
-weightEstimate (HITCHHIKERSET config Nothing)     = 0
-weightEstimate (HITCHHIKERSET config (Just !root)) =
+weightEstimate (HITCHHIKERSET config SNothing)     = 0
+weightEstimate (HITCHHIKERSET config (SJust !root)) =
   treeWeightEstimate hhSetTF root
 
 depth :: (Ord k) => HitchhikerSet k -> Int
-depth (HITCHHIKERSET config Nothing)      = 0
-depth (HITCHHIKERSET config (Just !root)) = treeDepth hhSetTF root
+depth (HITCHHIKERSET config SNothing)      = 0
+depth (HITCHHIKERSET config (SJust !root)) = treeDepth hhSetTF root
 
 insert :: (Show k, Ord k) => k -> HitchhikerSet k -> HitchhikerSet k
-insert !k !(HITCHHIKERSET config (Just !root)) =
-  HITCHHIKERSET config $ Just $ insertRaw config k root
+insert !k !(HITCHHIKERSET config (SJust !root)) =
+  HITCHHIKERSET config $ SJust $ insertRaw config k root
 
-insert !k (HITCHHIKERSET config Nothing)
-  = HITCHHIKERSET config (Just $ HitchhikerSetNodeLeaf $ ssetSingleton k)
+insert !k (HITCHHIKERSET config SNothing)
+  = HITCHHIKERSET config (SJust $ HitchhikerSetNodeLeaf $ ssetSingleton k)
 
 insertRaw :: (Show k, Ord k)
           => TreeConfig -> k -> HitchhikerSetNode k
@@ -118,15 +119,15 @@ insertRaw config !k !root =
 
 insertMany :: (Show k, Ord k)
            => [k] -> HitchhikerSet k -> HitchhikerSet k
-insertMany !items hhset@(HITCHHIKERSET config Nothing)
+insertMany !items hhset@(HITCHHIKERSET config SNothing)
   | L.null items = hhset
-  | otherwise = HITCHHIKERSET config $ Just $
+  | otherwise = HITCHHIKERSET config $ SJust $
                 fixUp config hhSetTF $
                 splitLeafMany hhSetTF (maxLeafItems config) $ ssetFromList items
 
-insertMany !items hhset@(HITCHHIKERSET config (Just !top))
+insertMany !items hhset@(HITCHHIKERSET config (SJust !top))
   | L.null items = hhset
-  | otherwise = HITCHHIKERSET config $ Just $
+  | otherwise = HITCHHIKERSET config $ SJust $
                 fixUp config hhSetTF $
                 insertRec config hhSetTF (length items, items) top
 
@@ -141,22 +142,22 @@ insertManyRaw config !items !top =
 
 delete :: (Show k, Ord k)
        => k -> HitchhikerSet k -> HitchhikerSet k
-delete _ !(HITCHHIKERSET config Nothing) = HITCHHIKERSET config Nothing
-delete !k !(HITCHHIKERSET config (Just root)) =
+delete _ !(HITCHHIKERSET config SNothing) = HITCHHIKERSET config SNothing
+delete !k !(HITCHHIKERSET config (SJust root)) =
   HITCHHIKERSET config $ deleteRaw config k root
 
 deleteRaw :: (Show k, Ord k)
           => TreeConfig -> k -> HitchhikerSetNode k
-          -> Maybe (HitchhikerSetNode k)
+          -> StrictMaybe (HitchhikerSetNode k)
 deleteRaw config !k root =
   case deleteRec config hhSetTF k Nothing root of
     HitchhikerSetNodeIndex index hitchhikers
-      | Just childNode <- fromSingletonIndex index ->
-          if L.null hitchhikers then Just childNode
-          else Just $ insertManyRaw config (snd hitchhikers) childNode
+      | SJust childNode <- fromSingletonIndex index ->
+          if L.null hitchhikers then SJust childNode
+          else SJust $ insertManyRaw config (snd hitchhikers) childNode
     HitchhikerSetNodeLeaf items
-      | ssetIsEmpty items -> Nothing
-    newRootNode -> Just newRootNode
+      | ssetIsEmpty items -> SNothing
+    newRootNode -> SJust newRootNode
 
 -- -----------------------------------------------------------------------
 
@@ -165,8 +166,8 @@ hhSetTF = TreeFun {
   mkNode = HitchhikerSetNodeIndex,
   mkLeaf = HitchhikerSetNodeLeaf,
   caseNode = \case
-      HitchhikerSetNodeIndex a b -> Left (a, b)
-      HitchhikerSetNodeLeaf l    -> Right l,
+      HitchhikerSetNodeIndex a b -> SLeft (a, b)
+      HitchhikerSetNodeLeaf l    -> SRight l,
 
   leafInsert = hhSetLeafInsert,
   leafMerge = (<>),
@@ -189,7 +190,9 @@ hhSetTF = TreeFun {
   }
 
 hhSetLeafInsert :: Ord k => ArraySet k -> (Int, [k]) -> ArraySet k
-hhSetLeafInsert as (_, items) = ssetUnion as $ ssetFromList items
+hhSetLeafInsert as (_, !items) =
+  let !x = ssetUnion as $ ssetFromList items
+  in x
 
 setHHWholeSplit :: Ord k
                 => [k] -> (Int, [k])
@@ -202,8 +205,8 @@ setHHWholeSplit = doWholeSplit altk
 -- -----------------------------------------------------------------------
 
 member :: Ord k => k -> HitchhikerSet k -> Bool
-member key (HITCHHIKERSET _ Nothing) = False
-member key (HITCHHIKERSET _ (Just top)) = lookInNode top
+member key (HITCHHIKERSET _ SNothing) = False
+member key (HITCHHIKERSET _ (SJust top)) = lookInNode top
   where
     lookInNode = \case
       HitchhikerSetNodeIndex index hitchhikers ->
@@ -220,9 +223,9 @@ member key (HITCHHIKERSET _ (Just top)) = lookInNode top
 
 union :: (Show k, Ord k)
       => HitchhikerSet k -> HitchhikerSet k -> HitchhikerSet k
-union n@(HITCHHIKERSET _ Nothing) _ = n
-union _ n@(HITCHHIKERSET _ Nothing) = n
-union (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
+union n@(HITCHHIKERSET _ SNothing) _ = n
+union _ n@(HITCHHIKERSET _ SNothing) = n
+union (HITCHHIKERSET conf (SJust a)) (HITCHHIKERSET _ (SJust b)) =
   fromArraySet conf $ ssetUnion as bs
   where
     as = foldl' ssetUnion mempty $ getLeafList hhSetTF a
@@ -258,19 +261,19 @@ consolidate maxSize (x:y:xs) =
 intersection :: forall k
                 . (Show k, Ord k)
                => HitchhikerSet k -> HitchhikerSet k -> HitchhikerSet k
-intersection n@(HITCHHIKERSET _ Nothing) _ = n
-intersection _ n@(HITCHHIKERSET _ Nothing) = n
-intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
+intersection n@(HITCHHIKERSET _ SNothing) _ = n
+intersection _ n@(HITCHHIKERSET _ SNothing) = n
+intersection (HITCHHIKERSET conf (SJust a)) (HITCHHIKERSET _ (SJust b)) =
   HITCHHIKERSET conf $ build
                      $ consolidate (maxLeafItems conf)
                      $ find (flushDownwards hhSetTF a)
                             (flushDownwards hhSetTF b)
   where
-    build :: [ArraySet k] -> Maybe (HitchhikerSetNode k)
-    build [] = Nothing
+    build :: [ArraySet k] -> StrictMaybe (HitchhikerSetNode k)
+    build [] = SNothing
     build s = let vals = P.fromList $ map HitchhikerSetNodeLeaf s
                   keys = P.fromList $ map ssetFindMin (L.tail s)
-              in Just $ fixUp conf hhSetTF $ TreeIndex keys vals
+              in SJust $ fixUp conf hhSetTF $ TreeIndex keys vals
 
     find :: HitchhikerSetNode k
          -> HitchhikerSetNode k
@@ -353,21 +356,22 @@ intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
                 in Just (result, (restLeaves, restIndex))
 
 toList :: (Show k, Ord k) => HitchhikerSet k -> [k]
-toList (HITCHHIKERSET _ Nothing) = []
-toList (HITCHHIKERSET _ (Just a)) = concat $ map ssetToAscList $ getLeafList hhSetTF a
+toList (HITCHHIKERSET _ SNothing) = []
+toList (HITCHHIKERSET _ (SJust a)) =
+  concat $ map ssetToAscList $ getLeafList hhSetTF a
 
 takeWhileAntitone :: forall k
                    . (Show k, Ord k)
                   => (k -> Bool)
                   -> HitchhikerSet k
                   -> HitchhikerSet k
-takeWhileAntitone fun hsm@(HITCHHIKERSET _ Nothing) = hsm
-takeWhileAntitone fun (HITCHHIKERSET config (Just top)) =
+takeWhileAntitone fun hsm@(HITCHHIKERSET _ SNothing) = hsm
+takeWhileAntitone fun (HITCHHIKERSET config (SJust top)) =
   (HITCHHIKERSET config newTop)
   where
     newTop = case hsmTakeWhile $ flushDownwards hhSetTF top of
-      HitchhikerSetNodeLeaf l | ssetIsEmpty l -> Nothing
-      x                                       -> Just x
+      HitchhikerSetNodeLeaf l | ssetIsEmpty l -> SNothing
+      x                                       -> SJust x
 
     hsmTakeWhile = \case
       HitchhikerSetNodeIndex (TreeIndex keys vals) _ ->
@@ -390,13 +394,13 @@ dropWhileAntitone :: forall k
                   => (k -> Bool)
                   -> HitchhikerSet k
                   -> HitchhikerSet k
-dropWhileAntitone fun hsm@(HITCHHIKERSET _ Nothing)     = hsm
-dropWhileAntitone fun (HITCHHIKERSET config (Just top)) =
+dropWhileAntitone fun hsm@(HITCHHIKERSET _ SNothing)     = hsm
+dropWhileAntitone fun (HITCHHIKERSET config (SJust top)) =
   HITCHHIKERSET config newTop
   where
     newTop = case hsmDropWhile $ flushDownwards hhSetTF top of
-      HitchhikerSetNodeLeaf l | ssetIsEmpty l -> Nothing
-      x                                       -> Just x
+      HitchhikerSetNodeLeaf l | ssetIsEmpty l -> SNothing
+      x                                       -> SJust x
 
     hsmDropWhile = \case
       HitchhikerSetNodeIndex (TreeIndex keys vals) _ ->
@@ -420,8 +424,8 @@ findMin :: forall k
          . (Show k, Ord k)
         => HitchhikerSet k
         -> k
-findMin (HITCHHIKERSET _ Nothing) = error "HitchhikerSet.findMin: empty set"
-findMin (HITCHHIKERSET _ (Just top)) = go $ flushDownwards hhSetTF top
+findMin (HITCHHIKERSET _ SNothing) = error "HitchhikerSet.findMin: empty set"
+findMin (HITCHHIKERSET _ (SJust top)) = go $ flushDownwards hhSetTF top
   where
     go = \case
       HitchhikerSetNodeIndex (TreeIndex _ vals) _ -> go $ unsafeHead vals
@@ -431,8 +435,8 @@ findMax :: forall k
          . (Show k, Ord k)
         => HitchhikerSet k
         -> k
-findMax (HITCHHIKERSET _ Nothing) = error "HitchhikerSet.findMax: empty set"
-findMax (HITCHHIKERSET _ (Just top)) = go $ flushDownwards hhSetTF top
+findMax (HITCHHIKERSET _ SNothing) = error "HitchhikerSet.findMax: empty set"
+findMax (HITCHHIKERSET _ (SJust top)) = go $ flushDownwards hhSetTF top
   where
     go = \case
       HitchhikerSetNodeIndex (TreeIndex _ vals) _ ->
@@ -445,10 +449,10 @@ mapMonotonic :: forall k a
              => (k -> a)
              -> HitchhikerSet k
              -> HitchhikerSet a
-mapMonotonic func (HITCHHIKERSET config Nothing) =
-  HITCHHIKERSET config Nothing
-mapMonotonic func (HITCHHIKERSET config (Just top)) =
-  HITCHHIKERSET config (Just $ go top)
+mapMonotonic func (HITCHHIKERSET config SNothing) =
+  HITCHHIKERSET config SNothing
+mapMonotonic func (HITCHHIKERSET config (SJust top)) =
+  HITCHHIKERSET config (SJust $ go top)
   where
     go :: HitchhikerSetNode k -> HitchhikerSetNode a
     go = \case
@@ -469,7 +473,7 @@ fromLeafSets :: (Show k, Ord k)
             -> HitchhikerSet k
 fromLeafSets config [] = HitchhikerSet.empty config
 fromLeafSets config [m] = fromArraySet config m
-fromLeafSets config rawSets = HITCHHIKERSET config $ Just node
+fromLeafSets config rawSets = HITCHHIKERSET config $ SJust node
   where
     node = fixUp config hhSetTF treeIndex
     treeIndex = indexFromList idxV vals
@@ -479,9 +483,9 @@ fromLeafSets config rawSets = HITCHHIKERSET config $ Just node
 difference :: forall k
                 . (Show k, Ord k)
                => HitchhikerSet k -> HitchhikerSet k -> HitchhikerSet k
-difference l@(HITCHHIKERSET _ Nothing) _ = l
-difference l (HITCHHIKERSET _ Nothing)   = l
-difference (HITCHHIKERSET config (Just a)) (HITCHHIKERSET _ (Just b)) =
+difference l@(HITCHHIKERSET _ SNothing) _ = l
+difference l (HITCHHIKERSET _ SNothing)   = l
+difference (HITCHHIKERSET config (SJust a)) (HITCHHIKERSET _ (SJust b)) =
   fromLeafSets config $ setlistSetlistDifference as bs
   where
     as = getLeafList hhSetTF a

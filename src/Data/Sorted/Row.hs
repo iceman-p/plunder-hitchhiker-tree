@@ -8,8 +8,6 @@
 {-# OPTIONS_GHC -Wall        #-}
 {-# OPTIONS_GHC -Werror      #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
-{-# LANGUAGE Strict     #-}
-{-# LANGUAGE StrictData #-}
 
 module Data.Sorted.Row
     ( (!)

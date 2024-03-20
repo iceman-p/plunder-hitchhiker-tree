@@ -4,7 +4,7 @@ module Main (main) where
 
 import           ClassyPrelude              hiding (many)
 
-import           Control.Monad.State        (MonadState, StateT, evalStateT,
+import           Control.Monad.State.Strict (MonadState, StateT, evalStateT,
                                              execState, get, gets, liftIO,
                                              modify', put, runStateT)
 import           Data.Aeson                 hiding (parse)
@@ -120,13 +120,13 @@ repl derpQueryPlan = do
       let planOut = evalPlan
             [REL_SET $ RSET (VAR "?tags")
                             (HS.fromSet twoThreeConfig $ S.fromList $
-                             map VAL_STR tags),
+                             map (VAL_STR . pack) tags),
              REL_SCALAR $ RSCALAR (VAR "?min") (VAL_INT amount)]
             database
             derpQueryPlan
           naiveOut = naiveEvaluator
             database
-            [ROWS [VAR "?tags"] [] (map toNaiveTag tags),
+            [ROWS [VAR "?tags"] [] (map (toNaiveTag . pack) tags),
              ROWS [VAR "?min"] [] [V.fromList [VAL_INT amount]]]
             []
             fullDerpClauses

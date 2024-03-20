@@ -9,6 +9,7 @@ import           Debug.Trace
 import           Data.Maybe      (catMaybes, fromMaybe, isNothing)
 
 import           HitchhikerSet
+import           Impl.Strict
 import           Impl.Tree
 import           Types
 
@@ -66,14 +67,14 @@ onePassIntersection :: forall k. (Show k, Ord k)
                     => [HitchhikerSet k] -> [ArraySet k]
 onePassIntersection sets = output
   where
-    mybNodes :: [Maybe (HitchhikerSetNode k)]
+    mybNodes :: [StrictMaybe (HitchhikerSetNode k)]
     mybNodes = map rawNode sets
 
-    output = case (or $ map isNothing mybNodes) of
+    output = case (or $ map sIsNothing mybNodes) of
       True -> []
       False -> fullIntersect
              $ map (getLeafList hhSetTF)
-             $ catMaybes mybNodes
+             $ sCatMaybes mybNodes
 
 fiList :: (Show k, Ord k) => [[[k]]] -> [ArraySet k]
 fiList = fullIntersect . map (map ssetFromList)

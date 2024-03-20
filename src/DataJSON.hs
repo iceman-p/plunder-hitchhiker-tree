@@ -6,12 +6,13 @@ module DataJSON where
 import           ClassyPrelude
 
 import           Control.Monad              (fail)
-import           Control.Monad.State        (MonadState, StateT, evalStateT,
+import           Control.Monad.State.Strict (MonadState, StateT, evalStateT,
                                              execState, get, gets, liftIO,
                                              modify', put, runStateT)
 import           Data.Aeson                 hiding (parse)
 import           Data.Time.Clock
 import           Data.Time.Format
+import           NoThunks.Class
 import           Optics                     hiding (noneOf, (%%))
 import           System.Directory
 import           System.Environment
@@ -25,29 +26,29 @@ import           Query.Types
 import           Text.Pretty.Simple
 
 -- | Converts a time string to the number of seconds since the epoch.
-timeStringToEpoch :: String -> Int
+timeStringToEpoch :: Text -> Int
 timeStringToEpoch timeStr =
     let format = "%Y-%m-%dT%H:%M:%SZ"
-        utcTime = parseTimeOrError True defaultTimeLocale format timeStr :: UTCTime
+        utcTime = parseTimeOrError True defaultTimeLocale format (unpack timeStr) :: UTCTime
         epochTime = UTCTime (fromGregorian 1970 1 1) 0
         secondsSinceEpoch = floor $ utcTime `diffUTCTime` epochTime
     in secondsSinceEpoch
 
 -- A single row of data from the
 data Item = Item { idNum       :: !Int,
-                   tags        :: ![String],
-                   thumb       :: !String,
-                   img         :: !String,
+                   tags        :: ![Text],
+                   thumb       :: !Text,
+                   img         :: !Text,
 
                    downvotes   :: !Int,
                    upvotes     :: !Int,
                    score       :: !Int,
                    faves       :: !Int,
 
-                   description :: !String,
+                   description :: !Text,
 
-                   firstSeenAt :: !String,
-                   updatedAt   :: !String,
+                   firstSeenAt :: !Text,
+                   updatedAt   :: !Text,
 
                    width       :: !Int,
                    height      :: !Int
@@ -139,8 +140,8 @@ emptyBase =
 mkDatoms :: Item -> EntityRef -> Base
          -> [(EntityRef, EntityId, Query.Types.Value, Bool)]
 mkDatoms !item eid BASE{..} =
-  let fillRow (a, b) = (eid, a, b, True)
-      tags = map (\a -> (derpTagsAttr, VAL_STR a)) item.tags
+  let fillRow (!a, !b) = (eid, a, b, True)
+      tags = map (\a -> (derpTagsAttr, VAL_STR $! a)) item.tags
   in map fillRow $ tags ++ [
     (derpIdAttr, VAL_INT $ item.idNum),
     (derpThumbAttr, VAL_STR $ item.thumb),
@@ -175,5 +176,12 @@ addEntries items = do
              $ zip (map TMPREF [0..]) items
   -- pPrint "D: "
   -- pPrint datoms
+  let !newDB = learns datoms database
+  case unsafeNoThunks newDB.eav of
+    Nothing    -> pure ()
+    Just thunk -> error . concat $ [
+        "Unexpected thunk with context "
+      , show (thunkInfo thunk)
+      ]
 
-  put b { database = learns datoms database}
+  put b { database = newDB }

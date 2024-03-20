@@ -11,6 +11,7 @@ import           Data.Sorted.Types
 
 import           Impl.Index
 import           Impl.Leaf
+import           Impl.Strict
 import           Impl.Tree
 import           Impl.Types
 import           Types
@@ -79,7 +80,7 @@ delete _ !(HITCHHIKERMAP config Nothing) = HITCHHIKERMAP config Nothing
 delete !k !(HITCHHIKERMAP config (Just root)) =
   case deleteRec config hhMapTF k Nothing root of
     HitchhikerMapNodeIndex index hitchhikers
-      | Just childNode <- fromSingletonIndex index ->
+      | SJust childNode <- fromSingletonIndex index ->
           if M.null hitchhikers then HITCHHIKERMAP config (Just childNode)
           else insertMany hitchhikers $ HITCHHIKERMAP config (Just childNode)
     HitchhikerMapNodeLeaf items
@@ -94,8 +95,8 @@ hhMapTF = TreeFun {
   mkNode = HitchhikerMapNodeIndex,
   mkLeaf = HitchhikerMapNodeLeaf,
   caseNode = \case
-      HitchhikerMapNodeIndex a b -> Left (a, b)
-      HitchhikerMapNodeLeaf l    -> Right l,
+      HitchhikerMapNodeIndex a b -> SLeft (a, b)
+      HitchhikerMapNodeLeaf l    -> SRight l,
 
   leafInsert = M.unionWith (\a b -> b),
   leafMerge = (<>),
@@ -165,10 +166,10 @@ restrictKeys :: forall k v
              -> HitchhikerMap k v
 restrictKeys _ orig@(HITCHHIKERMAP _ Nothing) = orig
 
-restrictKeys (HITCHHIKERSET _ Nothing) (HITCHHIKERMAP config _) =
+restrictKeys (HITCHHIKERSET _ SNothing) (HITCHHIKERMAP config _) =
   HitchhikerMap.empty config
 
-restrictKeys (HITCHHIKERSET sConfig (Just a))
+restrictKeys (HITCHHIKERSET sConfig (SJust a))
              (HITCHHIKERMAP mConfig (Just b)) =
   -- trace ("restrictKeys: " <> show a <> ", " <> show b) $
   fromLeafMaps mConfig $ setlistMaplistIntersect [] as bs

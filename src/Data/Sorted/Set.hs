@@ -79,7 +79,7 @@ ssetUnsafeDuo x y = coerce (rowDuo x y)
 -- mutable array, and then doing an unsafe freeze of that.
 ssetFromList :: Ord k => [k] -> Set k
 ssetFromList kList =
-    SET $ rowSortUniqBy compare $ arrayFromList kList
+    SET $! rowSortUniqBy compare $! arrayFromList kList
 
 {-# INLINE ssetMap #-}
 ssetMap :: Ord b => (a -> b) -> Set a -> Set b
