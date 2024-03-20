@@ -4,14 +4,15 @@ module Impl.Leaf where
 
 import           ClassyPrelude
 
-import           Control.Arrow ((***))
+import           Control.Arrow     ((***))
+
+import           Data.Sorted.Row
+import           Data.Sorted.Types
 
 import           Impl.Index
 import           Impl.Types
 import           Types
 import           Utils
-
-import qualified Data.Vector   as V
 
 splitLeafMany :: forall k v n h l
                . TreeFun k v n h l -> Int -> l -> TreeIndex k n
@@ -25,14 +26,14 @@ splitLeafMany TreeFun{..} maxLeafItems items
       let numLeft = div itemLen 2
           (leftLeaf, rightLeaf) = leafSplitAt numLeft items
           rightFirstItem = leafFirstKey rightLeaf
-      in indexFromList (V.singleton rightFirstItem)
-                       (V.fromList [mkLeaf leftLeaf,
-                                    mkLeaf rightLeaf])
+      in indexFromList (singleton rightFirstItem)
+                       (fromList [mkLeaf leftLeaf,
+                                  mkLeaf rightLeaf])
 
   -- We have to split the node into more than two nodes.
   | otherwise =
       uncurry indexFromList $
-      (V.fromList *** (V.fromList . map mkLeaf)) $
+      (fromList *** (fromList . map mkLeaf)) $
       split' items ([], [])
 
   where

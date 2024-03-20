@@ -7,20 +7,21 @@ import           Impl.Types
 import           Types
 
 import           Data.Sorted
+import           Data.Sorted.Row
+import           Data.Sorted.Types
 
-import qualified Data.Set      as S
-import qualified Data.Vector   as V
-import qualified HitchhikerSet as HS
+import qualified Data.Set          as S
+import qualified HitchhikerSet     as HS
 
 -- Like V5, but uses an explicit stack instead of the continuation thing it was
 -- doing.
 
 data SearchStep k
   = Leaf (ArraySet k)
-  | Tree Int Int (Vector k) (Vector (HitchhikerSetNode k)) -- idx len keys vals
+  | Tree Int Int (Row k) (Row (HitchhikerSetNode k)) -- idx len keys vals
 
 {-# INLINE idx #-}
-idx i v = V.unsafeIndex v i
+idx i v = unsafeIndex v i
 
 {-# INLINE buildSubSearchStep #-}
 buildSubSearchStep :: HitchhikerSetNode k -> SearchStep k

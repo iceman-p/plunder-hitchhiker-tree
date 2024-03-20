@@ -7,10 +7,11 @@ import           Impl.Types
 import           Types
 
 import           Data.Sorted
+import           Data.Sorted.Row
+import           Data.Sorted.Types
 
-import qualified Data.Set      as S
-import qualified Data.Vector   as V
-import qualified HitchhikerSet as HS
+import qualified Data.Set          as S
+import qualified HitchhikerSet     as HS
 
 -- Intuition: We can maybe reuse the tree structure for accelerated searching
 -- and lazy traversal, if we grab the first set and take it's leaves and then
@@ -33,7 +34,7 @@ import qualified HitchhikerSet as HS
 --
 
 {-# INLINE idx #-}
-idx i v = V.unsafeIndex v i
+idx i v = unsafeIndex v i
 
 step :: forall k. (Show k, Ord k)
      => HitchhikerSetNode k
@@ -82,8 +83,8 @@ step hl@(HitchhikerSetNodeLeaf leaf) a continuation = loop a
 exampleTree :: HitchhikerSetNode Int
 exampleTree = HitchhikerSetNodeIndex (TreeIndex keys vals) (0, [])
   where
-    keys = V.fromList [5, 9]
-    vals = V.fromList [
+    keys = fromList [5, 9]
+    vals = fromList [
       HitchhikerSetNodeLeaf $ ssetFromList [1, 2],
       HitchhikerSetNodeLeaf $ ssetFromList [5, 7],
       HitchhikerSetNodeLeaf $ ssetFromList [9, 10]]

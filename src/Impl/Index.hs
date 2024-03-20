@@ -4,11 +4,12 @@ module Impl.Index where
 
 import           ClassyPrelude
 
+import           Data.Sorted.Row
+import           Data.Sorted.Types
+
 import           Impl.Types
 import           Types
 import           Utils
-
-import qualified Data.Vector   as V
 
 emptyIndex :: TreeIndex k v
 emptyIndex = TreeIndex mempty mempty
@@ -17,30 +18,30 @@ mergeIndex :: TreeIndex key val -> key -> TreeIndex key val -> TreeIndex key val
 mergeIndex (TreeIndex leftKeys leftVals) middleKey
            (TreeIndex rightKeys rightVals) =
     TreeIndex
-      (V.concat [leftKeys, V.singleton middleKey, rightKeys])
+      (concat [leftKeys, singleton middleKey, rightKeys])
       (leftVals <> rightVals)
 
-indexFromList :: Vector k -> Vector v -> TreeIndex k v
+indexFromList :: Row k -> Row v -> TreeIndex k v
 indexFromList keys valPtrs = TreeIndex keys valPtrs
 
 singletonIndex :: v -> TreeIndex k v
-singletonIndex = TreeIndex V.empty . V.singleton
+singletonIndex = TreeIndex mempty . singleton
 
 fromSingletonIndex :: TreeIndex k v -> Maybe v
 fromSingletonIndex (TreeIndex _keys vals) =
-    if V.length vals == 1 then Just $! V.head vals else Nothing
+    if length vals == 1 then Just $! unsafeHead vals else Nothing
 
 indexNumKeys :: TreeIndex k v -> Int
-indexNumKeys (TreeIndex keys _vals) = V.length keys
+indexNumKeys (TreeIndex keys _vals) = length keys
 
 indexNumVals :: TreeIndex k v -> Int
-indexNumVals (TreeIndex _keys vals) = V.length vals
+indexNumVals (TreeIndex _keys vals) = length vals
 
 splitIndexAt :: Int -> TreeIndex k v -> (TreeIndex k v, k, TreeIndex k v)
 splitIndexAt numLeftKeys (TreeIndex keys vals)
-    | (leftKeys, middleKeyAndRightKeys) <- V.splitAt numLeftKeys     keys
-    , (leftVals, rightVals)             <- V.splitAt (numLeftKeys+1) vals
-    = case V.uncons middleKeyAndRightKeys of
+    | (leftKeys, middleKeyAndRightKeys) <- splitAt numLeftKeys     keys
+    , (leftVals, rightVals)             <- splitAt (numLeftKeys+1) vals
+    = case uncons middleKeyAndRightKeys of
         Just (middleKey, rightKeys) ->
             (TreeIndex leftKeys leftVals, middleKey,
              TreeIndex rightKeys rightVals)
@@ -65,9 +66,9 @@ extendIndex tf@TreeFun{..} maxIdxKeys = go
       | numVals <= 2 * maxIdxVals =
           let (leftIndex, middleKey, rightIndex) =
                 splitIndexAt (div numVals 2 - 1) index
-          in indexFromList (V.singleton middleKey)
-                           (V.fromList [mkNode leftIndex hhEmpty,
-                                        mkNode rightIndex hhEmpty])
+          in indexFromList (singleton middleKey)
+                           (fromList [mkNode leftIndex hhEmpty,
+                                      mkNode rightIndex hhEmpty])
 
       | otherwise =
           let (leftIndex, middleKey, rightIndex) =
@@ -80,23 +81,23 @@ extendIndex tf@TreeFun{..} maxIdxKeys = go
 
 -- ----------------------------------------------------------------------------
 
-vecUncons :: Vector a -> Maybe (a, Vector a)
+vecUncons :: Row a -> Maybe (a, Row a)
 vecUncons v
-    | V.null v  = Nothing
-    | otherwise = Just (V.unsafeHead v, V.unsafeTail v)
+    | null v  = Nothing
+    | otherwise = Just (unsafeHead v, unsafeTail v)
 
-vecUnsnoc :: Vector a -> Maybe (Vector a, a)
+vecUnsnoc :: Row a -> Maybe (Row a, a)
 vecUnsnoc v
-    | V.null v  = Nothing
-    | otherwise = Just (V.unsafeInit v, V.unsafeLast v)
+    | null v  = Nothing
+    | otherwise = Just (unsafeInit v, unsafeLast v)
 
 -- A TreeIndex with a hole in it.
 --
 data IndexContext k a = IndexContext {
-  leftKeys  :: Vector k,
-  leftVals  :: Vector a,
-  rightKeys :: Vector k,
-  rightVals :: Vector a
+  leftKeys  :: Row k,
+  leftVals  :: Row a,
+  rightKeys :: Row k,
+  rightVals :: Row a
   }
 
 -- Like splitIndexAt, but instead breaks on where a given key should be.
@@ -105,9 +106,9 @@ valView :: Ord k
         -> TreeIndex k a
         -> (IndexContext k a, a)
 valView key (TreeIndex keys vals)
-    | (leftKeys, rightKeys)       <- V.span (<=key) keys
-    , n                           <- V.length leftKeys
-    , (leftVals, valAndRightVals) <- V.splitAt n vals
+    | (leftKeys, rightKeys)       <- span (<=key) keys
+    , n                           <- length leftKeys
+    , (leftVals, valAndRightVals) <- splitAt n vals
     , Just (val, rightVals)       <- vecUncons valAndRightVals
     = ( IndexContext{..}, val )
     | otherwise
@@ -135,7 +136,7 @@ putVal :: IndexContext key val -> val -> TreeIndex key val
 putVal ctx val =
   TreeIndex
     (leftKeys ctx <> rightKeys ctx)
-    (leftVals ctx <> V.singleton val <> rightVals ctx)
+    (leftVals ctx <> singleton val <> rightVals ctx)
 
 putIdx :: IndexContext key val -> TreeIndex key val -> TreeIndex key val
 putIdx ctx (TreeIndex keys vals) =

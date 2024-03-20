@@ -30,13 +30,13 @@ module HitchhikerSet ( empty
                      , HitchhikerSet.difference
                      ) where
 
-import           ClassyPrelude   hiding (delete, empty, intersection, member,
-                                  null, singleton, union)
+import           ClassyPrelude        hiding (delete, empty, intersection,
+                                       member, null, singleton, union)
 
-import           Data.Set        (Set)
-import           Safe            (tailSafe)
+import           Data.Primitive.Array
+import           Data.Set             (Set)
+import           Safe                 (tailSafe)
 
-import           Data.Vector     ((!))
 import           Impl.Index
 import           Impl.Leaf
 import           Impl.Tree
@@ -45,13 +45,16 @@ import           Types
 import           Utils
 
 import           Data.Sorted
+import           Data.Sorted.Row
 import           Data.Sorted.Set
+import           Data.Sorted.Types
 
-import qualified Data.Foldable   as F
-import qualified Data.List       as L
-import qualified Data.Map.Strict as M
-import qualified Data.Set        as S
-import qualified Data.Vector     as V
+import qualified ClassyPrelude        as P
+
+import qualified Data.Foldable        as F
+import qualified Data.List            as L
+import qualified Data.Map.Strict      as M
+import qualified Data.Set             as S
 
 empty :: TreeConfig -> HitchhikerSet k
 empty config = HITCHHIKERSET config Nothing
@@ -69,7 +72,7 @@ singleton :: TreeConfig -> k -> HitchhikerSet k
 singleton config k
   = HITCHHIKERSET config (Just $ HitchhikerSetNodeLeaf $ ssetSingleton k)
 
-fromSet :: (Show k, Ord k) => TreeConfig -> Set k -> HitchhikerSet k
+fromSet :: (Show k, Ord k) => TreeConfig -> S.Set k -> HitchhikerSet k
 fromSet config ks
   | S.null ks = empty config
   | otherwise = insertMany (S.toList ks) $ empty config
@@ -80,7 +83,7 @@ fromArraySet config ks
   | otherwise = insertMany (ssetToAscList ks) $ empty config
 
 -- TODO: The runtime of this seems stupidly heavyweight.
-toSet :: (Show k, Ord k) => HitchhikerSet k -> Set k
+toSet :: (Show k, Ord k) => HitchhikerSet k -> S.Set k
 toSet (HITCHHIKERSET config Nothing) = S.empty
 toSet (HITCHHIKERSET config (Just !root)) = collect root
   where
@@ -237,7 +240,7 @@ getLeftmostValue :: HitchhikerSetNode k -> k
 getLeftmostValue (HitchhikerSetNodeLeaf s)       = ssetFindMin s
 getLeftmostValue (HitchhikerSetNodeIndex (TreeIndex _ vals) hh)
   | not $ L.null hh = error "Hitchhikers in set intersection"
-  | otherwise = getLeftmostValue $ V.head vals
+  | otherwise = getLeftmostValue $ unsafeHead vals
 
 consolidate :: Ord k => Int -> [ArraySet k] -> [ArraySet k]
 consolidate _ [] = []
@@ -265,8 +268,8 @@ intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
   where
     build :: [ArraySet k] -> Maybe (HitchhikerSetNode k)
     build [] = Nothing
-    build s = let vals = V.fromList $ map HitchhikerSetNodeLeaf s
-                  keys = V.fromList $ map ssetFindMin (L.tail s)
+    build s = let vals = P.fromList $ map HitchhikerSetNodeLeaf s
+                  keys = P.fromList $ map ssetFindMin (L.tail s)
               in Just $ fixUp conf hhSetTF $ TreeIndex keys vals
 
     find :: HitchhikerSetNode k
@@ -284,10 +287,10 @@ intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
     find (HitchhikerSetNodeIndex treeA _) (HitchhikerSetNodeIndex treeB _) =
       let (TreeIndex aIdxKeys aVals) = treeA
           (TreeIndex bIdxKeys bVals) = treeB
-          aKeys = [getLeftmostValue $ aVals ! 0] ++ V.toList aIdxKeys
-          bKeys = [getLeftmostValue $ bVals ! 0] ++ V.toList bIdxKeys
-      in join $ L.unfoldr step (aKeys, V.toList aVals,
-                                bKeys, V.toList bVals)
+          aKeys = [getLeftmostValue $ aVals ! 0] ++ P.toList aIdxKeys
+          bKeys = [getLeftmostValue $ bVals ! 0] ++ P.toList bIdxKeys
+      in join $ L.unfoldr step (aKeys, P.toList aVals,
+                                bKeys, P.toList bVals)
       where
         step :: ([k], [HitchhikerSetNode k], [k], [HitchhikerSetNode k])
              -> Maybe ( [ArraySet k]
@@ -345,7 +348,7 @@ intersection (HITCHHIKERSET conf (Just a)) (HITCHHIKERSET _ (Just b)) =
                         1 -> ((leaves, mempty), vals ! 0, Nothing)
                         _ -> (ssetSpanAntitone (< (keys ! 0)) leaves,
                               vals ! 0,
-                              Just $ TreeIndex (V.tail keys) (V.tail vals))
+                              Just $ TreeIndex (unsafeTail keys) (unsafeTail vals))
                     result = checkSetAgainst tryLeaves subNode
                 in Just (result, (restLeaves, restIndex))
 
@@ -373,10 +376,9 @@ takeWhileAntitone fun (HITCHHIKERSET config (Just top)) =
         let nuKeys = takeWhile fun keys
             tVals = take (length nuKeys + 1) vals
             lastItem = length tVals - 1
-            nuVals = tVals V.//
-                     [(lastItem, hsmTakeWhile (tVals V.! lastItem))]
-        in if V.null nuKeys
-           then hsmTakeWhile $ vals V.! 0
+            nuVals = rowPut lastItem (hsmTakeWhile (tVals ! lastItem)) tVals
+        in if P.null nuKeys
+           then hsmTakeWhile $ vals ! 0
            else HitchhikerSetNodeIndex (TreeIndex nuKeys nuVals) (0, [])
 
       HitchhikerSetNodeLeaf l ->
@@ -400,16 +402,16 @@ dropWhileAntitone fun (HITCHHIKERSET config (Just top)) =
       HitchhikerSetNodeIndex (TreeIndex keys vals) _ ->
         -- The antitone function is run for every value in the index. While
         -- the function holds, we don't need to recur into the subnodes.
-        if V.null nuKeys
-        then hsmDropWhile $ nuVals V.! 0
+        if P.null nuKeys
+        then hsmDropWhile $ nuVals ! 0
         else HitchhikerSetNodeIndex (TreeIndex nuKeys nuVals) (0, [])
         where
           nuKeys = dropWhile fun keys
           dropCount = length keys - length nuKeys
           tVals = drop dropCount vals
           nuVals = case dropCount of
-            0 -> vals V.// [(0, hsmDropWhile (vals V.! 0))]
-            x -> tVals V.// [(0, hsmDropWhile (tVals V.! 0))]
+            0 -> rowPut 0 (hsmDropWhile (vals ! 0)) vals
+            x -> rowPut 0 (hsmDropWhile (tVals ! 0)) tVals
 
       HitchhikerSetNodeLeaf l ->
         HitchhikerSetNodeLeaf $ ssetDropWhileAntitone fun l
@@ -422,7 +424,7 @@ findMin (HITCHHIKERSET _ Nothing) = error "HitchhikerSet.findMin: empty set"
 findMin (HITCHHIKERSET _ (Just top)) = go $ flushDownwards hhSetTF top
   where
     go = \case
-      HitchhikerSetNodeIndex (TreeIndex _ vals) _ -> go $ V.head vals
+      HitchhikerSetNodeIndex (TreeIndex _ vals) _ -> go $ unsafeHead vals
       HitchhikerSetNodeLeaf l -> ssetFindMin l
 
 findMax :: forall k
@@ -433,7 +435,9 @@ findMax (HITCHHIKERSET _ Nothing) = error "HitchhikerSet.findMax: empty set"
 findMax (HITCHHIKERSET _ (Just top)) = go $ flushDownwards hhSetTF top
   where
     go = \case
-      HitchhikerSetNodeIndex (TreeIndex _ vals) _ -> go $ V.last vals
+      HitchhikerSetNodeIndex (TreeIndex _ vals) _ ->
+        let !wid = sizeofArray vals
+        in go $ (vals ! (wid - 1))
       HitchhikerSetNodeLeaf l -> ssetFindMax l
 
 mapMonotonic :: forall k a
@@ -469,8 +473,8 @@ fromLeafSets config rawSets = HITCHHIKERSET config $ Just node
   where
     node = fixUp config hhSetTF treeIndex
     treeIndex = indexFromList idxV vals
-    idxV = V.fromList $ tailSafe $ map ssetFindMin rawSets
-    vals = V.fromList $ map HitchhikerSetNodeLeaf rawSets
+    idxV = P.fromList $ tailSafe $ map ssetFindMin rawSets
+    vals = P.fromList $ map HitchhikerSetNodeLeaf rawSets
 
 difference :: forall k
                 . (Show k, Ord k)

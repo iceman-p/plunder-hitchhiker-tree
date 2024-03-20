@@ -4,8 +4,11 @@ module Impl.Tree where
 
 import           ClassyPrelude
 
-import           Data.Map        (Map)
-import           Data.Vector     (Vector)
+import           Data.Map             (Map)
+
+import           Data.Primitive.Array hiding (fromList)
+import           Data.Sorted.Row
+import           Data.Sorted.Types
 
 import           Impl.Index
 import           Impl.Leaf
@@ -15,23 +18,22 @@ import           Utils
 
 import           Data.Sorted
 
-import qualified Data.List       as L
-import qualified Data.Map.Strict as M
-import qualified Data.Set        as S
-import qualified Data.Vector     as V
+import qualified Data.List            as L
+import qualified Data.Map.Strict      as M
+import qualified Data.Set             as S
 
 treeDepth :: TreeFun k v a hh lt
           -> a
           -> Int
 treeDepth tf@TreeFun{..} node = case caseNode node of
-  Left (TreeIndex _ vals, _) -> 1 + (treeDepth tf $ vals V.! 0)
+  Left (TreeIndex _ vals, _) -> 1 + (treeDepth tf $ vals ! 0)
   Right _                    -> 1
 
 treeWeightEstimate :: TreeFun k v a hh lt
                    -> a
                    -> Int
 treeWeightEstimate tf@TreeFun{..} node = case caseNode node of
-  Left (TreeIndex keys vals, _) -> (length keys) * (treeDepth tf $ vals V.! 0)
+  Left (TreeIndex keys vals, _) -> (length keys) * (treeDepth tf $ vals ! 0)
   Right l                       -> leafLength l
 
 fixUp :: TreeConfig
@@ -83,23 +85,23 @@ distributeDownwards config tf@TreeFun{..} !inHH treeIn@(TreeIndex keys vals)
   | hhLength inHH == 0 = treeIn
 
   | otherwise =
-      let !keyList    = V.toList keys
+      let !keyList    = toList keys
           splitHH    = hhWholeSplit keyList inHH
-          indexList  = map push $ zip splitHH (V.toList vals)
+          indexList  = map push $ zip splitHH (toList vals)
           (newKeys, newVals) = joinIndex keyList indexList
-      in TreeIndex (V.fromList newKeys) (V.concat newVals)
+      in TreeIndex (fromList newKeys) (concat newVals)
   where
     push :: (hh, a) -> TreeIndex k a
     push (hh, node)
       | hhLength hh == 0 = singletonIndex node
       | otherwise        = insertRec config tf hh node
 
-    joinIndex :: [k] -> [TreeIndex k a] -> ([k], [Vector a])
+    joinIndex :: [k] -> [TreeIndex k a] -> ([k], [Row a])
     joinIndex [] [] = ([], [])
-    joinIndex [] [TreeIndex keys vals] = (V.toList keys, [vals])
+    joinIndex [] [TreeIndex keys vals] = (toList keys, [vals])
     joinIndex (k:ks) ((TreeIndex keys vals):ts) =
       let (keyrest, valrest) = joinIndex ks ts
-      in ( (V.toList keys) ++ [k] ++ keyrest
+      in ( (toList keys) ++ [k] ++ keyrest
          , (vals:valrest) )
 
 -- Forces a flush of all hitchhikers down to the leaf levels and return the
@@ -110,9 +112,9 @@ getLeafList tf@TreeFun{..} = go hhEmpty
     go hh node = case caseNode node of
       Right leaves                 -> [leafInsert leaves hh]
       Left (TreeIndex keys vals, hitchhikers) ->
-        let !perValHH = hhWholeSplit (V.toList keys)
+        let !perValHH = hhWholeSplit (toList keys)
                       $ hhMerge hitchhikers hh
-            !par = zipWith go perValHH (V.toList vals)
+            !par = zipWith go perValHH (toList vals)
         in join $ par
 
 -- Given a node, ensure that all hitchhikers have been pushed down to leaves.
@@ -122,11 +124,11 @@ flushDownwards tf@TreeFun{..} = go hhEmpty
     go hh node = case caseNode node of
       Right leaves                 -> mkLeaf $ leafInsert leaves hh
       Left (children@(TreeIndex keys vals), hitchhikers) ->
-        let perValHH = V.fromList
-                     $ hhWholeSplit (V.toList keys)
+        let perValHH = fromList
+                     $ hhWholeSplit (toList keys)
                      $ hhMerge hitchhikers hh
-            zipNewVals = V.zipWith go perValHH vals
-        in mkNode (TreeIndex keys zipNewVals) hhEmpty
+            zipNewVals = zipWith go perValHH (toList vals)
+        in mkNode (TreeIndex keys (arrayFromList zipNewVals)) hhEmpty
 
 
 -- Deletion
@@ -187,7 +189,7 @@ mergeNodes config tf@TreeFun{..} left middleKey right =
       splitLeafMany tf (maxLeafItems config) (leafMerge leftLeaf rightLeaf)
 
 
-asToSet :: Ord k => [ArraySet k] -> Set k
+asToSet :: Ord k => [ArraySet k] -> ClassyPrelude.Set k
 asToSet = foldl' S.union S.empty . map (S.fromList . ssetToAscList)
 
 -- We walk the as and bs list in parallel. When the current a overlaps with
@@ -265,7 +267,7 @@ setlistMaplistIntersectWithPred func partial ao@(a:as) bo@(b:bs) =
                                        then rest
                                        else ff:rest
 
-        toSet :: [ArraySet k] -> Set k
+        toSet :: [ArraySet k] -> ClassyPrelude.Set k
         toSet = foldl' S.union S.empty . map (S.fromList . ssetToAscList)
 
     in case (partial, overlap) of

@@ -2,10 +2,13 @@ module HitchhikerSetMap where
 
 import           ClassyPrelude
 
-import           Data.Map        (Map)
-import           Data.Set        (Set)
+import           Data.Map          (Map)
+import           Data.Set          (Set)
 
-import           Safe            (tailSafe)
+import           Safe              (tailSafe)
+
+import           Data.Sorted.Row
+import           Data.Sorted.Types
 
 import           Impl.Index
 import           Impl.Leaf
@@ -16,11 +19,12 @@ import           Utils
 
 import           Data.Sorted
 
-import qualified HitchhikerSet   as HS
+import qualified ClassyPrelude     as P
 
-import qualified Data.Map.Strict as M
-import qualified Data.Set        as S
-import qualified Data.Vector     as V
+import qualified HitchhikerSet     as HS
+
+import qualified Data.Map.Strict   as M
+import qualified Data.Set          as S
 
 empty :: TreeConfig -> HitchhikerSetMap k v
 empty config = HITCHHIKERSETMAP config Nothing
@@ -61,8 +65,8 @@ fromLeafMaps config rawMaps = HITCHHIKERSETMAP config $ Just node
   where
     node = fixUp config (hhSetMapTF config) treeIndex
     treeIndex = indexFromList idxV vals
-    idxV = V.fromList $ tailSafe $ map (fst . M.findMin) rawMaps
-    vals = V.fromList $ map HitchhikerSetMapNodeLeaf
+    idxV = P.fromList $ tailSafe $ map (fst . M.findMin) rawMaps
+    vals = P.fromList $ map HitchhikerSetMapNodeLeaf
                       $ filter (not . M.null) rawMaps
 
 -- SetMap is the complicated one, because we use two different representations:
@@ -326,10 +330,9 @@ takeWhileAntitone fun (HITCHHIKERSETMAP config (Just top)) =
         let nuKeys = takeWhile fun keys
             tVals = take (length nuKeys + 1) vals
             lastItem = length tVals - 1
-            nuVals = tVals V.//
-                     [(lastItem, hsmTakeWhile (tVals V.! lastItem))]
-        in if V.null nuKeys
-           then hsmTakeWhile $ vals V.! 0
+            nuVals = rowPut lastItem (hsmTakeWhile (tVals ! lastItem)) tVals
+        in if P.null nuKeys
+           then hsmTakeWhile $ vals ! 0
            else HitchhikerSetMapNodeIndex (TreeIndex nuKeys nuVals) mempty
 
       HitchhikerSetMapNodeLeaf l ->
@@ -353,16 +356,16 @@ dropWhileAntitone fun (HITCHHIKERSETMAP config (Just top)) =
       HitchhikerSetMapNodeIndex (TreeIndex keys vals) _ ->
         -- The antitone function is run for every value in the index. While
         -- the function holds, we don't need to recur into the subnodes.
-        if V.null nuKeys
-        then hsmDropWhile $ nuVals V.! 0
+        if P.null nuKeys
+        then hsmDropWhile $ nuVals ! 0
         else HitchhikerSetMapNodeIndex (TreeIndex nuKeys nuVals) mempty
         where
           nuKeys = dropWhile fun keys
           dropCount = length keys - length nuKeys
           tVals = drop dropCount vals
           nuVals = case dropCount of
-            0 -> vals V.// [(0, hsmDropWhile (vals V.! 0))]
-            x -> tVals V.// [(0, hsmDropWhile (tVals V.! 0))]
+            0 -> rowPut 0 (hsmDropWhile (vals ! 0)) vals
+            x -> rowPut 0 (hsmDropWhile (tVals ! 0)) tVals
 
       HitchhikerSetMapNodeLeaf l ->
         HitchhikerSetMapNodeLeaf $ M.dropWhileAntitone fun l
@@ -393,7 +396,7 @@ findMinKey (HITCHHIKERSETMAP _ (Just top)) = go Nothing top
   where
     go curMin = \case
       HitchhikerSetMapNodeIndex (TreeIndex _ vals) hh ->
-        go (check curMin hh) $ V.head vals
+        go (check curMin hh) $ unsafeHead vals
       HitchhikerSetMapNodeLeaf l -> case check curMin l of
         Nothing -> error "HitchhikerSetMap.findMinKey: empty leaf"
         Just x  -> x
@@ -415,7 +418,7 @@ findMaxKey (HITCHHIKERSETMAP _ (Just top)) = go Nothing top
   where
     go curMax = \case
       HitchhikerSetMapNodeIndex (TreeIndex _ vals) hh ->
-        go (check curMax hh) $ V.head vals
+        go (check curMax hh) $ unsafeHead vals
       HitchhikerSetMapNodeLeaf l -> case check curMax l of
         Nothing -> error "HitchhikerSetMap.findMaxKey: empty leaf"
         Just x  -> x

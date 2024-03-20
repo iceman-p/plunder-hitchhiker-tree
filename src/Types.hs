@@ -12,8 +12,6 @@ import           Data.Sorted
 
 import           Impl.Types
 
-import qualified Data.Vector   as V
-
 -- TODO: For now, hash is just an int. Change this in production.
 type Hash256 = Int
 
@@ -141,5 +139,5 @@ instance (Hashable k, Hashable v) => Hashable (PublishTreeNode k v) where
   hashWithSalt s (PublishNodeLeaf lv) =
     s `hashWithSalt` (0 :: Int) `hashWithSalt` lv
   hashWithSalt s (PublishNodeIndex (TreeIndex k hashes) hh) =
-    s `hashWithSalt` (1 :: Int) `hashWithSalt` (V.toList k) `hashWithSalt`
-    (V.toList hashes) `hashWithSalt` hh
+    s `hashWithSalt` (1 :: Int) `hashWithSalt` (toList k) `hashWithSalt`
+    (toList hashes) `hashWithSalt` hh

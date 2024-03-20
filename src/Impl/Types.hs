@@ -4,6 +4,8 @@ module Impl.Types where
 
 import           ClassyPrelude
 
+import           Data.Sorted.Types
+
 -- An Index is the main payload of an index node: the inner node of a B+ tree.
 --
 -- An index is a parallel array where each key is the smallest item in the
@@ -11,7 +13,7 @@ import           ClassyPrelude
 --
 -- (Contrast that with how the Clojure hitchhiker tree works where things are
 -- right aligned instead.)
-data TreeIndex k v = TreeIndex (Vector k) (Vector v)
+data TreeIndex k v = TreeIndex (Row k) (Row v)
   deriving (Show, Eq, Generic, NFData)
 
 -- | Bundle of functions for manipulating a given tree type.
